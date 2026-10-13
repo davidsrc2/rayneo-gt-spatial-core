@@ -12,9 +12,9 @@ struct ServerOptions {
     var k2: Float = 0
 
     var displays = 3              // virtual monitors; 0 = capture an existing display
-    var vdWidth = 1920
-    var vdHeight = 1080
-    var hiDPI = false
+    var vdWidth = 1280            // points; with hiDPI: large, sharp text
+    var vdHeight = 720
+    var hiDPI = true
     var testPattern = false
     var fit = false               // size panels so all of them are visible at once
     var includeMain = true        // the Mac's main display as the leftmost panel
@@ -36,8 +36,8 @@ struct ServerOptions {
     usage: mac_spatial_server [options]
     layout
       --displays N         virtual monitors in a row around you (3); 0 = capture an existing display
-      --vd-size WxH        virtual monitor size in points (1920x1080)
-      --hidpi              Retina virtual monitors (sharper text, 4x capture cost)
+      --vd-size WxH        virtual monitor size in points (1280x720: large text)
+      --no-hidpi           1x virtual monitors (less sharp, 4x cheaper to capture)
       --fit                all panels visible at once (each at a fraction of full resolution)
       --arc DEG            horizontal size of each panel (38; 50 with --displays 0)
       --gap DEG            space between panels (1)
@@ -61,6 +61,7 @@ struct ServerOptions {
       --unmirror           extend instead of mirror while running (reverted on exit)
       --60hz               keep the glasses' current refresh rate (default: 120 Hz)
       --duration S         exit after S seconds
+    menu bar: "◎ RayNeo" -> Recentrar / Salir
     hotkeys: Cmd+Opt+C recenter (and bring the cursor to the panel in front), Cmd+Opt+Q quit,
              Cmd+Opt+arrows look around (--sim)
     """
@@ -82,6 +83,7 @@ struct ServerOptions {
                 o.vdWidth = parts[0]
                 o.vdHeight = parts[1]
             case "--hidpi": o.hiDPI = true
+            case "--no-hidpi": o.hiDPI = false
             case "--arc": guard let v = float() else { return nil }; o.arcDeg = v
             case "--gap": guard let v = float() else { return nil }; o.gapDeg = v
             case "--curved": o.curved = true

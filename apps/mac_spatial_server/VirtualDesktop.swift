@@ -8,9 +8,13 @@ final class VirtualDesktop {
     var ids: [CGDirectDisplayID] { displays.map(\.displayID) }
 
     init(count: Int, width: Int, height: Int, hiDPI: Bool, refresh: Double) throws {
+        // macOS remembers the mode it last used per (vendor, product, serial). Encoding the
+        // geometry in the serial gives every size/scale its own identity, so a remembered
+        // 1920x1080 cannot override a 1280x720 HiDPI request.
+        let geometry = UInt32(truncatingIfNeeded: (width / 16) << 16 | (height / 16) << 4) | (hiDPI ? 1 : 0) << 3
         for i in 0..<count {
             let d = try RNVirtualDisplay(name: "RayNeo Panel \(i + 1)", width: UInt(width), height: UInt(height),
-                                         refreshRate: refresh, hiDPI: hiDPI, serial: UInt32(0x52_4E00 + i))
+                                         refreshRate: refresh, hiDPI: hiDPI, serial: geometry | UInt32(i & 7))
             displays.append(d)
         }
     }

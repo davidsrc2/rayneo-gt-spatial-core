@@ -62,6 +62,7 @@ add_library(rayneo_core STATIC
   src/core/imu_pipeline.cpp
   src/core/tick_monitor.cpp
   src/core/head_calibration.cpp
+  src/core/pose_stabilizer.cpp
   src/core/render_math.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
@@ -190,7 +191,9 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${RAYNEO_SERVER_DIR}/HotKeys.swift
     ${RAYNEO_SERVER_DIR}/Options.swift
     ${RAYNEO_SERVER_DIR}/PoseSource.swift
-    ${RAYNEO_SERVER_DIR}/VirtualDesktop.swift)
+    ${RAYNEO_SERVER_DIR}/VirtualDesktop.swift
+    ${RAYNEO_SERVER_DIR}/Cursor.swift
+    ${RAYNEO_SERVER_DIR}/StatusMenu.swift)
   target_compile_options(mac_spatial_server PRIVATE
     "SHELL:-import-objc-header ${RAYNEO_SERVER_DIR}/BridgingHeader.h"
     "SHELL:-Xcc -I${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos"

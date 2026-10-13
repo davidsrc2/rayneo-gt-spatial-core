@@ -93,7 +93,11 @@ Crea N monitores virtuales en macOS (por defecto 3), los captura con ScreenCaptu
 - `--displays 0` vuelve al modo de Fase 3 (captura de una pantalla existente).
 - Latencia medida (M4, espejo, 120 Hz): muestra IMU -> scanout 26,4 ms = edad de pose 1,4 ms + 3 refrescos de WindowServer, compensada con predicción. `--unmirror`, 3 drawables, `frameLatency` < 1, sin vsync y modo exclusivo no lo reducen.
 
-Atajos globales: `Cmd+Opt+C` recentrar · `Cmd+Opt+Q` salir · `Cmd+Opt+flechas` mirar alrededor (solo `--sim`).
+Atajos globales: `Cmd+Opt+C` recentrar · `Cmd+Opt+Q` salir · `Cmd+Opt+flechas` mirar alrededor (solo `--sim`). También en la barra de menús: **◎ RayNeo > Recentrar / Salir**.
+
+- Estabilidad: `PoseStabilizer` (filtro One Euro sobre la orientación). Mirando fijo elimina temblor y ruido (~9x menos en tests; 0,35° -> 0,04°); al girar sube el corte con la velocidad (retraso ~0,45° a 60°/s). La predicción solo se aplica al girar (rampa entre ~3 y ~17 °/s).
+- Texto: monitores virtuales de 1280x720 puntos (HiDPI, captura a 2560x1440) por defecto: todo 1,5x más grande que a 1920x1080. `--vd-size` para cambiarlo.
+- Un solo cursor: el cursor de macOS se oculta mientras corre el servidor; se ve el capturado dentro de cada panel.
 
 ### Prueba sin gafas
 

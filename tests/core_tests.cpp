@@ -10,6 +10,7 @@
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/madgwick.h"
+#include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/render_math.h"
 #include "rayneo/core/tick_monitor.h"
 
@@ -687,6 +688,91 @@ void test_barrel_distort() {
     CHECK(id.x == 0.3f && id.y == -0.4f);
 }
 
+// ---------------------------------------------------------------------------
+// Pose stabilizer
+// ---------------------------------------------------------------------------
+
+float angle_between_deg(const Quat& a, const Quat& b) {
+    const float d = std::fabs(a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z);
+    return 2.0f * std::acos(std::fmin(1.0f, d)) * 57.29578f;
+}
+
+void test_slerp() {
+    const Quat a{}, b = Quat::from_axis_angle({0, 0, 1}, 1.0f);
+    CHECK(quat_near(slerp(a, b, 0.0f), a, 1e-6f) && quat_near(slerp(a, b, 1.0f), b, 1e-6f));
+    CHECK(quat_near(slerp(a, b, 0.25f), Quat::from_axis_angle({0, 0, 1}, 0.25f), 1e-6f));
+    const Quat nb{-b.w, -b.x, -b.y, -b.z};  // same rotation, other hemisphere
+    CHECK(quat_near(slerp(a, nb, 0.5f), Quat::from_axis_angle({0, 0, 1}, 0.5f), 1e-6f));
+}
+
+// Looking at a fixed spot: 8 Hz tremor (0.3 deg) plus sensor noise must almost vanish.
+void test_stabilizer_holds_still() {
+    Lcg rng;
+    PoseStabilizer s;
+    const float dt = kRefDt;
+    float max_in = 0.0f, max_out = 0.0f;
+    for (int i = 0; i < 457 * 6; ++i) {
+        const float t = static_cast<float>(i) * dt;
+        const float amp = 0.3f * 0.0174533f;
+        const float pitch = amp * std::sin(2 * 3.14159f * 8.0f * t) + rng.uni() * 0.05f * 0.0174533f;
+        const float rate = amp * 2 * 3.14159f * 8.0f * std::cos(2 * 3.14159f * 8.0f * t) + rng.uni() * 0.03f;
+        const Quat q = Quat::from_axis_angle({0, 1, 0}, pitch);
+        const Quat out = s.update(q, {0, rate, 0}, dt);
+        if (t > 2.0f) {
+            max_in = std::fmax(max_in, angle_between_deg(q, Quat{}));
+            max_out = std::fmax(max_out, angle_between_deg(out, Quat{}));
+        }
+    }
+    CHECK(max_in > 0.25f);
+    CHECK(max_out < max_in / 8.0f);  // >= 8x less jitter
+    CHECK(prediction_gain(s.speed()) < 0.5f);
+}
+
+// A real 60 deg/s turn: the stabilized pose must not trail the head by more than ~1 deg.
+void test_stabilizer_follows_turns() {
+    PoseStabilizer s;
+    const float dt = kRefDt, rate = 60.0f * 0.0174533f;
+    Quat q, out;
+    for (int i = 0; i < 457; ++i) s.update(q, {0, 0, 0}, dt);  // settled at rest first
+    float worst = 0.0f;
+    for (int i = 0; i < 457; ++i) {
+        q = (Quat::from_axis_angle({0, 0, 1}, rate * dt) * q).normalized();
+        out = s.update(q, {0, 0, rate}, dt);
+        worst = std::fmax(worst, angle_between_deg(out, q));
+    }
+    CHECK(worst < 3.0f);  // brief, at the start of the turn
+    CHECK(angle_between_deg(out, q) < 1.0f);
+    CHECK(near(s.omega().z, rate, 0.02f));
+    CHECK(prediction_gain(s.speed()) == 1.0f);
+}
+
+void test_prediction_gain() {
+    CHECK(prediction_gain(0.0f) == 0.0f && prediction_gain(0.05f) == 0.0f);
+    CHECK(near(prediction_gain(0.175f), 0.5f, 1e-5f));
+    CHECK(prediction_gain(0.3f) == 1.0f && prediction_gain(3.0f) == 1.0f);
+}
+
+// Recenter snaps the stabilized pose to identity instead of gliding there.
+void test_pipeline_stabilized_recenter() {
+    ImuPipeline p;
+    uint32_t tick = 0;
+    auto feed = [&](Vec3 g, int n) {
+        Pose last;
+        for (int i = 0; i < n; ++i) {
+            tick += 22;
+            const auto r = make_imu_report({0, 0, 9.81f}, g, tick);
+            last = *p.process_report(r.data(), r.size());
+        }
+        return last;
+    };
+    feed({0, 0, 0}, 457 * 6);
+    const Pose turned = feed({0, 0, 45.0f}, 457);
+    CHECK(near(turned.euler.yaw, 45.0f, 1.5f));
+    p.recenter();
+    const Pose after = feed({0, 0, 0}, 2);
+    CHECK(near(after.euler.yaw, 0.0f, 0.05f));
+}
+
 }  // namespace
 
 int main() {
@@ -710,6 +796,11 @@ int main() {
     test_bias_worn_start_median();
     test_bias_worn_drift_correction();
     test_bias_worn_ignores_head_motion();
+    test_slerp();
+    test_stabilizer_holds_still();
+    test_stabilizer_follows_turns();
+    test_prediction_gain();
+    test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();
     test_head_calibration_tolerates_turn_in_nods();

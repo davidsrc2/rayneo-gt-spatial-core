@@ -59,6 +59,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var gazeTimer: Timer?
     private var lastGazePanel = -2
     private let hotKeys = HotKeys()
+    private var statusMenu: StatusMenu?
 
     private let statsLock = NSLock()
     private var stats = LatencyStats()
@@ -184,6 +185,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
+        statusMenu = StatusMenu { [weak self] in self?.recenter() }
+        if !options.windowed {
+            log(HardwareCursor.hide() ? "cursor: hardware cursor hidden (the panels show the real one)"
+                                      : "cursor: could not hide the hardware cursor")
+        }
         try startCaptures(glasses: glasses)
         startRenderLoop(layer: layer)
 
@@ -217,6 +223,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     func stop() {
+        HardwareCursor.show()
         gazeTimer?.invalidate()
         displayLink?.invalidate()
         pose?.stop()
@@ -233,13 +240,15 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: input
 
+    func recenter() {
+        pose.recenter()
+        lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
+        log("recenter")
+    }
+
     private func registerHotKeys() {
         let mods = cmdKey | optionKey
-        hotKeys.register(keyCode: kVK_ANSI_C, modifiers: mods) { [weak self] in
-            self?.pose.recenter()
-            self?.lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
-            self?.log("recenter")
-        }
+        hotKeys.register(keyCode: kVK_ANSI_C, modifiers: mods) { [weak self] in self?.recenter() }
         hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: mods) { NSApp.terminate(nil) }
         if let sim = pose as? SimPoseSource {
             let step: Float = 10
@@ -264,12 +273,16 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             plan = [(try captureDisplay(glasses: glasses), 0, true)]
         }
         let fps = desktop != nil ? 60 : 120
+        let virtualIDs = Set(desktop?.ids ?? [])
+        let hiDPI = options.hiDPI
         for (id, panel, exclude) in plan {
+            let isVirtual = virtualIDs.contains(id)
             let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: UInt(panel)) }
             captures.append(cap)
             let renderWindow = CGWindowID(window.windowNumber)
             let (w, h) = try awaitOnMain {
-                try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude, excludeWindowIDs: [renderWindow])
+                try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude, excludeWindowIDs: [renderWindow],
+                                    minScale: isVirtual && hiDPI ? 2 : 1)
             }
             log("capture: panel \(panel + 1) <- display \(id) \(w)x\(h) @\(fps) fps")
         }

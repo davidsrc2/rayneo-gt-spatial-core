@@ -6,6 +6,7 @@
 #include <cstring>
 #include <vector>
 
+#include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/render_math.h"
 #include "rn_shaders.h"  // generated: kRNShaderSource
 
@@ -242,8 +243,11 @@ struct Panel {
     if (sampleHostNs > 0 && targetHostNs > sampleHostNs) {
         horizon_s = std::min(static_cast<float>(targetHostNs - sampleHostNs) * 1e-9f, o.maxPredictionMs * 1e-3f);
     }
-    const core::Quat head = core::predict_orientation(
-        from_simd(orientation), core::Vec3{angularVelocity.x, angularVelocity.y, angularVelocity.z}, horizon_s);
+    // Extrapolating while the head holds still would only amplify noise: ramp the prediction
+    // in with angular speed.
+    const core::Vec3 w{angularVelocity.x, angularVelocity.y, angularVelocity.z};
+    horizon_s *= core::prediction_gain(w.norm());
+    const core::Quat head = core::predict_orientation(from_simd(orientation), w, horizon_s);
 
     // Snapshot the panels' latest frames; each stays retained until the GPU is done.
     CVMetalTextureRef textures[kMaxPanels] = {};

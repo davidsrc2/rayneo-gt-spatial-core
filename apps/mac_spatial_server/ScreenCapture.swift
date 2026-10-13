@@ -18,7 +18,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     // excludeWindowIDs: windows hidden from this capture regardless of their owner (the
     // renderer window; app-based exclusion misses processes launched from a terminal).
     func start(displayID: CGDirectDisplayID, fps: Int, excludeOwnApp: Bool,
-               excludeWindowIDs: [CGWindowID] = []) async throws -> (Int, Int) {
+               excludeWindowIDs: [CGWindowID] = [], minScale: CGFloat = 1) async throws -> (Int, Int) {
         // Freshly created virtual monitors and just-ordered-front windows take a moment to
         // appear in the shareable content; a window missing here would not be excluded.
         var found: (SCShareableContent, SCDisplay)?
@@ -43,7 +43,9 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         let filter = SCContentFilter(display: display, excludingWindows: hidden)
 
         let cfg = SCStreamConfiguration()
-        let scale = CGFloat(filter.pointPixelScale)
+        // Virtual HiDPI monitors may report a point/pixel scale of 1; capture at least at
+        // minScale so a 2x backing store is not thrown away.
+        let scale = max(CGFloat(filter.pointPixelScale), minScale)
         cfg.width = Int(filter.contentRect.width * scale)
         cfg.height = Int(filter.contentRect.height * scale)
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))

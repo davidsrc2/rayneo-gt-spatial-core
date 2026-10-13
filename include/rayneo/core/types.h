@@ -110,6 +110,7 @@ struct Pose {
     Vec3 gyro_bias_degs;
     Vec3 gyro_corrected_degs;  // sensor frame, bias removed (calibration / diagnostics)
     Vec3 angular_velocity_rads;  // in the same frame as `relative` (for pose prediction)
+    Quat relative_raw;           // before PoseStabilizer (diagnostics)
     Vec3 accel_mps2;           // sensor frame
     uint32_t tick_100us = 0;
     bool tracking = false;  // false until the startup bias calibration completes

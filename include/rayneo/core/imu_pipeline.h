@@ -6,6 +6,7 @@
 
 #include "rayneo/core/gyro_bias_estimator.h"
 #include "rayneo/core/madgwick.h"
+#include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/types.h"
 
 namespace rayneo::core {
@@ -13,6 +14,8 @@ namespace rayneo::core {
 struct ImuPipelineConfig {
     float madgwick_beta = 0.033f;
     bool use_magnetometer = false;  // Off: desk/laptop interference spins yaw.
+    bool stabilize = true;          // PoseStabilizer on `relative` and its angular velocity
+    PoseStabilizerConfig stabilizer;
     GyroBiasConfig bias;
 };
 
@@ -45,6 +48,7 @@ private:
     ImuPipelineConfig cfg_;
     MadgwickFilter filter_;
     GyroBiasEstimator bias_;
+    PoseStabilizer stabilizer_;
 
     bool have_prev_tick_ = false;
     uint32_t prev_tick_ = 0;
