@@ -28,7 +28,7 @@ Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para
 
 1. Probar con las gafas la calibración y el escritorio de 3 paneles, siguiendo la guía de más abajo.
 2. Si la prueba sale bien, fusionar las fases 3 y 3b.
-3. Hacer la Fase 4 (CI multiplataforma).
+3. Backend Windows (Win32/Direct3D) sobre el mismo core; el CI ya compila core y hal en MSVC.
 
 ### Riesgos conocidos
 
