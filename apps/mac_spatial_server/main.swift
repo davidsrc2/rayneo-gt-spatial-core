@@ -3,7 +3,10 @@
 
 import AppKit
 
-guard let options = ServerOptions.parse(CommandLine.arguments) else {
+// No flags (opened from Finder / `open`) or --gui: the app with its window. Flags: CLI server.
+let args = CommandLine.arguments.filter { !$0.hasPrefix("-psn_") }
+let guiMode = args.count == 1 || args.contains("--gui")
+guard let options = guiMode ? ServerOptions() : ServerOptions.parse(args) else {
     print(ServerOptions.usage)
     exit(1)
 }
@@ -23,14 +26,28 @@ if lockFD < 0 || flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let options: ServerOptions
+    let gui: Bool
     var server: AnyObject?
+    var app: AnyObject?
 
-    init(options: ServerOptions) {
+    init(options: ServerOptions, gui: Bool) {
         self.options = options
+        self.gui = gui
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if #available(macOS 14.0, *), let app = app as? GUIApp { app.openLayout() }
+        return true
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard #available(macOS 14.0, *) else { return }
+        if gui {
+            let a = GUIApp()
+            app = a
+            a.launch()
+            return
+        }
         let s = SpatialServer(options: options)
         server = s
         do {
@@ -46,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         if #available(macOS 14.0, *), let s = server as? SpatialServer { s.stop() }
+        if #available(macOS 14.0, *), let a = app as? GUIApp { a.shutdown() }
     }
 }
 
@@ -56,7 +74,7 @@ sigint.setEventHandler { NSApp.terminate(nil) }
 sigint.resume()
 
 let app = NSApplication.shared
-let delegate = AppDelegate(options: options)
+let delegate = AppDelegate(options: options, gui: guiMode)
 app.delegate = delegate
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(guiMode ? .regular : .accessory)
 app.run()

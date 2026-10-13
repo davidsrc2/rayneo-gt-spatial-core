@@ -145,13 +145,13 @@ endif()
 # ---------------------------------------------------------------------------
 # Platform: C ABI engine (portable) + macOS Objective-C++ facade.
 # ---------------------------------------------------------------------------
-add_library(rayneo_engine STATIC src/platform/rayneo_engine.cpp)
+add_library(rayneo_engine STATIC src/platform/rayneo_engine.cpp src/platform/guided_calibration.cpp)
 add_library(rayneo::engine ALIAS rayneo_engine)
 target_link_libraries(rayneo_engine PUBLIC rayneo::hal)
 rayneo_warnings(rayneo_engine)
 
 if(APPLE)
-  add_library(rayneo_macos STATIC src/platform/macos/RNSpatialEngine.mm)
+  add_library(rayneo_macos STATIC src/platform/macos/RNSpatialEngine.mm src/platform/macos/RNCalibrator.mm)
   target_include_directories(rayneo_macos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos)
   target_compile_options(rayneo_macos PRIVATE -fobjc-arc)
   target_link_libraries(rayneo_macos PUBLIC rayneo::engine "-framework Foundation")
@@ -194,7 +194,16 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${RAYNEO_SERVER_DIR}/VirtualDesktop.swift
     ${RAYNEO_SERVER_DIR}/Cursor.swift
     ${RAYNEO_SERVER_DIR}/StatusMenu.swift
-    ${RAYNEO_SERVER_DIR}/WindowGatherer.swift)
+    ${RAYNEO_SERVER_DIR}/WindowGatherer.swift
+    ${RAYNEO_SERVER_DIR}/GUI/Theme.swift
+    ${RAYNEO_SERVER_DIR}/GUI/AppModel.swift
+    ${RAYNEO_SERVER_DIR}/GUI/ServerController.swift
+    ${RAYNEO_SERVER_DIR}/GUI/LayoutEditor.swift
+    ${RAYNEO_SERVER_DIR}/GUI/LayoutPreview.swift
+    ${RAYNEO_SERVER_DIR}/GUI/MainView.swift
+    ${RAYNEO_SERVER_DIR}/GUI/SettingsView.swift
+    ${RAYNEO_SERVER_DIR}/GUI/OnboardingView.swift
+    ${RAYNEO_SERVER_DIR}/GUI/GUIApp.swift)
   target_compile_options(mac_spatial_server PRIVATE
     "SHELL:-import-objc-header ${RAYNEO_SERVER_DIR}/BridgingHeader.h"
     "SHELL:-Xcc -I${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos"

@@ -34,8 +34,13 @@
 }
 
 - (instancetype)init {
+    return [self initWithDeadZoneDegrees:0.0f];
+}
+
+- (instancetype)initWithDeadZoneDegrees:(float)deadZone {
     if ((self = [super init])) {
-        const rayneo_config cfg = rayneo_default_config();
+        rayneo_config cfg = rayneo_default_config();
+        if (deadZone > 0.0f) cfg.dead_zone_deg = deadZone;
         _engine = rayneo_engine_create(&cfg);
     }
     return self;

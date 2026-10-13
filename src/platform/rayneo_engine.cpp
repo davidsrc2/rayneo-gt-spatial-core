@@ -102,7 +102,7 @@ extern "C" {
 
 rayneo_config rayneo_default_config(void) {
     ImuPipelineConfig d;
-    return rayneo_config{d.madgwick_beta, d.use_magnetometer};
+    return rayneo_config{d.madgwick_beta, d.use_magnetometer, d.stabilizer.enter_deg};
 }
 
 rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
@@ -110,6 +110,7 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
     if (cfg != nullptr) {
         e->cfg.madgwick_beta = cfg->madgwick_beta;
         e->cfg.use_magnetometer = cfg->use_magnetometer;
+        if (cfg->dead_zone_deg > 0.0f) e->cfg.stabilizer.enter_deg = cfg->dead_zone_deg;
     }
     return e;
 }

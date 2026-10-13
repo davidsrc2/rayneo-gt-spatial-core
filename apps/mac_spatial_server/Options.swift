@@ -1,5 +1,11 @@
 import Foundation
 
+// Cell of a monitor in the layout grid (row 0 = top).
+struct GridPos: Codable, Hashable {
+    var col: Int
+    var row: Int
+}
+
 struct ServerOptions {
     var sideBySide: Bool? = nil   // nil: SBS on the glasses, mono in --windowed
     var ipdMM: Float = 63
@@ -10,10 +16,12 @@ struct ServerOptions {
     var fovYDeg: Float = 24.5
     var fovFromCLI = false
     var deadZoneDeg: Float = 1.0
+    var headless = true           // CLI: own menu bar item, Cmd+Opt+Q quits the process
     var k1: Float = 0
     var k2: Float = 0
 
     var displays = 2              // virtual monitors; 0 = capture an existing display
+    var layout: [GridPos]? = nil  // grid cell per monitor; nil = one row
     var vdWidth = 1152            // points; with hiDPI: large, sharp text
     var vdHeight = 648
     var hiDPI = true
@@ -39,6 +47,7 @@ struct ServerOptions {
     usage: mac_spatial_server [options]
     layout
       --displays N         virtual monitors in a row around you (2); 0 = capture an existing display
+      --layout C,R;C,R...  grid cell per monitor (row 0 = top), e.g. "0,0;0,1" = two stacked
       --vd-size WxH        virtual monitor size in points (1152x648: large text)
       --no-hidpi           1x virtual monitors (less sharp, 4x cheaper to capture)
       --fit                all panels visible at once (each at a fraction of full resolution)
@@ -59,6 +68,7 @@ struct ServerOptions {
       --k1 K --k2 K        barrel pre-distortion (0 = off)
     tracking
       --calib FILE         sensor_to_head calibration (default ./calibration.json if present)
+      --dead-zone DEG      stabilizer dead zone (1.0): smaller follows sooner, larger is stiller
       --sim                no glasses: simulated head (Cmd+Opt+arrows to look around)
       --sim-sweep DEG      sim: automatic left/right sweep of +-DEG
     display
@@ -84,6 +94,12 @@ struct ServerOptions {
         while i < args.count {
             switch args[i] {
             case "--displays": guard let v = value().flatMap({ Int($0) }), (0...8).contains(v) else { return nil }; o.displays = v
+            case "--layout":
+                let cells = value()?.split(separator: ";").map { $0.split(separator: ",").compactMap { Int($0) } } ?? []
+                guard !cells.isEmpty, cells.count <= 8, cells.allSatisfy({ $0.count == 2 }) else { return nil }
+                o.layout = cells.map { GridPos(col: $0[0], row: $0[1]) }
+                o.displays = cells.count
+            case "--dead-zone": guard let v = float() else { return nil }; o.deadZoneDeg = v
             case "--vd-size":
                 let parts = value()?.split(separator: "x").compactMap { Int($0) } ?? []
                 guard parts.count == 2, parts[0] >= 640, parts[1] >= 480 else { return nil }

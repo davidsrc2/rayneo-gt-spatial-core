@@ -45,7 +45,7 @@ struct Panel {
     id<MTLBuffer> vertices;
     id<MTLBuffer> indices;
     NSUInteger index_count = 0;
-    float mesh_aspect = 0, mesh_distance = 0, mesh_arc = 0, mesh_center = 0;
+    float mesh_aspect = 0, mesh_distance = 0, mesh_arc = 0, mesh_center = 0, mesh_pitch = 0;
     int mesh_flat = -1;
 };
 
@@ -80,6 +80,7 @@ struct Panel {
     os_unfair_lock _sourceLock;
     Panel _panels[kMaxPanels];
     NSUInteger _panelCount;  // guarded by _sourceLock
+    std::vector<core::GridCell> _cells;  // guarded by _sourceLock
 
     id<MTLTexture> _placeholder;
     id<MTLTexture> _eyeTextures[2];
@@ -157,6 +158,30 @@ struct Panel {
     os_unfair_lock_unlock(&_sourceLock);
 }
 
+- (void)setGridColumns:(NSArray<NSNumber*>*)columns rows:(NSArray<NSNumber*>*)rows {
+    std::vector<core::GridCell> cells;
+    for (NSUInteger i = 0; i < MIN(columns.count, rows.count); ++i) {
+        cells.push_back({columns[i].intValue, rows[i].intValue});
+    }
+    os_unfair_lock_lock(&_sourceLock);
+    _cells = std::move(cells);
+    os_unfair_lock_unlock(&_sourceLock);
+}
+
+// Layout for `count` panels of `aspect`: the grid cells if they match, else one row.
+- (std::vector<core::PanelPlacement>)placements:(NSUInteger)count aspect:(float)aspect {
+    RNRenderOptions* o = _options;
+    os_unfair_lock_lock(&_sourceLock);
+    std::vector<core::GridCell> cells = _cells;
+    os_unfair_lock_unlock(&_sourceLock);
+    if (cells.size() != count) {
+        cells.clear();
+        for (NSUInteger i = 0; i < count; ++i) cells.push_back({static_cast<int>(i), 0});
+    }
+    const float arc = o.arcDegrees * kDegToRad;
+    return core::grid_layout(cells, arc, core::panel_vertical_arc(arc, aspect, !o.curved), o.gapDegrees * kDegToRad);
+}
+
 - (float)fitArcDegreesForPanels:(NSUInteger)count {
     RNRenderOptions* o = _options;
     const float hfov = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect);
@@ -165,9 +190,12 @@ struct Panel {
 
 - (NSInteger)panelAtGaze:(simd_quatf)orientation {
     RNRenderOptions* o = _options;
-    const auto centers = core::panel_centers(static_cast<int>(self.panelCount), o.arcDegrees * kDegToRad,
-                                             o.gapDegrees * kDegToRad);
-    return core::panel_at_gaze(from_simd(orientation), centers, o.arcDegrees * kDegToRad, o.gapDegrees * kDegToRad);
+    os_unfair_lock_lock(&_sourceLock);
+    const float aspect = _panels[0].aspect;
+    os_unfair_lock_unlock(&_sourceLock);
+    const float arc = o.arcDegrees * kDegToRad;
+    return core::panel_at_gaze(from_simd(orientation), [self placements:self.panelCount aspect:aspect], arc,
+                               core::panel_vertical_arc(arc, aspect, !o.curved), o.gapDegrees * kDegToRad);
 }
 
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pb {
@@ -192,17 +220,20 @@ struct Panel {
     if (old != nullptr) CFRelease(old);
 }
 
-- (void)rebuildMesh:(Panel&)p aspect:(float)aspect center:(float)center {
+- (void)rebuildMesh:(Panel&)p aspect:(float)aspect placement:(core::PanelPlacement)pl {
     RNRenderOptions* o = _options;
+    const float center = pl.yaw_rad;
     if (p.vertices != nil && aspect == p.mesh_aspect && o.distanceMeters == p.mesh_distance &&
-        o.arcDegrees == p.mesh_arc && center == p.mesh_center && (o.curved ? 0 : 1) == p.mesh_flat) {
+        o.arcDegrees == p.mesh_arc && center == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
+        (o.curved ? 0 : 1) == p.mesh_flat) {
         return;
     }
     const float arc = o.arcDegrees * kDegToRad;
     const float width = core::panel_width(o.distanceMeters, arc, !o.curved);
-    const core::ScreenMesh mesh =
+    core::ScreenMesh mesh =
         o.curved ? core::curved_screen_mesh(o.distanceMeters, arc, width / aspect, 64, center)
                  : core::flat_screen_mesh(o.distanceMeters, arc, width / aspect, 1, center);
+    core::pitch_mesh(mesh, pl.pitch_rad);
     p.vertices = [_device newBufferWithBytes:mesh.vertices.data()
                                       length:mesh.vertices.size() * sizeof(core::ScreenVertex)
                                      options:MTLResourceStorageModeShared];
@@ -214,6 +245,7 @@ struct Panel {
     p.mesh_distance = o.distanceMeters;
     p.mesh_arc = o.arcDegrees;
     p.mesh_center = center;
+    p.mesh_pitch = pl.pitch_rad;
     p.mesh_flat = o.curved ? 0 : 1;
 }
 
@@ -261,9 +293,9 @@ struct Panel {
     }
     os_unfair_lock_unlock(&_sourceLock);
 
-    const std::vector<float> centers =
-        core::panel_centers(static_cast<int>(count), o.arcDegrees * kDegToRad, o.gapDegrees * kDegToRad);
-    for (NSUInteger i = 0; i < count; ++i) [self rebuildMesh:_panels[i] aspect:aspects[i] center:centers[i]];
+    // One layout for all panels (they share a size); per-panel aspect only shapes its mesh.
+    const auto placements = [self placements:count aspect:aspects[0]];
+    for (NSUInteger i = 0; i < count; ++i) [self rebuildMesh:_panels[i] aspect:aspects[i] placement:placements[i]];
 
     id<MTLTexture> target = drawable.texture;
     [self ensureEyeTextures:target.pixelFormat width:target.width height:target.height];

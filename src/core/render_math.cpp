@@ -1,5 +1,6 @@
 #include "rayneo/core/render_math.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace rayneo::core {
@@ -147,6 +148,59 @@ int panel_at_gaze(const Quat& head_rel, const std::vector<float>& centers, float
     }
     const float half_step = 0.5f * (panel_arc_rad + gap_rad);
     return std::fabs(yaw - centers[static_cast<size_t>(best)]) <= half_step ? best : -1;
+}
+
+float panel_vertical_arc(float arc_rad, float aspect, bool flat) {
+    if (aspect <= 0.0f) return 0.0f;
+    // Flat: half-height r tan(arc/2) / aspect at distance r. Curved: height r arc / aspect.
+    return flat ? 2.0f * std::atan(std::tan(arc_rad * 0.5f) / aspect) : 2.0f * std::atan(arc_rad / (2.0f * aspect));
+}
+
+std::vector<PanelPlacement> grid_layout(const std::vector<GridCell>& cells, float arc_rad, float vertical_arc_rad,
+                                        float gap_rad) {
+    std::vector<PanelPlacement> out;
+    if (cells.empty()) return out;
+    int min_c = cells[0].col, max_c = cells[0].col, min_r = cells[0].row, max_r = cells[0].row;
+    for (const auto& c : cells) {
+        min_c = std::min(min_c, c.col);
+        max_c = std::max(max_c, c.col);
+        min_r = std::min(min_r, c.row);
+        max_r = std::max(max_r, c.row);
+    }
+    const float mid_c = 0.5f * static_cast<float>(min_c + max_c);
+    const float mid_r = 0.5f * static_cast<float>(min_r + max_r);
+    out.reserve(cells.size());
+    for (const auto& c : cells) {
+        out.push_back({(static_cast<float>(c.col) - mid_c) * (arc_rad + gap_rad),
+                       (mid_r - static_cast<float>(c.row)) * (vertical_arc_rad + gap_rad)});
+    }
+    return out;
+}
+
+void pitch_mesh(ScreenMesh& mesh, float pitch_rad) {
+    const float cp = std::cos(pitch_rad), sp = std::sin(pitch_rad);
+    for (auto& v : mesh.vertices) {
+        const float y = v.py * cp + v.pz * sp;
+        const float z = -v.py * sp + v.pz * cp;
+        v.py = y;
+        v.pz = z;
+    }
+}
+
+int panel_at_gaze(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad,
+                  float vertical_arc_rad, float gap_rad) {
+    const Vec3 f = render_rotation(head_rel).transform_point({0.0f, 0.0f, 1.0f});
+    const float half_w = 0.5f * (arc_rad + gap_rad), half_h = 0.5f * (vertical_arc_rad + gap_rad);
+    for (size_t i = 0; i < panels.size(); ++i) {
+        // Undo the panel's pitch, then compare angles in its row.
+        const float cp = std::cos(panels[i].pitch_rad), sp = std::sin(panels[i].pitch_rad);
+        const float y = f.y * cp - f.z * sp;
+        const float z = f.y * sp + f.z * cp;
+        const float yaw = std::atan2(f.x, z) - panels[i].yaw_rad;
+        const float pitch = std::atan2(y, std::sqrt(f.x * f.x + z * z));
+        if (std::fabs(yaw) <= half_w && std::fabs(pitch) <= half_h) return static_cast<int>(i);
+    }
+    return -1;
 }
 
 float horizontal_fov(float fovy_rad, float aspect) {

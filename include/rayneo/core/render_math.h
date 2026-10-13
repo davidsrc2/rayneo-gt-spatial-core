@@ -73,6 +73,35 @@ std::vector<float> panel_centers(int count, float panel_arc_rad, float gap_rad);
 // view is more than half a step (arc + gap) beyond the outermost panels.
 int panel_at_gaze(const Quat& head_rel, const std::vector<float>& centers, float panel_arc_rad, float gap_rad);
 
+// --- Grid layouts (monitors side by side and/or stacked) ------------------------------------
+
+struct GridCell {
+    int col = 0;
+    int row = 0;  // 0 = top
+};
+
+// Direction of a panel's centre in the render frame: yaw positive = right, pitch positive = up.
+// The panel is the yawed panel rotated about the render X axis by pitch, so rows behave like
+// a cylinder tilted up or down and every panel faces the viewer.
+struct PanelPlacement {
+    float yaw_rad = 0.0f;
+    float pitch_rad = 0.0f;
+};
+
+// Angular height of a panel of horizontal arc `arc_rad` and width/height `aspect`.
+float panel_vertical_arc(float arc_rad, float aspect, bool flat);
+
+// Placements for `cells`, centred on the bounding box of the grid.
+std::vector<PanelPlacement> grid_layout(const std::vector<GridCell>& cells, float arc_rad, float vertical_arc_rad,
+                                        float gap_rad);
+
+// Rotates a mesh about the render X axis: pitch > 0 tilts it up.
+void pitch_mesh(ScreenMesh& mesh, float pitch_rad);
+
+// Panel whose cell (panel plus half the gap on each side) contains the view direction, or -1.
+int panel_at_gaze(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad,
+                  float vertical_arc_rad, float gap_rad);
+
 // Horizontal FOV from the vertical FOV and the perceived per-eye aspect.
 float horizontal_fov(float fovy_rad, float aspect);
 

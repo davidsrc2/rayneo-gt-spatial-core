@@ -20,6 +20,8 @@ final class StatusMenu: NSObject {
         item.menu = menu
     }
 
+    deinit { NSStatusBar.system.removeStatusItem(item) }
+
     @objc private func recenterAction() { onRecenter() }
     @objc private func quitAction() { NSApp.terminate(nil) }
 }

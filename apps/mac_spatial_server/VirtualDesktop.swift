@@ -19,17 +19,42 @@ final class VirtualDesktop {
         }
     }
 
+    // Origins (top-left, global coordinates) of the monitors laid out as `cells`, with
+    // monitor 0 at `origin`. Same-size monitors: a cell is one monitor wide and tall.
+    private func origins(cells: [GridPos], origin: CGPoint) -> [CGPoint] {
+        let w = ids.first.map { CGDisplayBounds($0).width } ?? 0
+        let h = ids.first.map { CGDisplayBounds($0).height } ?? 0
+        let c0 = cells.first ?? GridPos(col: 0, row: 0)
+        return cells.map { CGPoint(x: origin.x + CGFloat($0.col - c0.col) * w, y: origin.y + CGFloat($0.row - c0.row) * h) }
+    }
+
+    private func cellsOrRow(_ cells: [GridPos]?) -> [GridPos] {
+        if let cells, cells.count == ids.count { return cells }
+        return ids.indices.map { GridPos(col: $0, row: 0) }
+    }
+
     // App-scoped arrangement (reverted when the process exits, like the monitors themselves):
-    // a row to the right of `anchor`, top-aligned.
+    // the grid to the right of `anchor`, top-aligned.
     @discardableResult
-    func arrange(rightOf anchor: CGDirectDisplayID) -> Bool {
+    func arrange(rightOf anchor: CGDirectDisplayID, cells: [GridPos]? = nil) -> Bool {
+        let grid = cellsOrRow(cells)
         let a = CGDisplayBounds(anchor)
-        var x = Int32(a.maxX)
+        let minCol = grid.map(\.col).min() ?? 0, minRow = grid.map(\.row).min() ?? 0
+        let w = ids.first.map { CGDisplayBounds($0).width } ?? 0
+        let h = ids.first.map { CGDisplayBounds($0).height } ?? 0
+        let first = grid[0]
+        let o = CGPoint(x: a.maxX + CGFloat(first.col - minCol) * w, y: a.minY + CGFloat(first.row - minRow) * h)
+        return apply(origins(cells: grid, origin: o), tucking: nil)
+    }
+
+    private func apply(_ points: [CGPoint], tucking physical: CGDirectDisplayID?) -> Bool {
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success else { return false }
-        for id in ids {
-            CGConfigureDisplayOrigin(config, id, x, Int32(a.minY))
-            x += Int32(CGDisplayBounds(id).width)
+        for (id, p) in zip(ids, points) { CGConfigureDisplayOrigin(config, id, Int32(p.x), Int32(p.y)) }
+        if let physical {
+            let minX = points.map(\.x).min() ?? 0
+            let maxY = zip(ids, points).map { $1.y + CGDisplayBounds($0).height }.max() ?? 0
+            CGConfigureDisplayOrigin(config, physical, Int32(minX - CGDisplayBounds(physical).width), Int32(maxY))
         }
         return CGCompleteDisplayConfiguration(config, .forAppOnly) == .success
     }
@@ -38,19 +63,11 @@ final class VirtualDesktop {
     // main display: menu bar, Dock, new windows) and `physical` (the glasses, plus anything
     // mirroring it) is tucked below-left, touching the row only at a corner, so the cursor
     // practically never reaches the head-locked surface.
+    // Grid cells map to monitor positions, so the cursor crosses between stacked monitors
+    // vertically and between side-by-side ones horizontally, as with physical monitors.
     @discardableResult
-    func arrangeAsMain(tucking physical: CGDirectDisplayID) -> Bool {
-        var config: CGDisplayConfigRef?
-        guard CGBeginDisplayConfiguration(&config) == .success else { return false }
-        var x: Int32 = 0
-        for id in ids {
-            CGConfigureDisplayOrigin(config, id, x, 0)
-            x += Int32(CGDisplayBounds(id).width)
-        }
-        let p = CGDisplayBounds(physical)
-        let rowHeight = Int32(ids.map { CGDisplayBounds($0).height }.max() ?? 0)
-        CGConfigureDisplayOrigin(config, physical, -Int32(p.width), rowHeight)
-        return CGCompleteDisplayConfiguration(config, .forAppOnly) == .success
+    func arrangeAsMain(tucking physical: CGDirectDisplayID, cells: [GridPos]? = nil) -> Bool {
+        apply(origins(cells: cellsOrRow(cells), origin: .zero), tucking: physical)
     }
 
     func screen(for id: CGDirectDisplayID) -> NSScreen? {

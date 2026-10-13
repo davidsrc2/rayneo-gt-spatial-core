@@ -677,6 +677,45 @@ void test_fit_panels() {
     CHECK(fit_panel_arc(0.1f, 3, 0.1f, 0.0f) == 0.0f);
 }
 
+void test_grid_layout() {
+    const float arc = 38 * kDeg, gap = 2 * kDeg;
+    const float varc = panel_vertical_arc(arc, 16.0f / 9.0f, true);
+    // Flat 16:9 panel spanning 38 deg: vertical span from the same tangent geometry.
+    CHECK(near(varc, 2 * std::atan(std::tan(19 * kDeg) * 9.0f / 16.0f), 1e-6f));
+    CHECK(near(panel_vertical_arc(arc, 16.0f / 9.0f, false), 2 * std::atan(arc * 9.0f / 32.0f), 1e-6f));
+
+    const auto quad = grid_layout({{0, 0}, {1, 0}, {0, 1}, {1, 1}}, arc, varc, gap);
+    CHECK(near(quad[0].yaw_rad, -(arc + gap) / 2, 1e-6f) && near(quad[0].pitch_rad, (varc + gap) / 2, 1e-6f));
+    CHECK(near(quad[3].yaw_rad, (arc + gap) / 2, 1e-6f) && near(quad[3].pitch_rad, -(varc + gap) / 2, 1e-6f));
+    const auto stacked = grid_layout({{0, 0}, {0, 1}}, arc, varc, gap);
+    CHECK(near(stacked[0].yaw_rad, 0.0f, 1e-7f) && stacked[0].pitch_rad > 0 && near(stacked[1].pitch_rad, -stacked[0].pitch_rad, 1e-6f));
+    const auto offset = grid_layout({{3, 5}, {4, 5}}, arc, varc, gap);  // translation-invariant
+    CHECK(near(offset[0].yaw_rad, -(arc + gap) / 2, 1e-6f) && near(offset[0].pitch_rad, 0.0f, 1e-7f));
+    CHECK(grid_layout({}, arc, varc, gap).empty());
+
+    // Stacked flat panels with gap 0 share their horizontal edge, like a monitor on a monitor.
+    const auto s0 = grid_layout({{0, 0}, {0, 1}}, arc, varc, 0.0f);
+    ScreenMesh top = flat_screen_mesh(2.0f, arc, panel_width(2.0f, arc, true) * 9.0f / 16.0f, 1);
+    ScreenMesh bottom = top;
+    pitch_mesh(top, s0[0].pitch_rad);
+    pitch_mesh(bottom, s0[1].pitch_rad);
+    const auto& top_bottom_left = top.vertices[1];        // v = 1 (bottom edge), u = 0
+    const auto& bottom_top_left = bottom.vertices[0];     // v = 0 (top edge), u = 0
+    CHECK(vec_near({top_bottom_left.px, top_bottom_left.py, top_bottom_left.pz},
+                   {bottom_top_left.px, bottom_top_left.py, bottom_top_left.pz}, 1e-5f));
+
+    // Gaze: up -> top panel, down -> bottom, diagonal in a 2x2, beyond -> none.
+    auto look = [](float yaw_left_deg, float pitch_up_deg) {
+        return Quat::from_axis_angle({0, 0, 1}, yaw_left_deg * kDeg) * Quat::from_axis_angle({0, -1, 0}, pitch_up_deg * kDeg);
+    };
+    const float up = (varc + gap) / 2 / kDeg;
+    CHECK(panel_at_gaze(look(0, up), stacked, arc, varc, gap) == 0);
+    CHECK(panel_at_gaze(look(0, -up), stacked, arc, varc, gap) == 1);
+    CHECK(panel_at_gaze(look(-15, -up), quad, arc, varc, gap) == 3);  // right + down
+    CHECK(panel_at_gaze(look(15, up), quad, arc, varc, gap) == 0);    // left + up
+    CHECK(panel_at_gaze(look(0, 60), stacked, arc, varc, gap) == -1);
+}
+
 void test_barrel_distort() {
     const Vec2 c = barrel_distort({0, 0}, 0.2f, 0.1f);
     CHECK(c.x == 0.0f && c.y == 0.0f);
@@ -843,6 +882,7 @@ int main() {
     test_flat_panels();
     test_panel_at_gaze();
     test_fit_panels();
+    test_grid_layout();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

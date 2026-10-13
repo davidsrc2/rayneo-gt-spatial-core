@@ -45,7 +45,7 @@ struct LatencyStats {
 
 @available(macOS 14.0, *)
 final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
-    private let options: ServerOptions
+    private(set) var options: ServerOptions
     private var pose: PoseSource!
     private var renderer: RNSpatialRenderer!
     private var window: NSWindow!
@@ -62,8 +62,15 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var glassesID: CGDirectDisplayID?        // render target (nil in --windowed)
     private var lastPoseNs: UInt64 = 0
     private var stalePoseSeconds = 0
-    private let hotKeys = HotKeys()
+    private var hotKeys: HotKeys? = HotKeys()
     private var statusMenu: StatusMenu?
+    private var screenObserver: NSObjectProtocol?
+    private var stopped = false
+
+    // GUI hooks. Without them (CLI) a stop request quits the process.
+    var onStopRequest: ((String) -> Void)?
+    var onFovChanged: ((Float) -> Void)?
+    private(set) var isTracking = false
 
     private let statsLock = NSLock()
     private var stats = LatencyStats()
@@ -111,7 +118,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             log("tracking: simulated head" + (options.simSweepDeg > 0 ? " (sweep ±\(options.simSweepDeg)°)" : " (Cmd+Opt+arrows)"))
         } else {
             let imu = ImuPoseSource(calibrationPath: options.calibrationPath,
-                                    calibrationRequired: options.calibrationRequired)
+                                    calibrationRequired: options.calibrationRequired,
+                                    deadZoneDeg: options.deadZoneDeg)
             pose = imu
         }
         try pose.start()
@@ -129,9 +137,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let anchor = CGMainDisplayID()
             let virtualMain = !options.includeMain && !options.windowed
             if virtualMain {
-                vd.arrangeAsMain(tucking: screenID)
+                vd.arrangeAsMain(tucking: screenID, cells: options.layout)
             } else {
-                vd.arrange(rightOf: anchor)
+                vd.arrange(rightOf: anchor, cells: options.layout)
             }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))  // NSScreen list catches up
             log("virtual monitors: " + vd.ids.map { id in
@@ -148,8 +156,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                         let n = WindowGatherer.gather(from: CGDisplayBounds(screenID), into: target)
                         log("windows: moved \(n) window(s) to panel 1")
                     } else {
-                        log("windows: allow Terminal in System Settings > Privacy & Security > Accessibility " +
-                            "to bring your open windows into the panels (new windows open there anyway)")
+                        log("windows: allow this app (or Terminal) in System Settings > Privacy & Security > " +
+                            "Accessibility to bring your open windows into the panels (new windows open there anyway)")
                     }
                 }
             }
@@ -226,13 +234,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k2 = options.k2
         let panels = max(1, panelDisplays.count)
         renderer.panelCount = UInt(panels)
+        if let layout = options.layout, layout.count == panels {
+            renderer.setGridColumns(layout.map { NSNumber(value: $0.col) }, rows: layout.map { NSNumber(value: $0.row) })
+        }
         if options.fit && options.arcDeg == nil {
-            ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(panels))
+            let columns = Set((options.layout ?? []).map(\.col)).count
+            ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(max(columns, options.layout == nil ? panels : 1)))
         }
         log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
-        statusMenu = StatusMenu { [weak self] in self?.recenter() }
+        if options.headless { statusMenu = StatusMenu { [weak self] in self?.recenter() } }
         if !options.windowed {
             log(HardwareCursor.hide() ? "cursor: hardware cursor hidden (the panels show the real one)"
                                       : "cursor: could not hide the hardware cursor")
@@ -244,8 +256,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             self?.printStats()
             self?.checkGlassesPresent()
         }
-        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
-                                               object: nil, queue: .main) { [weak self] _ in
+        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                                object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
         }
         if (options.gazeCursor && panelDisplays.count > 1) || physicalDisplay != nil {
@@ -283,7 +295,36 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     private func shutDown(_ reason: String) {
         log("\(reason): stopping and restoring the displays")
-        NSApp.terminate(nil)
+        requestStop(reason)
+    }
+
+    private func requestStop(_ reason: String) {
+        if let onStopRequest { onStopRequest(reason) } else { NSApp.terminate(nil) }
+    }
+
+    // MARK: live settings
+
+    // Applies what the renderer can change without rebuilding monitors or captures.
+    func applyLive(_ o: ServerOptions) {
+        guard let ro = renderer?.options else { return }
+        ro.distanceMeters = o.distanceM
+        ro.gapDegrees = o.gapDeg
+        ro.curved = o.curved
+        ro.fovYDegrees = o.fovYDeg
+        ro.ipdMeters = o.ipdMM / 1000
+        ro.sideBySide = o.sideBySide ?? !o.windowed
+        ro.k1 = o.k1
+        ro.k2 = o.k2
+        if let arc = o.arcDeg { ro.arcDegrees = arc }
+        options.distanceM = o.distanceM
+        options.gapDeg = o.gapDeg
+        options.curved = o.curved
+        options.fovYDeg = o.fovYDeg
+        options.ipdMM = o.ipdMM
+        options.sideBySide = o.sideBySide
+        options.k1 = o.k1
+        options.k2 = o.k2
+        options.gazeCursor = o.gazeCursor
     }
 
     // MARK: gaze cursor
@@ -320,13 +361,25 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         CGAssociateMouseAndMouseCursorPosition(1)
     }
 
+    // Full teardown, so the GUI can stop and start again in the same process.
     func stop() {
+        guard !stopped else { return }
+        stopped = true
         HardwareCursor.show()
+        statsTimer?.invalidate()
         gazeTimer?.invalidate()
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         displayLink?.invalidate()
+        displayLink = nil
+        renderThread?.cancel()
+        renderThread = nil
+        hotKeys = nil  // unregisters the global hotkeys
+        statusMenu = nil
         pose?.stop()
         physicalDisplay = nil
+        glassesID = nil
         let caps = captures
+        captures = []
         let done = DispatchSemaphore(value: 0)
         Task.detached {
             for c in caps { await c.stop() }
@@ -334,7 +387,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         _ = done.wait(timeout: .now() + 2)
         patternWindows.forEach { $0.close() }
+        patternWindows = []
+        window?.orderOut(nil)
+        window = nil
         desktop = nil  // virtual monitors disappear here
+        // App-scoped display changes would otherwise last until the process exits.
+        CGRestorePermanentDisplayConfiguration()
+        isTracking = false
     }
 
     // MARK: input
@@ -343,6 +402,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let ro = renderer.options
         ro.fovYDegrees = max(10, min(45, ro.fovYDegrees + delta))
         UserDefaults.standard.set(ro.fovYDegrees, forKey: "fovY")
+        options.fovYDeg = ro.fovYDegrees
+        onFovChanged?(ro.fovYDegrees)
         log(String(format: "fov: %.1f° (saved)", ro.fovYDegrees))
     }
 
@@ -354,8 +415,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     private func registerHotKeys() {
         let mods = cmdKey | optionKey
+        guard let hotKeys else { return }
         hotKeys.register(keyCode: kVK_ANSI_C, modifiers: mods) { [weak self] in self?.recenter() }
-        hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: mods) { NSApp.terminate(nil) }
+        hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: mods) { [weak self] in self?.requestStop("stopped (⌘⌥Q)") }
         // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
         // turning, the render FOV is too large (Cmd+Opt+-); against it, too small (Cmd+Opt+=).
         hotKeys.register(keyCode: kVK_ANSI_Minus, modifiers: mods) { [weak self] in self?.adjustFov(-0.5) }
@@ -485,6 +547,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         stats.add(poseAge: poseAge, photon: photon, prediction: Double(prediction))
         stats.tracking = p.tracking
         statsLock.unlock()
+        isTracking = p.tracking
     }
 
     private func printStats() {

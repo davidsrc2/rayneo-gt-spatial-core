@@ -16,7 +16,7 @@ Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para
 | 3 | Servidor Metal: ScreenCaptureKit, render half-SBS/mono, predicción hasta el scanout | Rama `feat/phase3-macos-renderer` |
 | 3b | Escritorio de monitores virtuales (`CGVirtualDisplay`), paneles planos, estabilizador con zona muerta, un solo cursor, cursor que sigue la mirada, barra de menús ◎ RayNeo | Rama `feat/phase3b-virtual-displays` (encima de la 3). En prueba con las gafas |
 | 4 | CI en GitHub Actions: macOS arm64, Windows MSVC, Linux GCC/Clang + aislamiento de core/hal | Fusionada (#4). Verde en los 3 SO |
-| 5 | **Interfaz gráfica** (ver «Interfaz gráfica: requisitos») | Siguiente |
+| 5 | **Interfaz gráfica** SwiftUI: disposición en cuadrícula (horizontal y vertical), plantillas, vista previa 3D, tamaño de texto / distancia / separación / forma, asistente (permisos, calibración, escala), Ajustes con Avanzado, menú ◎ | Rama `feat/phase5-gui` (encima de la 3b). PR abierta |
 
 ### Qué funciona hoy con las gafas (validado por el usuario)
 
@@ -44,6 +44,21 @@ Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para
 - `CGVirtualDisplay` y el ocultado de cursor en segundo plano son APIs privadas: pueden romperse con una actualización de macOS y la app no pasaría la revisión de la App Store.
 - Distorsión de lente desactivada (`k1 = k2 = 0`): no se conoce la óptica de las GT.
 - Traer las ventanas abiertas a los monitores virtuales requiere el permiso de Accesibilidad.
+
+## Usar la app (fase 5)
+
+```sh
+open ~/rayneo-gt-spatial-core/build/mac_spatial_server.app      # o doble clic en Finder
+```
+
+- Sin argumentos se abre la interfaz; con flags sigue funcionando como CLI (`--help`).
+- Primera vez: asistente con permisos (Grabación de pantalla y Accesibilidad **para la app**, no para Terminal), calibración guiada (reutiliza tu `calibration.json` si ya existía) y ajuste de escala.
+- Disposición: arrastra las tarjetas para poner monitores al lado o encima/debajo; `+`/`−`; plantillas. El monitor 1 es el principal de macOS (barra de menús y Dock).
+- Distancia, separación, forma, FOV, IPD, 3D y lente se aplican en vivo; el número de monitores, la disposición, el tamaño del texto y la zona quieta relanzan el servidor.
+- Menú ◎ en la barra superior: Recentrar, Empezar/Parar, Abrir disposición, Salir.
+- Ajustes y calibración en `~/Library/Application Support/RayNeo/` y en las preferencias de la app.
+- La firma es ad-hoc: tras recompilar, macOS puede volver a pedir los permisos.
+- SwiftUI sin la macro `@State` (su plugin solo viene con Xcode; el build usa las Command Line Tools).
 
 ## Interfaz gráfica: requisitos (fase 5)
 

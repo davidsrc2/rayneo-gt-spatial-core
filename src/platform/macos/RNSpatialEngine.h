@@ -20,6 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface RNSpatialEngine : NSObject
 - (instancetype)init;
+- (instancetype)initWithDeadZoneDegrees:(float)deadZone;
 - (BOOL)start:(NSError* _Nullable* _Nullable)error;
 - (void)stop;
 - (void)recenter;

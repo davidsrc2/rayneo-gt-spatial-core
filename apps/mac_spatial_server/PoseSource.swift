@@ -19,14 +19,15 @@ protocol PoseSource: AnyObject {
 // The glasses' IMU through the C++ engine.
 final class ImuPoseSource: PoseSource {
     let name = "imu"
-    private let engine = RNSpatialEngine()
+    private let engine: RNSpatialEngine
     private let calibrationPath: String
     private let calibrationRequired: Bool
     private(set) var calibrationLoaded = false
 
-    init(calibrationPath: String, calibrationRequired: Bool) {
+    init(calibrationPath: String, calibrationRequired: Bool, deadZoneDeg: Float = 0) {
         self.calibrationPath = calibrationPath
         self.calibrationRequired = calibrationRequired
+        engine = RNSpatialEngine(deadZoneDegrees: deadZoneDeg)
     }
 
     func start() throws {
