@@ -13,11 +13,24 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         self.onFrame = onFrame
     }
 
-    func start(displayID: CGDirectDisplayID, fps: Int) async throws -> (Int, Int) {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first
-        else { throw NSError(domain: "ScreenCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "no display"]) }
-        let me = content.applications.filter { $0.processID == getpid() }
+    // excludeOwnApp: needed when capturing the display we render on (feedback loop). Off for
+    // virtual monitors so this process's test-pattern windows are captured.
+    func start(displayID: CGDirectDisplayID, fps: Int, excludeOwnApp: Bool) async throws -> (Int, Int) {
+        // Freshly created virtual monitors take a moment to appear in the shareable content.
+        var found: (SCShareableContent, SCDisplay)?
+        for _ in 0..<30 {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            if let d = content.displays.first(where: { $0.displayID == displayID }) {
+                found = (content, d)
+                break
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        guard let (content, display) = found else {
+            throw NSError(domain: "ScreenCapture", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "display \(displayID) not capturable"])
+        }
+        let me = excludeOwnApp ? content.applications.filter { $0.processID == getpid() } : []
         let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
 
         let cfg = SCStreamConfiguration()

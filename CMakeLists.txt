@@ -168,13 +168,17 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
   configure_file(${RAYNEO_RENDERER_DIR}/rn_shaders.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/rn_shaders.h @ONLY)
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${RAYNEO_RENDERER_DIR}/Shaders.metal)
 
-  add_library(rayneo_macos_renderer STATIC ${RAYNEO_RENDERER_DIR}/RNSpatialRenderer.mm)
+  set(RAYNEO_VD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos/virtual_display)
+  add_library(rayneo_macos_renderer STATIC
+    ${RAYNEO_RENDERER_DIR}/RNSpatialRenderer.mm
+    ${RAYNEO_VD_DIR}/RNVirtualDisplay.mm)
   target_include_directories(rayneo_macos_renderer
-    PUBLIC  ${RAYNEO_RENDERER_DIR}
+    PUBLIC  ${RAYNEO_RENDERER_DIR} ${RAYNEO_VD_DIR}
     PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
   target_compile_options(rayneo_macos_renderer PRIVATE -fobjc-arc)
   target_link_libraries(rayneo_macos_renderer PUBLIC rayneo::core
-    "-framework Metal" "-framework QuartzCore" "-framework CoreVideo" "-framework Foundation")
+    "-framework Metal" "-framework QuartzCore" "-framework CoreVideo" "-framework Foundation"
+    "-framework CoreGraphics")
   rayneo_warnings(rayneo_macos_renderer)
 
   set(RAYNEO_SERVER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/apps/mac_spatial_server)
@@ -184,11 +188,14 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${RAYNEO_SERVER_DIR}/ScreenCapture.swift
     ${RAYNEO_SERVER_DIR}/Displays.swift
     ${RAYNEO_SERVER_DIR}/HotKeys.swift
-    ${RAYNEO_SERVER_DIR}/Options.swift)
+    ${RAYNEO_SERVER_DIR}/Options.swift
+    ${RAYNEO_SERVER_DIR}/PoseSource.swift
+    ${RAYNEO_SERVER_DIR}/VirtualDesktop.swift)
   target_compile_options(mac_spatial_server PRIVATE
     "SHELL:-import-objc-header ${RAYNEO_SERVER_DIR}/BridgingHeader.h"
     "SHELL:-Xcc -I${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos"
     "SHELL:-Xcc -I${RAYNEO_RENDERER_DIR}"
+    "SHELL:-Xcc -I${RAYNEO_VD_DIR}"
     -swift-version 5 -warnings-as-errors)
   target_link_libraries(mac_spatial_server PRIVATE rayneo_macos rayneo_macos_renderer
     "-framework AppKit" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework Carbon")

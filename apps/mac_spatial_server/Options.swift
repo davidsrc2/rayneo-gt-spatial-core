@@ -1,37 +1,59 @@
 import Foundation
 
 struct ServerOptions {
-    var sideBySide = true
+    var sideBySide: Bool? = nil   // nil: SBS on the glasses, mono in --windowed
     var ipdMM: Float = 63
     var distanceM: Float = 2.0
-    var arcDeg: Float = 50
+    var arcDeg: Float? = nil      // nil: 38 per virtual panel, 50 for single-display capture
+    var gapDeg: Float = 4
     var fovYDeg: Float = 24.5
     var k1: Float = 0
     var k2: Float = 0
-    var source = "auto"           // auto | glasses | builtin | <CGDirectDisplayID>
+
+    var displays = 3              // virtual monitors; 0 = capture an existing display
+    var vdWidth = 1920
+    var vdHeight = 1080
+    var hiDPI = false
+    var testPattern = false
+
+    var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
     var calibrationPath = "calibration.json"
     var calibrationRequired = false
     var refresh120 = true
     var unmirror = false
-    var windowed = false          // debug: render in a window on the main screen
+    var windowed = false          // render in a window on the main screen
+    var sim = false               // simulated head instead of the IMU
+    var simSweepDeg: Float = 0    // automatic yaw sweep amplitude (sim)
     var durationS: Double = 0     // 0 = until Ctrl+C
+
+    var panelArcDeg: Float { arcDeg ?? (displays > 0 ? 38 : 50) }  // 38: a whole panel fits the ~42° horizontal FOV
 
     static let usage = """
     usage: mac_spatial_server [options]
-      --mono               single full view (glasses in 2D mode); default half-SBS (3D mode)
+    layout
+      --displays N         virtual monitors in a row around you (3); 0 = capture an existing display
+      --vd-size WxH        virtual monitor size in points (1920x1080)
+      --hidpi              Retina virtual monitors (sharper text, 4x capture cost)
+      --arc DEG            horizontal size of each panel (38; 50 with --displays 0)
+      --gap DEG            space between panels (4)
+      --distance M         panel radius in metres (2.0)
+      --test-pattern       labelled grid on each virtual monitor
+    optics
+      --mono / --sbs       single view (glasses 2D) / half side-by-side (glasses 3D)
       --ipd MM             interpupillary distance (63)
-      --distance M         virtual screen radius in metres (2.0)
-      --arc DEG            horizontal extent of the curved screen (50)
       --fov DEG            per-eye vertical FOV of the optics (24.5)
       --k1 K --k2 K        barrel pre-distortion (0 = off)
-      --source S           capture: auto | glasses | builtin | <display id>
+    tracking
       --calib FILE         sensor_to_head calibration (default ./calibration.json if present)
-      --unmirror           extend instead of mirror while running and capture the built-in
-                           display (reverted on exit; measured +17 ms latency vs mirrored)
-      --60hz               keep the current refresh rate (default: switch glasses to 120 Hz)
-      --windowed           debug window on the main screen instead of the glasses
+      --sim                no glasses: simulated head (Cmd+Opt+arrows to look around)
+      --sim-sweep DEG      sim: automatic left/right sweep of +-DEG
+    display
+      --windowed           render in a window on the Mac screen instead of the glasses
+      --source S           --displays 0 only: auto | glasses | builtin | <display id>
+      --unmirror           extend instead of mirror while running (reverted on exit)
+      --60hz               keep the glasses' current refresh rate (default: 120 Hz)
       --duration S         exit after S seconds
-    hotkeys: Cmd+Opt+C recenter, Cmd+Opt+Q quit
+    hotkeys: Cmd+Opt+C recenter, Cmd+Opt+Q quit, Cmd+Opt+arrows look around (--sim)
     """
 
     static func parse(_ args: [String]) -> ServerOptions? {
@@ -44,22 +66,33 @@ struct ServerOptions {
         func float() -> Float? { value().flatMap { Float($0) } }
         while i < args.count {
             switch args[i] {
-            case "--mono": o.sideBySide = false
-            case "--ipd": guard let v = float() else { return nil }; o.ipdMM = v
-            case "--distance": guard let v = float() else { return nil }; o.distanceM = v
+            case "--displays": guard let v = value().flatMap({ Int($0) }), (0...8).contains(v) else { return nil }; o.displays = v
+            case "--vd-size":
+                let parts = value()?.split(separator: "x").compactMap { Int($0) } ?? []
+                guard parts.count == 2, parts[0] >= 640, parts[1] >= 480 else { return nil }
+                o.vdWidth = parts[0]
+                o.vdHeight = parts[1]
+            case "--hidpi": o.hiDPI = true
             case "--arc": guard let v = float() else { return nil }; o.arcDeg = v
+            case "--gap": guard let v = float() else { return nil }; o.gapDeg = v
+            case "--distance": guard let v = float() else { return nil }; o.distanceM = v
+            case "--test-pattern": o.testPattern = true
+            case "--mono": o.sideBySide = false
+            case "--sbs": o.sideBySide = true
+            case "--ipd": guard let v = float() else { return nil }; o.ipdMM = v
             case "--fov": guard let v = float() else { return nil }; o.fovYDeg = v
             case "--k1": guard let v = float() else { return nil }; o.k1 = v
             case "--k2": guard let v = float() else { return nil }; o.k2 = v
-            case "--source": guard let v = value() else { return nil }; o.source = v
             case "--calib":
                 guard let v = value() else { return nil }
                 o.calibrationPath = v
                 o.calibrationRequired = true
-            case "--60hz": o.refresh120 = false
-            case "--unmirror": o.unmirror = true
-
+            case "--sim": o.sim = true
+            case "--sim-sweep": guard let v = float() else { return nil }; o.sim = true; o.simSweepDeg = v
             case "--windowed": o.windowed = true
+            case "--source": guard let v = value() else { return nil }; o.source = v
+            case "--unmirror": o.unmirror = true
+            case "--60hz": o.refresh120 = false
             case "--duration": guard let v = value().flatMap({ Double($0) }) else { return nil }; o.durationS = v
             default: return nil
             }

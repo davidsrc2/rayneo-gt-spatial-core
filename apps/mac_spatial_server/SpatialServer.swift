@@ -24,13 +24,6 @@ struct LatencyStats {
     var presentedN = 0
     var presentedSum = 0.0, presentedMax = 0.0  // sample -> actual presentedTime (ms)
     var targetErrSum = 0.0                      // presentedTime - targetPresentationTimestamp (ms)
-
-    mutating func addPresented(latency: Double, targetError: Double) {
-        presentedN += 1
-        presentedSum += latency
-        presentedMax = max(presentedMax, latency)
-        targetErrSum += targetError
-    }
     var tracking = false
 
     mutating func add(poseAge: Double, photon: Double, prediction: Double) {
@@ -41,18 +34,27 @@ struct LatencyStats {
         photonMax = max(photonMax, photon)
         predSum += prediction
     }
+
+    mutating func addPresented(latency: Double, targetError: Double) {
+        presentedN += 1
+        presentedSum += latency
+        presentedMax = max(presentedMax, latency)
+        targetErrSum += targetError
+    }
 }
 
 @available(macOS 14.0, *)
 final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private let options: ServerOptions
-    private let engine = RNSpatialEngine()
+    private var pose: PoseSource!
     private var renderer: RNSpatialRenderer!
     private var window: NSWindow!
     private var view: MetalView!
     private var displayLink: CAMetalDisplayLink?
     private var renderThread: Thread?
-    private var capture: ScreenCapture?
+    private var captures: [ScreenCapture] = []
+    private var desktop: VirtualDesktop?
+    private var patternWindows: [NSWindow] = []
     private let hotKeys = HotKeys()
 
     private let statsLock = NSLock()
@@ -67,7 +69,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     func start() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw fail("no Metal device") }
 
-        // Target screen: the glasses, unless debugging in a window.
+        // Output: the glasses, or a debug window on the Mac screen.
         let glasses = Displays.glassesScreen()
         let screen: NSScreen
         if options.windowed {
@@ -75,7 +77,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         } else if let glasses {
             screen = glasses
         } else {
-            throw fail("RayNeo display (SmartGlasses) not found; use --windowed to debug")
+            throw fail("RayNeo display (SmartGlasses) not found. Without the glasses: --windowed --sim")
         }
         let screenID = Displays.id(of: screen)
         if options.unmirror && !options.windowed {
@@ -83,20 +85,58 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.5))  // let the reconfiguration settle
         }
         log("output: \(screen.localizedName) id=\(screenID) \(Int(screen.frame.width))x\(Int(screen.frame.height))"
-            + (Displays.isMirrored(screenID) ? " [mirrored]" : ""))
+            + (Displays.isMirrored(screenID) ? " [mirrored]" : "") + (options.windowed ? " [window]" : ""))
         if options.refresh120 && !options.windowed {
             log(Displays.setRefresh(screenID, hz: 120) ? "refresh: 120 Hz" : "refresh: 120 Hz unavailable, keeping current")
         }
 
-        // Window: borderless, above everything, click-through and invisible to capture.
-        let rect = options.windowed ? NSRect(x: 100, y: 100, width: 1280, height: 720) : screen.frame
-        window = NSWindow(contentRect: rect, styleMask: options.windowed ? [.titled] : [.borderless],
+        // Pose first: the IMU needs ~6 s of rest, let it start while the rest comes up.
+        if options.sim {
+            pose = SimPoseSource(sweepAmplitudeDeg: options.simSweepDeg)
+            log("tracking: simulated head" + (options.simSweepDeg > 0 ? " (sweep ±\(options.simSweepDeg)°)" : " (Cmd+Opt+arrows)"))
+        } else {
+            let imu = ImuPoseSource(calibrationPath: options.calibrationPath,
+                                    calibrationRequired: options.calibrationRequired)
+            pose = imu
+        }
+        try pose.start()
+        if let imu = pose as? ImuPoseSource {
+            log("calibration: " + (imu.calibrationLoaded ? options.calibrationPath : "none (identity)"))
+            log("imu: streaming, leave the glasses still on the table ~6 s until TRACK")
+        }
+
+        // Virtual monitors before the window, so the layout is settled when we draw.
+        if options.displays > 0 {
+            let vd = try VirtualDesktop(count: options.displays, width: options.vdWidth, height: options.vdHeight,
+                                        hiDPI: options.hiDPI, refresh: 60)
+            desktop = vd
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+            let anchor = CGMainDisplayID()
+            vd.arrange(rightOf: anchor)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))  // NSScreen list catches up
+            log("virtual monitors: " + vd.ids.map { id in
+                let b = CGDisplayBounds(id)
+                return "\(id)@\(Int(b.minX)),\(Int(b.minY)) \(Int(b.width))x\(Int(b.height))"
+            }.joined(separator: "  ") + "  (right of display \(anchor))")
+            if options.testPattern {
+                for (i, id) in vd.ids.enumerated() {
+                    guard let s = vd.screen(for: id) else { continue }
+                    patternWindows.append(TestPatternView.makeWindow(on: s, index: i, total: vd.ids.count))
+                }
+            }
+        }
+
+        // Render window.
+        let rect = options.windowed ? NSRect(x: 80, y: 80, width: 1280, height: 720) : screen.frame
+        window = NSWindow(contentRect: rect, styleMask: options.windowed ? [.titled, .miniaturizable] : [.borderless],
                           backing: .buffered, defer: false, screen: screen)
-        window.title = "RayNeo spatial server"
+        window.title = "RayNeo spatial server (preview)"
         window.backgroundColor = .black
         window.isOpaque = true
-        window.sharingType = .none
+        window.isReleasedWhenClosed = false
         if !options.windowed {
+            // Above everything, click-through, invisible to capture (no feedback loop).
+            window.sharingType = .none
             window.level = .screenSaver
             window.ignoresMouseEvents = true
             window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
@@ -117,37 +157,21 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         layer.displaySyncEnabled = true  // without vsync the scanout time does not move, only the estimate
 
         renderer = try RNSpatialRenderer(device: device, pixelFormat: .bgra8Unorm)
+        let sbs = options.sideBySide ?? !options.windowed
         let ro = renderer.options
-        ro.sideBySide = options.sideBySide
+        ro.sideBySide = sbs
         ro.ipdMeters = options.ipdMM / 1000
         ro.distanceMeters = options.distanceM
-        ro.arcDegrees = options.arcDeg
+        ro.arcDegrees = options.panelArcDeg
+        ro.gapDegrees = options.gapDeg
         ro.fovYDegrees = options.fovYDeg
         ro.k1 = options.k1
         ro.k2 = options.k2
-        log("render: \(options.sideBySide ? "half-SBS" : "mono") ipd \(options.ipdMM) mm, screen r=\(options.distanceM) m arc \(options.arcDeg)°, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
+        renderer.panelCount = UInt(max(1, options.displays))
+        log("render: \(sbs ? "half-SBS" : "mono"), \(max(1, options.displays)) panel(s) of \(options.panelArcDeg)° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
 
-        // IMU engine + calibration.
-        do {
-            try engine.loadCalibration(fromFile: options.calibrationPath)
-            log("calibration: \(options.calibrationPath)")
-        } catch {
-            if options.calibrationRequired { throw error }
-            log("calibration: none (identity)")
-        }
-        try engine.start()
-        log("imu: streaming, keep the glasses still ~6 s for bias calibration")
-
-        // Hotkeys.
-        hotKeys.register(keyCode: kVK_ANSI_C, modifiers: cmdKey | optionKey) { [weak self] in
-            self?.engine.recenter()
-            self?.log("recenter")
-        }
-        hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: cmdKey | optionKey) {
-            NSApp.terminate(nil)
-        }
-
-        try startCapture(glasses: glasses)
+        registerHotKeys()
+        try startCaptures(glasses: glasses)
         startRenderLoop(layer: layer)
 
         statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.printStats() }
@@ -155,34 +179,67 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     func stop() {
         displayLink?.invalidate()
-        engine.stop()
-        let cap = capture
+        pose?.stop()
+        let caps = captures
         let done = DispatchSemaphore(value: 0)
         Task.detached {
-            await cap?.stop()
+            for c in caps { await c.stop() }
             done.signal()
         }
-        _ = done.wait(timeout: .now() + 1)
+        _ = done.wait(timeout: .now() + 2)
+        patternWindows.forEach { $0.close() }
+        desktop = nil  // virtual monitors disappear here
+    }
+
+    // MARK: input
+
+    private func registerHotKeys() {
+        let mods = cmdKey | optionKey
+        hotKeys.register(keyCode: kVK_ANSI_C, modifiers: mods) { [weak self] in
+            self?.pose.recenter()
+            self?.log("recenter")
+        }
+        hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: mods) { NSApp.terminate(nil) }
+        if let sim = pose as? SimPoseSource {
+            let step: Float = 10
+            hotKeys.register(keyCode: kVK_LeftArrow, modifiers: mods) { sim.nudge(yaw: step, pitch: 0) }
+            hotKeys.register(keyCode: kVK_RightArrow, modifiers: mods) { sim.nudge(yaw: -step, pitch: 0) }
+            hotKeys.register(keyCode: kVK_UpArrow, modifiers: mods) { sim.nudge(yaw: 0, pitch: step) }
+            hotKeys.register(keyCode: kVK_DownArrow, modifiers: mods) { sim.nudge(yaw: 0, pitch: -step) }
+        }
     }
 
     // MARK: capture
 
-    private func startCapture(glasses: NSScreen?) throws {
-        let source = try captureDisplay(glasses: glasses)
-        let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb) }
-        capture = cap
+    private func startCaptures(glasses: NSScreen?) throws {
+        // (display, panel, excludeOwnApp)
+        var plan: [(CGDirectDisplayID, Int, Bool)] = []
+        if let desktop {
+            plan = desktop.ids.enumerated().map { ($0.element, $0.offset, false) }
+        } else {
+            plan = [(try captureDisplay(glasses: glasses), 0, true)]
+        }
+        let fps = desktop != nil ? 60 : 120
+        for (id, panel, exclude) in plan {
+            let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: UInt(panel)) }
+            captures.append(cap)
+            let (w, h) = try awaitOnMain { try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude) }
+            log("capture: panel \(panel + 1) <- display \(id) \(w)x\(h) @\(fps) fps")
+        }
+    }
+
+    // Runs async work while keeping the main run loop alive (TCC prompt, display updates).
+    private func awaitOnMain<T>(_ work: @escaping () async throws -> T) throws -> T {
         let sem = DispatchSemaphore(value: 0)
-        var result: Result<(Int, Int), Error> = .failure(fail("capture timeout"))
+        var result: Result<T, Error> = .failure(fail("timeout"))
         Task.detached {
-            do { result = .success(try await cap.start(displayID: source, fps: 120)) } catch { result = .failure(error) }
+            do { result = .success(try await work()) } catch { result = .failure(error) }
             sem.signal()
         }
-        // Capture start needs the main run loop only for the permission prompt; poll it.
         while sem.wait(timeout: .now()) == .timedOut {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
         }
-        let (w, h) = try result.get()
-        log("capture: display \(source) \(w)x\(h) @120 fps (own windows excluded)")
+        return try result.get()
     }
 
     private func captureDisplay(glasses: NSScreen?) throws -> CGDirectDisplayID {
@@ -234,13 +291,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let nowHost = RNSpatialEngine.hostNowNs()
         let targetHost = Int64(nowHost) + Int64((update.targetPresentationTimestamp - nowMedia) * 1e9)
 
-        guard let pose = engine.latestPose() else {
+        guard let p = pose.latest() else {
             _ = renderer.render(to: update.drawable, orientation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
                                 angularVelocity: .zero, sampleHostNs: 0, targetHostNs: 0)
             return
         }
         // Ground truth: when the frame actually reached the display (same media clock).
-        let sampleMedia = nowMedia - Double(Int64(nowHost) - Int64(pose.hostTimeNs)) / 1e9
+        let sampleMedia = nowMedia - Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e9
         let target = update.targetPresentationTimestamp
         update.drawable.addPresentedHandler { [weak self] d in
             guard let self, d.presentedTime > 0 else { return }
@@ -249,14 +306,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                                     targetError: (d.presentedTime - target) * 1e3)
             self.statsLock.unlock()
         }
-        let prediction = renderer.render(to: update.drawable, orientation: pose.orientation,
-                                         angularVelocity: pose.angularVelocity,
-                                         sampleHostNs: pose.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))
-        let poseAge = Double(Int64(nowHost) - Int64(pose.hostTimeNs)) / 1e6
-        let photon = Double(targetHost - Int64(pose.hostTimeNs)) / 1e6
+        let prediction = renderer.render(to: update.drawable, orientation: p.orientation,
+                                         angularVelocity: p.angularVelocity,
+                                         sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))
+        let poseAge = Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6
+        let photon = Double(targetHost - Int64(p.hostTimeNs)) / 1e6
         statsLock.lock()
         stats.add(poseAge: poseAge, photon: photon, prediction: Double(prediction))
-        stats.tracking = pose.isTracking
+        stats.tracking = p.tracking
         statsLock.unlock()
     }
 
@@ -265,7 +322,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let s = stats
         stats = LatencyStats()
         statsLock.unlock()
-        let capFrames = capture?.frames ?? 0
+        let capFrames = captures.reduce(UInt64(0)) { $0 &+ $1.frames }
         let capFps = capFrames &- lastCaptureFrames
         lastCaptureFrames = capFrames
         guard s.frames > 0 else {
@@ -274,10 +331,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         let n = Double(s.frames)
         let pn = Double(max(1, s.presentedN))
-        log(String(format: "%@ render %3d fps | capture %3llu fps | pose age %.1f/%.1f ms | sample->target %.1f ms | sample->presented %.1f/%.1f ms (n=%d, vs target %+.1f) | predicted %.1f ms",
-                   s.tracking ? "TRACK" : "CALIB", s.frames, capFps, s.poseAgeSum / n, s.poseAgeMax,
-                   s.photonSum / n, s.presentedSum / pn, s.presentedMax, s.presentedN, s.targetErrSum / pn,
-                   s.predSum / n))
+        log(String(format: "%@ render %3d fps | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms",
+                   s.tracking ? "TRACK" : "CALIB", s.frames, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
+                   s.presentedSum / pn, s.presentedMax, s.predSum / n))
     }
 
     // MARK: util

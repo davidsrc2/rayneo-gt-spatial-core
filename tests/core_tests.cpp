@@ -598,6 +598,31 @@ void test_curved_screen_mesh() {
     CHECK(curved_screen_mesh(2.0f, 0.0f, 1.0f, 8).vertices.empty());
 }
 
+void test_panel_layout() {
+    const auto c3 = panel_centers(3, 45 * kDeg, 5 * kDeg);
+    CHECK(c3.size() == 3);
+    CHECK(near(c3[0], -50 * kDeg, 1e-6f) && near(c3[1], 0.0f, 1e-6f) && near(c3[2], 50 * kDeg, 1e-6f));
+    const auto c2 = panel_centers(2, 40 * kDeg, 4 * kDeg);  // even count straddles the centre
+    CHECK(near(c2[0], -22 * kDeg, 1e-6f) && near(c2[1], 22 * kDeg, 1e-6f));
+    CHECK(panel_centers(0, 1, 0).empty());
+    CHECK(near(panel_centers(1, 1, 0)[0], 0.0f, 1e-7f));
+
+    // Right panel: its mesh is the centre mesh rotated 50 deg to the right, edges included.
+    const ScreenMesh right = curved_screen_mesh(2.0f, 45 * kDeg, 1.0f, 8, c3[2], 0.1f);
+    const auto& l = right.vertices.front();  // left/top edge at 27.5 deg
+    CHECK(near(std::atan2(l.px, l.pz), 27.5f * kDeg, 1e-5f) && near(l.py, 0.6f, 1e-6f));
+    const auto& r = right.vertices.back();  // right/bottom edge at 72.5 deg
+    CHECK(near(std::atan2(r.px, r.pz), 72.5f * kDeg, 1e-5f) && near(r.py, -0.4f, 1e-6f));
+
+    // Looking 50 deg right (core yaw -50) puts that panel's centre straight ahead.
+    const Quat look_right = Quat::from_axis_angle({0, 0, 1}, -50 * kDeg);
+    const Vec3 centre{2.0f * std::sin(c3[2]), 0.0f, 2.0f * std::cos(c3[2])};
+    CHECK(vec_near(view_matrix(look_right, 0.0f).transform_point(centre), {0, 0, 2}, 1e-5f));
+
+    CHECK(near(arc_for_pixels(1920.0f, 48.0f), 40 * kDeg, 1e-6f));
+    CHECK(arc_for_pixels(100.0f, 0.0f) == 0.0f);
+}
+
 void test_barrel_distort() {
     const Vec2 c = barrel_distort({0, 0}, 0.2f, 0.1f);
     CHECK(c.x == 0.0f && c.y == 0.0f);
@@ -644,6 +669,7 @@ int main() {
     test_predict_orientation();
     test_curved_screen_mesh();
     test_barrel_distort();
+    test_panel_layout();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

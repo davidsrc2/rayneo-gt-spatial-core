@@ -50,9 +50,18 @@ struct ScreenMesh {
     std::vector<ScreenVertex> vertices;
     std::vector<uint16_t> indices;  // triangle list
 };
-// radius_m: viewing distance; arc_rad: horizontal angular width (> 0), centred on +Z;
-// height_m: screen height. u runs left -> right, v top -> bottom (Metal texture origin).
-ScreenMesh curved_screen_mesh(float radius_m, float arc_rad, float height_m, int segments);
+// radius_m: viewing distance; arc_rad: horizontal angular width (> 0), centred on
+// center_rad (0 = straight ahead, positive = to the right); height_m: screen height,
+// centred on center_y_m. u runs left -> right, v top -> bottom (Metal texture origin).
+ScreenMesh curved_screen_mesh(float radius_m, float arc_rad, float height_m, int segments,
+                              float center_rad = 0.0f, float center_y_m = 0.0f);
+
+// Horizontal row of `count` panels of equal arc separated by gap_rad, centred on straight
+// ahead. Returns each panel's centre angle (render frame: negative = left), left to right.
+std::vector<float> panel_centers(int count, float panel_arc_rad, float gap_rad);
+
+// Arc width (rad) that shows a source `pixels_wide` at `pixels_per_degree` angular density.
+float arc_for_pixels(float pixels_wide, float pixels_per_degree);
 
 // Radial lens pre-distortion in normalised eye coordinates (centre 0, half-height 1):
 // p' = p * (1 + k1 r^2 + k2 r^4). Positive k pre-compensates pincushion optics.

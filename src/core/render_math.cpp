@@ -74,18 +74,19 @@ Quat predict_orientation(const Quat& q, const Vec3& omega_rads, float dt_s) {
     return (Quat::from_axis_angle(omega_rads, angle) * q).normalized();
 }
 
-ScreenMesh curved_screen_mesh(float radius_m, float arc_rad, float height_m, int segments) {
+ScreenMesh curved_screen_mesh(float radius_m, float arc_rad, float height_m, int segments, float center_rad,
+                              float center_y_m) {
     ScreenMesh mesh;
     if (segments < 1 || arc_rad <= 0.0f) return mesh;
     mesh.vertices.reserve(static_cast<size_t>(segments + 1) * 2);
     const float half_h = height_m * 0.5f;
     for (int i = 0; i <= segments; ++i) {
         const float u = static_cast<float>(i) / static_cast<float>(segments);
-        const float theta = (u - 0.5f) * arc_rad;  // negative = left
+        const float theta = center_rad + (u - 0.5f) * arc_rad;  // negative = left
         const float x = radius_m * std::sin(theta);
         const float z = radius_m * std::cos(theta);
-        mesh.vertices.push_back({x, half_h, z, u, 0.0f});
-        mesh.vertices.push_back({x, -half_h, z, u, 1.0f});
+        mesh.vertices.push_back({x, center_y_m + half_h, z, u, 0.0f});
+        mesh.vertices.push_back({x, center_y_m - half_h, z, u, 1.0f});
     }
     for (int i = 0; i < segments; ++i) {
         const auto top = static_cast<uint16_t>(i * 2);
@@ -95,6 +96,19 @@ ScreenMesh curved_screen_mesh(float radius_m, float arc_rad, float height_m, int
         mesh.indices.insert(mesh.indices.end(), {top, next_top, bottom, bottom, next_top, next_bottom});
     }
     return mesh;
+}
+
+std::vector<float> panel_centers(int count, float panel_arc_rad, float gap_rad) {
+    std::vector<float> out;
+    if (count <= 0) return out;
+    out.reserve(static_cast<size_t>(count));
+    const float step = panel_arc_rad + gap_rad;
+    for (int i = 0; i < count; ++i) out.push_back((static_cast<float>(i) - 0.5f * static_cast<float>(count - 1)) * step);
+    return out;
+}
+
+float arc_for_pixels(float pixels_wide, float pixels_per_degree) {
+    return pixels_per_degree > 0.0f ? (pixels_wide / pixels_per_degree) * 0.017453292519943295f : 0.0f;
 }
 
 Vec2 barrel_distort(const Vec2& p, float k1, float k2) {
