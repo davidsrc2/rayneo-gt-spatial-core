@@ -281,6 +281,28 @@ void test_bias_escape_rollback() {
     CHECK(vec_near(e.bias(), kBias0, 0.03f));
 }
 
+// Worn from the start: tremor never meets the desk rest gate. Tracking must still begin,
+// from the steadiest block, with a bias close to the true one.
+void test_bias_worn_start() {
+    Lcg rng;
+    GyroBiasEstimator e;
+    run_rest(e, rng, kBias0, 13.0f, 3.0f);
+    CHECK(!e.tracking());  // fallback needs 4 s warmup + 10 s
+    run_rest(e, rng, kBias0, 2.0f, 3.0f);
+    CHECK(e.tracking() && e.worn_start());
+    CHECK(vec_near(e.bias(), kBias0, 0.15f));
+
+    // Desk start is unchanged: rest window, no fallback.
+    GyroBiasEstimator d;
+    run_rest(d, rng, kBias0, 8.0f);
+    CHECK(d.tracking() && !d.worn_start());
+
+    // A steady turn larger than any plausible bias is never adopted as bias.
+    GyroBiasEstimator t;
+    run_rest(t, rng, kBias0 + Vec3{0, 0, 4.0f}, 20.0f, 3.0f);
+    CHECK(!t.tracking());
+}
+
 // ---------------------------------------------------------------------------
 // Sensor -> head calibration
 // ---------------------------------------------------------------------------
@@ -454,6 +476,7 @@ int main() {
     test_bias_rejects_out_of_clamp_step();
     test_bias_escape_adopts_persistent_step();
     test_bias_escape_rollback();
+    test_bias_worn_start();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();
     test_head_calibration_tolerates_turn_in_nods();

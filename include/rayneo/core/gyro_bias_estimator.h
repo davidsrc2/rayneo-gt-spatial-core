@@ -8,6 +8,8 @@ namespace rayneo::core {
 // bias request (66 3c), so bias is estimated online:
 //  1. Warmup: discard the contaminated samples right after stream-on.
 //  2. Startup calibration: average ONE contiguous rest window (fragments never stitched).
+//     Worn fallback: a worn head never meets the desk rest gate (pulse, tremor). If no rest
+//     window arrives within worn_fallback_s, adopt the steadiest 1 s block seen instead.
 //  3. Routine adaptation: during dwell-qualified rest, chase only small residuals so a
 //     deliberate slow head turn is not learned as drift.
 //  4. Escape path: a larger residual (thermal step) is adopted only after it has been
@@ -34,6 +36,10 @@ struct GyroBiasConfig {
     float ema_tau_s = 0.2f;
     float gap_reset_s = 0.05f;
 
+    float worn_fallback_s = 10.0f;     // time in Calibrating before the fallback applies
+    float worn_block_s = 1.0f;
+    float worn_max_std_degs = 4.0f;    // |per-axis std| of a usable block (tremor ~3)
+
     float escape_persist_s = 10.0f;
     float escape_stability_degs = 0.15f;  // candidate EMA must stay this close to its anchor
     float verify_s = 30.0f;
@@ -56,6 +62,9 @@ public:
     bool still() const { return still_; }
     const Vec3& bias() const { return bias_; }
 
+    // True when tracking started from the worn fallback (bias less certain until the next
+    // rest on a desk refines it through routine adaptation).
+    bool worn_start() const { return worn_start_; }
     int escapes() const { return escapes_; }
     int rollbacks() const { return rollbacks_; }
     bool verifying() const { return verify_left_s_ > 0.0f; }
@@ -65,6 +74,7 @@ private:
     void reset_window();
     void reset_escape();
     void track_at_rest(const Vec3& g, float dt);
+    void update_worn_block(const Vec3& g, float dt);
 
     GyroBiasConfig cfg_;
     State state_ = State::Warmup;
@@ -100,6 +110,16 @@ private:
 
     int escapes_ = 0;
     int rollbacks_ = 0;
+
+    // Worn fallback.
+    float calib_elapsed_s_ = 0.0f;
+    Vec3 block_sum_, block_sq_;
+    int block_n_ = 0;
+    float block_s_ = 0.0f;
+    bool have_best_ = false;
+    Vec3 best_mean_;
+    float best_std_ = 0.0f;
+    bool worn_start_ = false;
 };
 
 }  // namespace rayneo::core
