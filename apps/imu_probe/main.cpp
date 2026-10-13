@@ -362,6 +362,7 @@ int run_calibrate(const std::string& out_path) {
         const char* prompt;
         core::Vec3* out;
     };
+    // Bigger nods dilute any turn or tilt mixed into them; 15 deg is the minimum accepted.
     const Step steps[] = {{"look UP (~30 deg) and hold", &in.rot_up},
                           {"look DOWN (~30 deg) and hold", &in.rot_down},
                           {"turn LEFT (~30 deg) and hold", &in.rot_left},
@@ -388,8 +389,8 @@ int run_calibrate(const std::string& out_path) {
     }
 
     const auto r = core::solve_head_calibration(in);
-    std::printf("\nyaw axis vs gravity %.1f deg, nod axis tilt %.1f deg\n", r.yaw_axis_error_deg,
-                r.pitch_axis_tilt_deg);
+    std::printf("\nyaw axis vs gravity %.1f deg, nod axis tilt %.1f deg, up/down nod mismatch %.1f deg\n",
+                r.yaw_axis_error_deg, r.pitch_axis_tilt_deg, r.nod_mismatch_deg);
     if (!r.ok) {
         std::fprintf(stderr, "calibration rejected: %s\n", r.error.c_str());
         return 2;
