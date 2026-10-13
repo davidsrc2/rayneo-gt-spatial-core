@@ -220,7 +220,10 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
   set_target_properties(mac_spatial_server PROPERTIES
     MACOSX_BUNDLE TRUE
     MACOSX_BUNDLE_INFO_PLIST ${RAYNEO_SERVER_DIR}/Info.plist.in)
+  # Some swiftc versions drop the target's dependency file (*.d) next to the executable,
+  # inside the bundle; codesign rejects unsigned files in Contents/MacOS.
   add_custom_command(TARGET mac_spatial_server POST_BUILD
+    COMMAND find $<TARGET_BUNDLE_CONTENT_DIR:mac_spatial_server>/MacOS -name "*.d" -delete
     COMMAND codesign --force --sign - --identifier es.gestorae.rayneo.spatialserver
             $<TARGET_BUNDLE_DIR:mac_spatial_server>
     COMMENT "Ad-hoc signing mac_spatial_server.app")
