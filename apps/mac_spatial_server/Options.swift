@@ -8,6 +8,8 @@ struct ServerOptions {
     var gapDeg: Float = 1
     var curved = false
     var fovYDeg: Float = 24.5
+    var fovFromCLI = false
+    var deadZoneDeg: Float = 1.0
     var k1: Float = 0
     var k2: Float = 0
 
@@ -52,7 +54,8 @@ struct ServerOptions {
     optics
       --mono / --sbs       single view (glasses 2D) / half side-by-side (glasses 3D)
       --ipd MM             interpupillary distance (63)
-      --fov DEG            per-eye vertical FOV of the optics (24.5)
+      --fov DEG            per-eye vertical FOV of the optics (24.5, or the value tuned with
+                           Cmd+Opt+- / Cmd+Opt+= which is remembered)
       --k1 K --k2 K        barrel pre-distortion (0 = off)
     tracking
       --calib FILE         sensor_to_head calibration (default ./calibration.json if present)
@@ -66,6 +69,7 @@ struct ServerOptions {
       --duration S         exit after S seconds
     menu bar: "◎ RayNeo" -> Recentrar / Salir
     hotkeys: Cmd+Opt+C recenter (and bring the cursor to the panel in front), Cmd+Opt+Q quit,
+             Cmd+Opt+- / Cmd+Opt+= field of view (tune until the panels stay put when turning),
              Cmd+Opt+arrows look around (--sim)
     """
 
@@ -100,7 +104,7 @@ struct ServerOptions {
             case "--mono": o.sideBySide = false
             case "--sbs": o.sideBySide = true
             case "--ipd": guard let v = float() else { return nil }; o.ipdMM = v
-            case "--fov": guard let v = float() else { return nil }; o.fovYDeg = v
+            case "--fov": guard let v = float() else { return nil }; o.fovYDeg = v; o.fovFromCLI = true
             case "--k1": guard let v = float() else { return nil }; o.k1 = v
             case "--k2": guard let v = float() else { return nil }; o.k2 = v
             case "--calib":

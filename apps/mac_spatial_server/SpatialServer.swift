@@ -196,9 +196,16 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         layer.device = device
         layer.pixelFormat = .bgra8Unorm
         layer.framebufferOnly = true
-        layer.contentsScale = screen.backingScaleFactor
-        layer.drawableSize = CGSize(width: rect.width * screen.backingScaleFactor,
-                                    height: rect.height * screen.backingScaleFactor)
+        // Pixel size from the display's current mode: NSScreen.backingScaleFactor can still
+        // describe the previous (HiDPI) mode right after the native-mode switch.
+        var scale = screen.backingScaleFactor
+        if !options.windowed, let mode = CGDisplayCopyDisplayMode(screenID), rect.width > 0 {
+            scale = CGFloat(mode.pixelWidth) / rect.width
+        }
+        layer.contentsScale = scale
+        layer.drawableSize = CGSize(width: rect.width * scale, height: rect.height * scale)
+        log(String(format: "surface: window %.0fx%.0f pt, scale %.1f, drawable %.0fx%.0f px",
+                   rect.width, rect.height, scale, layer.drawableSize.width, layer.drawableSize.height))
         layer.maximumDrawableCount = 2  // 3 measured identical; 2 holds less queued work
         layer.displaySyncEnabled = true  // without vsync the scanout time does not move, only the estimate
 
@@ -212,6 +219,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.gapDegrees = options.gapDeg
         ro.curved = options.curved
         ro.fovYDegrees = options.fovYDeg
+        if !options.fovFromCLI, UserDefaults.standard.object(forKey: "fovY") != nil {
+            ro.fovYDegrees = UserDefaults.standard.float(forKey: "fovY")
+        }
         ro.k1 = options.k1
         ro.k2 = options.k2
         let panels = max(1, panelDisplays.count)
@@ -219,7 +229,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if options.fit && options.arcDeg == nil {
             ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(panels))
         }
-        log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
+        log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
         statusMenu = StatusMenu { [weak self] in self?.recenter() }
@@ -329,6 +339,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: input
 
+    func adjustFov(_ delta: Float) {
+        let ro = renderer.options
+        ro.fovYDegrees = max(10, min(45, ro.fovYDegrees + delta))
+        UserDefaults.standard.set(ro.fovYDegrees, forKey: "fovY")
+        log(String(format: "fov: %.1f° (saved)", ro.fovYDegrees))
+    }
+
     func recenter() {
         pose.recenter()
         lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
@@ -339,6 +356,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let mods = cmdKey | optionKey
         hotKeys.register(keyCode: kVK_ANSI_C, modifiers: mods) { [weak self] in self?.recenter() }
         hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: mods) { NSApp.terminate(nil) }
+        // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
+        // turning, the render FOV is too large (Cmd+Opt+-); against it, too small (Cmd+Opt+=).
+        hotKeys.register(keyCode: kVK_ANSI_Minus, modifiers: mods) { [weak self] in self?.adjustFov(-0.5) }
+        hotKeys.register(keyCode: kVK_ANSI_Equal, modifiers: mods) { [weak self] in self?.adjustFov(0.5) }
         if let sim = pose as? SimPoseSource {
             let step: Float = 10
             hotKeys.register(keyCode: kVK_LeftArrow, modifiers: mods) { sim.nudge(yaw: step, pitch: 0) }

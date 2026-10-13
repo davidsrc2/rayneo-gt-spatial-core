@@ -15,11 +15,11 @@ Quat slerp(const Quat& a, const Quat& b, float t);
 //  - Following: a real turn leaves the dead zone; the output tracks the head with a fast
 //    adaptive low-pass (little lag) until the head has been slow for settle_s, then holds.
 struct PoseStabilizerConfig {
-    float enter_deg = 1.5f;           // dead zone around the held orientation
+    float enter_deg = 1.0f;           // dead zone: above tremor + breathing sway (~0.5-0.8 deg)
     float settle_speed_rads = 0.06f;  // ~3.4 deg/s: below this the head is "holding"
     float settle_s = 0.25f;
-    float follow_min_cutoff_hz = 4.0f;
-    float follow_beta = 30.0f;        // cutoff increase per rad/s while following
+    float follow_min_cutoff_hz = 8.0f;
+    float follow_beta = 40.0f;        // cutoff increase per rad/s while following
     float speed_cutoff_hz = 3.0f;     // low-pass on the angular velocity vector
 };
 

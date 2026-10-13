@@ -12,6 +12,15 @@ guard #available(macOS 14.0, *) else {
     exit(1)
 }
 
+// One server at a time: two would fight over the display arrangement, and the first to quit
+// would revert the other's (app-scoped) configuration.
+let lockPath = NSTemporaryDirectory() + "rayneo-spatial-server.lock"
+let lockFD = open(lockPath, O_CREAT | O_RDWR, 0o644)
+if lockFD < 0 || flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
+    print("another mac_spatial_server is already running: quit it first (Cmd+Opt+Q)")
+    exit(1)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let options: ServerOptions
     var server: AnyObject?
