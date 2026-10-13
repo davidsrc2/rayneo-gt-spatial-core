@@ -164,11 +164,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.distanceMeters = options.distanceM
         ro.arcDegrees = options.panelArcDeg
         ro.gapDegrees = options.gapDeg
+        ro.curved = options.curved
         ro.fovYDegrees = options.fovYDeg
         ro.k1 = options.k1
         ro.k2 = options.k2
         renderer.panelCount = UInt(max(1, options.displays))
-        log("render: \(sbs ? "half-SBS" : "mono"), \(max(1, options.displays)) panel(s) of \(options.panelArcDeg)° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
+        log("render: \(sbs ? "half-SBS" : "mono"), \(max(1, options.displays)) \(options.curved ? "curved" : "flat") panel(s) of \(options.panelArcDeg)° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
         try startCaptures(glasses: glasses)

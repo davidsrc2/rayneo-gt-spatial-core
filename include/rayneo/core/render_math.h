@@ -56,6 +56,15 @@ struct ScreenMesh {
 ScreenMesh curved_screen_mesh(float radius_m, float arc_rad, float height_m, int segments,
                               float center_rad = 0.0f, float center_y_m = 0.0f);
 
+// Flat panel facing the viewer, tangent to the circle of radius_m at center_rad, so it
+// spans exactly arc_rad as seen from the origin (width 2 r tan(arc/2)). Adjacent flat
+// panels with gap 0 share their edge, like monitors angled towards the user.
+ScreenMesh flat_screen_mesh(float radius_m, float arc_rad, float height_m, int segments,
+                            float center_rad = 0.0f, float center_y_m = 0.0f);
+
+// Physical width of a panel spanning arc_rad at radius_m (arc length if curved).
+float panel_width(float radius_m, float arc_rad, bool flat);
+
 // Horizontal row of `count` panels of equal arc separated by gap_rad, centred on straight
 // ahead. Returns each panel's centre angle (render frame: negative = left), left to right.
 std::vector<float> panel_centers(int count, float panel_arc_rad, float gap_rad);

@@ -45,6 +45,7 @@ struct Panel {
     id<MTLBuffer> indices;
     NSUInteger index_count = 0;
     float mesh_aspect = 0, mesh_distance = 0, mesh_arc = 0, mesh_center = 0;
+    int mesh_flat = -1;
 };
 
 }  // namespace
@@ -57,6 +58,7 @@ struct Panel {
         _distanceMeters = 2.0f;
         _arcDegrees = 50.0f;
         _gapDegrees = 4.0f;
+        _curved = NO;
         _fovYDegrees = 24.5f;
         _eyeAspect = 16.0f / 9.0f;
         _k1 = 0.0f;
@@ -179,12 +181,14 @@ struct Panel {
 - (void)rebuildMesh:(Panel&)p aspect:(float)aspect center:(float)center {
     RNRenderOptions* o = _options;
     if (p.vertices != nil && aspect == p.mesh_aspect && o.distanceMeters == p.mesh_distance &&
-        o.arcDegrees == p.mesh_arc && center == p.mesh_center) {
+        o.arcDegrees == p.mesh_arc && center == p.mesh_center && (o.curved ? 0 : 1) == p.mesh_flat) {
         return;
     }
     const float arc = o.arcDegrees * kDegToRad;
-    const float width = o.distanceMeters * arc;  // arc length
-    const core::ScreenMesh mesh = core::curved_screen_mesh(o.distanceMeters, arc, width / aspect, 64, center);
+    const float width = core::panel_width(o.distanceMeters, arc, !o.curved);
+    const core::ScreenMesh mesh =
+        o.curved ? core::curved_screen_mesh(o.distanceMeters, arc, width / aspect, 64, center)
+                 : core::flat_screen_mesh(o.distanceMeters, arc, width / aspect, 1, center);
     p.vertices = [_device newBufferWithBytes:mesh.vertices.data()
                                       length:mesh.vertices.size() * sizeof(core::ScreenVertex)
                                      options:MTLResourceStorageModeShared];
@@ -196,6 +200,7 @@ struct Panel {
     p.mesh_distance = o.distanceMeters;
     p.mesh_arc = o.arcDegrees;
     p.mesh_center = center;
+    p.mesh_flat = o.curved ? 0 : 1;
 }
 
 - (void)ensureEyeTextures:(MTLPixelFormat)format width:(NSUInteger)w height:(NSUInteger)h {

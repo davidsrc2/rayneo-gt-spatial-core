@@ -83,11 +83,11 @@ Solo núcleo (cualquier host, sin hidapi): `cmake -S . -B build -DRAYNEO_BUILD_H
 
 ## Escritorio espacial macOS (`mac_spatial_server.app`)
 
-Crea N monitores virtuales en macOS (por defecto 3), los captura con ScreenCaptureKit y los dibuja como paneles curvos fijos en el espacio alrededor de ti (izquierda, centro, derecha). Mueves la cabeza para mirar de uno a otro; el ratón y las ventanas pasan entre ellos como entre monitores físicos.
+Crea N monitores virtuales en macOS (por defecto 3), los captura con ScreenCaptureKit y los dibuja como monitores planos fijos en el espacio, orientados hacia ti y contiguos como en una mesa con varios monitores (`--curved` para paneles curvos). Mueves la cabeza para mirar de uno a otro; el ratón y las ventanas pasan entre ellos como entre monitores físicos.
 
 - Monitores virtuales: API privada `CGVirtualDisplay` (la misma que DeskPad/BetterDisplay). Existen solo mientras corre el servidor; al salir, las ventanas que tuvieran vuelven a la pantalla principal.
 - Disposición en macOS: fila a la derecha de la pantalla principal (panel 1 = izquierda). Configuración de pantallas solo para la app, se revierte al salir.
-- Panel por defecto: 38° de ancho (cabe entero en el FOV horizontal de ~42°), separación 4°, radio 2 m.
+- Panel por defecto: plano, 38° de ancho (cabe entero en el FOV horizontal de ~42°), separación 1°, a 2 m.
 - Pose: IMU de las gafas con predicción hasta el instante de presentación. `--sim` sustituye la IMU por una cabeza simulada (sin gafas).
 - `--displays 0` vuelve al modo de Fase 3 (captura de una pantalla existente).
 - Latencia medida (M4, espejo, 120 Hz): muestra IMU -> scanout 26,4 ms = edad de pose 1,4 ms + 3 refrescos de WindowServer, compensada con predicción. `--unmirror`, 3 drawables, `frameLatency` < 1, sin vsync y modo exclusivo no lo reducen.
@@ -107,7 +107,7 @@ Ventana de vista previa en la pantalla del Mac con los 3 paneles (patrón de col
 0. Requisitos (una vez)
    - Compilar: `cd ~/rayneo-gt-spatial-core && cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build`
    - Permiso de grabación de pantalla para Terminal (Ajustes > Privacidad y seguridad > Grabación de pantalla y audio del sistema). Si se concede por primera vez, cerrar y reabrir Terminal.
-   - Gafas en su modo normal (imagen pegada a la vista), **sin** ningún modo de pantalla fija propio. Modo 3D (SBS) para el render estéreo; si se quedan en 2D usar `--mono`.
+   - Gafas en su modo normal (imagen pegada a la vista), **sin** ningún modo de pantalla fija propio. Modo 3D (SBS) para el render estéreo; si están en 2D usar `--mono` (sin él se ve la misma pantalla duplicada, una mitad por ojo).
 
 1. Conectar las gafas y comprobar el enlace USB
    ```sh

@@ -5,7 +5,8 @@ struct ServerOptions {
     var ipdMM: Float = 63
     var distanceM: Float = 2.0
     var arcDeg: Float? = nil      // nil: 38 per virtual panel, 50 for single-display capture
-    var gapDeg: Float = 4
+    var gapDeg: Float = 1
+    var curved = false
     var fovYDeg: Float = 24.5
     var k1: Float = 0
     var k2: Float = 0
@@ -35,7 +36,8 @@ struct ServerOptions {
       --vd-size WxH        virtual monitor size in points (1920x1080)
       --hidpi              Retina virtual monitors (sharper text, 4x capture cost)
       --arc DEG            horizontal size of each panel (38; 50 with --displays 0)
-      --gap DEG            space between panels (4)
+      --gap DEG            space between panels (1)
+      --curved             curved panels (default: flat monitors angled towards you)
       --distance M         panel radius in metres (2.0)
       --test-pattern       labelled grid on each virtual monitor
     optics
@@ -75,6 +77,7 @@ struct ServerOptions {
             case "--hidpi": o.hiDPI = true
             case "--arc": guard let v = float() else { return nil }; o.arcDeg = v
             case "--gap": guard let v = float() else { return nil }; o.gapDeg = v
+            case "--curved": o.curved = true
             case "--distance": guard let v = float() else { return nil }; o.distanceM = v
             case "--test-pattern": o.testPattern = true
             case "--mono": o.sideBySide = false

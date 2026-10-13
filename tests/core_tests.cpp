@@ -623,6 +623,32 @@ void test_panel_layout() {
     CHECK(arc_for_pixels(100.0f, 0.0f) == 0.0f);
 }
 
+void test_flat_panels() {
+    const float arc = 38 * kDeg, r = 2.0f;
+    const auto centers = panel_centers(2, arc, 0.0f);
+    const ScreenMesh left = flat_screen_mesh(r, arc, 1.0f, 8, centers[0]);
+    const ScreenMesh right = flat_screen_mesh(r, arc, 1.0f, 8, centers[1]);
+    CHECK(left.vertices.size() == 18 && left.indices.size() == 48);
+    // Planar: every vertex lies on the plane tangent to the circle at the panel centre.
+    for (const auto& v : right.vertices) {
+        CHECK(near(v.px * std::sin(centers[1]) + v.pz * std::cos(centers[1]), r, 1e-5f));
+    }
+    // Spans exactly `arc` from the eye.
+    const auto& l0 = right.vertices.front();
+    const auto& l1 = right.vertices.back();
+    CHECK(near(std::atan2(l1.px, l1.pz) - std::atan2(l0.px, l0.pz), arc, 1e-5f));
+    // With gap 0, adjacent flat panels share their edge (contiguous monitors).
+    const auto& left_edge = left.vertices[left.vertices.size() - 2];  // right/top of left panel
+    const auto& right_edge = right.vertices[0];                      // left/top of right panel
+    CHECK(vec_near({left_edge.px, left_edge.py, left_edge.pz}, {right_edge.px, right_edge.py, right_edge.pz}, 1e-5f));
+    // Centre of a straight-ahead panel is at distance r on +Z; u runs left -> right.
+    const ScreenMesh ahead = flat_screen_mesh(r, arc, 1.0f, 2);
+    CHECK(near(ahead.vertices[2].px, 0.0f, 1e-6f) && near(ahead.vertices[2].pz, r, 1e-6f));
+    CHECK(ahead.vertices[0].px < 0 && ahead.vertices[0].u == 0.0f);
+    CHECK(near(panel_width(r, arc, true), 2 * r * std::tan(arc / 2), 1e-6f));
+    CHECK(near(panel_width(r, arc, false), r * arc, 1e-6f));
+}
+
 void test_barrel_distort() {
     const Vec2 c = barrel_distort({0, 0}, 0.2f, 0.1f);
     CHECK(c.x == 0.0f && c.y == 0.0f);
@@ -670,6 +696,7 @@ int main() {
     test_curved_screen_mesh();
     test_barrel_distort();
     test_panel_layout();
+    test_flat_panels();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

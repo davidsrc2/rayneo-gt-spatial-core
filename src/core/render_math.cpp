@@ -98,6 +98,36 @@ ScreenMesh curved_screen_mesh(float radius_m, float arc_rad, float height_m, int
     return mesh;
 }
 
+ScreenMesh flat_screen_mesh(float radius_m, float arc_rad, float height_m, int segments, float center_rad,
+                            float center_y_m) {
+    ScreenMesh mesh;
+    if (segments < 1 || arc_rad <= 0.0f || arc_rad >= 3.0f) return mesh;
+    mesh.vertices.reserve(static_cast<size_t>(segments + 1) * 2);
+    const float half_w = radius_m * std::tan(arc_rad * 0.5f);
+    const float half_h = height_m * 0.5f;
+    const float dx = std::sin(center_rad), dz = std::cos(center_rad);  // towards the panel
+    for (int i = 0; i <= segments; ++i) {
+        const float u = static_cast<float>(i) / static_cast<float>(segments);
+        const float t = (u - 0.5f) * 2.0f * half_w;  // along the panel, left -> right
+        const float x = radius_m * dx + t * dz;
+        const float z = radius_m * dz - t * dx;
+        mesh.vertices.push_back({x, center_y_m + half_h, z, u, 0.0f});
+        mesh.vertices.push_back({x, center_y_m - half_h, z, u, 1.0f});
+    }
+    for (int i = 0; i < segments; ++i) {
+        const auto top = static_cast<uint16_t>(i * 2);
+        const auto bottom = static_cast<uint16_t>(top + 1);
+        const auto next_top = static_cast<uint16_t>(top + 2);
+        const auto next_bottom = static_cast<uint16_t>(top + 3);
+        mesh.indices.insert(mesh.indices.end(), {top, next_top, bottom, bottom, next_top, next_bottom});
+    }
+    return mesh;
+}
+
+float panel_width(float radius_m, float arc_rad, bool flat) {
+    return flat ? 2.0f * radius_m * std::tan(arc_rad * 0.5f) : radius_m * arc_rad;
+}
+
 std::vector<float> panel_centers(int count, float panel_arc_rad, float gap_rad) {
     std::vector<float> out;
     if (count <= 0) return out;
