@@ -13,7 +13,7 @@ Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para
 | fix | Calibración guiada atascada con las gafas puestas: bias sobre la mesa + `HoldDetector` | Fusionada (PR #3). Pendiente de probar con las gafas puestas |
 | 3 | Servidor Metal: ScreenCaptureKit, pantalla curva, half-SBS, predicción, `Cmd+Opt+C` | Rama `feat/phase3-macos-renderer`. Funciona sobre las gafas (120 fps); falta validación visual |
 | 3b | Escritorio de N monitores virtuales (`CGVirtualDisplay`) como paneles fijos, cabeza simulada `--sim` | Rama `feat/phase3b-virtual-displays` (encima de la 3). Probado sin gafas; falta prueba con las gafas |
-| 4 | CI en GitHub Actions (macOS, Windows, Linux) | Pendiente |
+| 4 | CI en GitHub Actions: macOS arm64, Windows MSVC, Linux GCC/Clang + chequeo de aislamiento de core/hal | Fusionada (PR #4). Verde en los 3 SO, 0 warnings propios en MSVC |
 
 ### Medidas sobre el hardware de referencia
 
