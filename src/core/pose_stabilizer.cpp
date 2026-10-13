@@ -35,21 +35,38 @@ Quat slerp(const Quat& a, const Quat& b_in, float t) {
 Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
     if (!init_ || dt <= 0.0f) {
         init_ = true;
-        state_ = q.normalized();
-        omega_ = omega;
+        holding_ = true;
+        out_ = q.normalized();
         omega_slow_ = omega;
+        omega_out_ = {};
         speed_ = omega.norm();
-        cutoff_ = cfg_.min_cutoff_hz;
-        return state_;
+        slow_time_ = 0.0f;
+        return out_;
     }
     // Speed of the low-passed vector: tremor is zero-mean and cancels, a real turn persists.
     omega_slow_ = omega_slow_ + (omega - omega_slow_) * alpha(cfg_.speed_cutoff_hz, dt);
     speed_ = omega_slow_.norm();
-    cutoff_ = cfg_.min_cutoff_hz + cfg_.beta * speed_;
-    const float a = alpha(cutoff_, dt);
-    state_ = slerp(state_, q, a);
-    omega_ = omega_ + (omega - omega_) * a;
-    return state_;
+
+    if (holding_) {
+        const float d = std::fabs(out_.w * q.w + out_.x * q.x + out_.y * q.y + out_.z * q.z);
+        const float err_deg = 2.0f * std::acos(std::fmin(1.0f, d)) * 57.29578f;
+        if (err_deg <= cfg_.enter_deg) {
+            omega_out_ = {};
+            return out_;  // frozen: identical to a head-locked monitor
+        }
+        holding_ = false;
+        slow_time_ = 0.0f;
+    }
+
+    const float cutoff = cfg_.follow_min_cutoff_hz + cfg_.follow_beta * speed_;
+    out_ = slerp(out_, q, alpha(cutoff, dt));
+    omega_out_ = omega_slow_;
+    slow_time_ = speed_ < cfg_.settle_speed_rads ? slow_time_ + dt : 0.0f;
+    if (slow_time_ >= cfg_.settle_s) {
+        holding_ = true;
+        omega_out_ = {};
+    }
+    return out_;
 }
 
 float prediction_gain(float speed_rads, float start_rads, float full_rads) {

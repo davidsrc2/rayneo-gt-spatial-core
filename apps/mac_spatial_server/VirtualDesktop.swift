@@ -34,6 +34,25 @@ final class VirtualDesktop {
         return CGCompleteDisplayConfiguration(config, .forAppOnly) == .success
     }
 
+    // App-scoped: the virtual row becomes the desktop (the display at the origin is macOS's
+    // main display: menu bar, Dock, new windows) and `physical` (the glasses, plus anything
+    // mirroring it) is tucked below-left, touching the row only at a corner, so the cursor
+    // practically never reaches the head-locked surface.
+    @discardableResult
+    func arrangeAsMain(tucking physical: CGDirectDisplayID) -> Bool {
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success else { return false }
+        var x: Int32 = 0
+        for id in ids {
+            CGConfigureDisplayOrigin(config, id, x, 0)
+            x += Int32(CGDisplayBounds(id).width)
+        }
+        let p = CGDisplayBounds(physical)
+        let rowHeight = Int32(ids.map { CGDisplayBounds($0).height }.max() ?? 0)
+        CGConfigureDisplayOrigin(config, physical, -Int32(p.width), rowHeight)
+        return CGCompleteDisplayConfiguration(config, .forAppOnly) == .success
+    }
+
     func screen(for id: CGDirectDisplayID) -> NSScreen? {
         NSScreen.screens.first { Displays.id(of: $0) == id }
     }

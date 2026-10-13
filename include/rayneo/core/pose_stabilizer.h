@@ -7,13 +7,20 @@ namespace rayneo::core {
 // Spherical linear interpolation between unit quaternions (shortest arc).
 Quat slerp(const Quat& a, const Quat& b, float t);
 
-// Adaptive low-pass on orientation (One Euro filter on SO(3)). Looking at a fixed spot,
-// head tremor and gyro noise are removed so the panels stand still; during a real turn the
-// cutoff rises with angular speed so the panels do not lag behind the head.
+// Hold-or-follow stabilizer. A world-locked image re-renders every micro-movement of the head
+// and never looks as still as a plain (head-locked) monitor. So:
+//  - Holding: while the head stays within enter_deg of the held orientation, the output is
+//    frozen: the panels behave exactly like a normal monitor (zero jitter). Tremor, pulse
+//    and sensor noise never reach the screen.
+//  - Following: a real turn leaves the dead zone; the output tracks the head with a fast
+//    adaptive low-pass (little lag) until the head has been slow for settle_s, then holds.
 struct PoseStabilizerConfig {
-    float min_cutoff_hz = 0.3f;    // at rest
-    float beta = 20.0f;            // cutoff increase per rad/s of (smoothed) angular speed
-    float speed_cutoff_hz = 1.5f;  // low-pass on the angular velocity vector for the speed
+    float enter_deg = 1.5f;           // dead zone around the held orientation
+    float settle_speed_rads = 0.06f;  // ~3.4 deg/s: below this the head is "holding"
+    float settle_s = 0.25f;
+    float follow_min_cutoff_hz = 4.0f;
+    float follow_beta = 30.0f;        // cutoff increase per rad/s while following
+    float speed_cutoff_hz = 3.0f;     // low-pass on the angular velocity vector
 };
 
 class PoseStabilizer {
@@ -24,18 +31,19 @@ public:
     // q: orientation; omega: angular velocity (rad/s) in the frame of q's rotation axes.
     Quat update(const Quat& q, const Vec3& omega, float dt);
 
-    const Vec3& omega() const { return omega_; }  // smoothed with the same adaptive cutoff
-    float speed() const { return speed_; }        // smoothed |omega|, rad/s
-    float cutoff_hz() const { return cutoff_; }
+    bool holding() const { return holding_; }
+    const Vec3& omega() const { return omega_out_; }  // zero while holding
+    float speed() const { return speed_; }            // |low-passed omega|, rad/s
 
 private:
     PoseStabilizerConfig cfg_;
     bool init_ = false;
-    Quat state_;
-    Vec3 omega_;
+    bool holding_ = true;
+    Quat out_;
     Vec3 omega_slow_;
+    Vec3 omega_out_;
     float speed_ = 0.0f;
-    float cutoff_ = 0.0f;
+    float slow_time_ = 0.0f;
 };
 
 // How much of the presentation-time prediction to apply at a given angular speed: none

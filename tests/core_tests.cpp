@@ -705,45 +705,70 @@ void test_slerp() {
     CHECK(quat_near(slerp(a, nb, 0.5f), Quat::from_axis_angle({0, 0, 1}, 0.5f), 1e-6f));
 }
 
-// Looking at a fixed spot: 8 Hz tremor (0.3 deg) plus sensor noise must almost vanish.
+// Looking at a fixed spot: 8 Hz tremor (0.3 deg), breathing sway and sensor noise must not
+// move the output at all (like a normal monitor).
 void test_stabilizer_holds_still() {
     Lcg rng;
     PoseStabilizer s;
-    const float dt = kRefDt;
+    const float dt = kRefDt, d2r = 0.0174533f;
+    Quat first;
     float max_in = 0.0f, max_out = 0.0f;
-    for (int i = 0; i < 457 * 6; ++i) {
+    for (int i = 0; i < 457 * 8; ++i) {
         const float t = static_cast<float>(i) * dt;
-        const float amp = 0.3f * 0.0174533f;
-        const float pitch = amp * std::sin(2 * 3.14159f * 8.0f * t) + rng.uni() * 0.05f * 0.0174533f;
-        const float rate = amp * 2 * 3.14159f * 8.0f * std::cos(2 * 3.14159f * 8.0f * t) + rng.uni() * 0.03f;
+        const float tremor = 0.3f * d2r * std::sin(2 * 3.14159f * 8.0f * t);
+        const float sway = 0.5f * d2r * std::sin(2 * 3.14159f * 0.25f * t);  // breathing
+        const float pitch = tremor + sway + rng.uni() * 0.05f * d2r;
+        const float rate = 0.3f * d2r * 2 * 3.14159f * 8.0f * std::cos(2 * 3.14159f * 8.0f * t) +
+                           0.5f * d2r * 2 * 3.14159f * 0.25f * std::cos(2 * 3.14159f * 0.25f * t) +
+                           rng.uni() * 0.03f;
         const Quat q = Quat::from_axis_angle({0, 1, 0}, pitch);
         const Quat out = s.update(q, {0, rate, 0}, dt);
-        if (t > 2.0f) {
-            max_in = std::fmax(max_in, angle_between_deg(q, Quat{}));
-            max_out = std::fmax(max_out, angle_between_deg(out, Quat{}));
-        }
+        if (i == 0) first = out;
+        max_in = std::fmax(max_in, angle_between_deg(q, Quat{}));
+        max_out = std::fmax(max_out, angle_between_deg(out, first));
     }
-    CHECK(max_in > 0.25f);
-    CHECK(max_out < max_in / 8.0f);  // >= 8x less jitter
-    CHECK(prediction_gain(s.speed()) < 0.5f);
+    CHECK(max_in > 0.7f);
+    CHECK(max_out == 0.0f);  // frozen
+    CHECK(s.holding() && s.omega().norm() == 0.0f);
+    CHECK(prediction_gain(s.omega().norm()) == 0.0f);
 }
 
-// A real 60 deg/s turn: the stabilized pose must not trail the head by more than ~1 deg.
+// A real 60 deg/s turn: leaves the dead zone, follows with little lag, then holds again.
 void test_stabilizer_follows_turns() {
     PoseStabilizer s;
     const float dt = kRefDt, rate = 60.0f * 0.0174533f;
     Quat q, out;
-    for (int i = 0; i < 457; ++i) s.update(q, {0, 0, 0}, dt);  // settled at rest first
+    for (int i = 0; i < 457; ++i) s.update(q, {0, 0, 0}, dt);
     float worst = 0.0f;
     for (int i = 0; i < 457; ++i) {
         q = (Quat::from_axis_angle({0, 0, 1}, rate * dt) * q).normalized();
         out = s.update(q, {0, 0, rate}, dt);
-        worst = std::fmax(worst, angle_between_deg(out, q));
+        if (i > 45) worst = std::fmax(worst, angle_between_deg(out, q));  // after 0.1 s
     }
-    CHECK(worst < 3.0f);  // brief, at the start of the turn
-    CHECK(angle_between_deg(out, q) < 1.0f);
-    CHECK(near(s.omega().z, rate, 0.02f));
-    CHECK(prediction_gain(s.speed()) == 1.0f);
+    CHECK(!s.holding());
+    CHECK(worst < 0.6f);
+    CHECK(prediction_gain(s.omega().norm()) == 1.0f);
+    for (int i = 0; i < 457; ++i) out = s.update(q, {0, 0, 0}, dt);  // stop
+    CHECK(s.holding());
+    CHECK(angle_between_deg(out, q) < 0.2f);
+}
+
+// Slow drift (0.5 deg/s): nothing moves until the dead zone is left, then it catches up.
+void test_stabilizer_dead_zone() {
+    PoseStabilizer s;
+    const float dt = kRefDt, rate = 0.5f * 0.0174533f;
+    Quat q, out, first;
+    for (int i = 0; i < 457 * 2; ++i) {  // 1 deg
+        q = (Quat::from_axis_angle({0, 0, 1}, rate * dt) * q).normalized();
+        out = s.update(q, {0, 0, rate}, dt);
+        if (i == 0) first = out;
+    }
+    CHECK(angle_between_deg(out, first) == 0.0f);
+    for (int i = 0; i < 457 * 2; ++i) {  // to 2 deg: crosses 1.5
+        q = (Quat::from_axis_angle({0, 0, 1}, rate * dt) * q).normalized();
+        out = s.update(q, {0, 0, rate}, dt);
+    }
+    CHECK(angle_between_deg(out, first) > 1.0f);
 }
 
 void test_prediction_gain() {
@@ -799,6 +824,7 @@ int main() {
     test_slerp();
     test_stabilizer_holds_still();
     test_stabilizer_follows_turns();
+    test_stabilizer_dead_zone();
     test_prediction_gain();
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();

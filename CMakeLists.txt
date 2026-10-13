@@ -193,7 +193,8 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${RAYNEO_SERVER_DIR}/PoseSource.swift
     ${RAYNEO_SERVER_DIR}/VirtualDesktop.swift
     ${RAYNEO_SERVER_DIR}/Cursor.swift
-    ${RAYNEO_SERVER_DIR}/StatusMenu.swift)
+    ${RAYNEO_SERVER_DIR}/StatusMenu.swift
+    ${RAYNEO_SERVER_DIR}/WindowGatherer.swift)
   target_compile_options(mac_spatial_server PRIVATE
     "SHELL:-import-objc-header ${RAYNEO_SERVER_DIR}/BridgingHeader.h"
     "SHELL:-Xcc -I${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos"
@@ -201,7 +202,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     "SHELL:-Xcc -I${RAYNEO_VD_DIR}"
     -swift-version 5 -warnings-as-errors)
   target_link_libraries(mac_spatial_server PRIVATE rayneo_macos rayneo_macos_renderer
-    "-framework AppKit" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework Carbon")
+    "-framework AppKit" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework Carbon" "-framework ApplicationServices")
   # CMake adds libc++ once per implicit language (CXX, OBJCXX) when Swift drives the link.
   target_link_options(mac_spatial_server PRIVATE "SHELL:-Xlinker -no_warn_duplicate_libraries")
 

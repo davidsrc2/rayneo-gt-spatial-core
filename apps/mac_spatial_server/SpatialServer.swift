@@ -58,6 +58,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var panelDisplays: [CGDirectDisplayID] = []  // left -> right
     private var gazeTimer: Timer?
     private var lastGazePanel = -2
+    private var physicalDisplay: CGDirectDisplayID?  // glasses surface when it is not a panel
     private let hotKeys = HotKeys()
     private var statusMenu: StatusMenu?
 
@@ -117,12 +118,32 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             desktop = vd
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
             let anchor = CGMainDisplayID()
-            vd.arrange(rightOf: anchor)
+            let virtualMain = !options.includeMain && !options.windowed
+            if virtualMain {
+                vd.arrangeAsMain(tucking: screenID)
+            } else {
+                vd.arrange(rightOf: anchor)
+            }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))  // NSScreen list catches up
             log("virtual monitors: " + vd.ids.map { id in
                 let b = CGDisplayBounds(id)
                 return "\(id)@\(Int(b.minX)),\(Int(b.minY)) \(Int(b.width))x\(Int(b.height))"
-            }.joined(separator: "  ") + "  (right of display \(anchor))")
+            }.joined(separator: "  ") + (virtualMain ? "  (panel 1 is the main display; glasses surface tucked away)"
+                                                       : "  (right of display \(anchor))"))
+            if virtualMain {
+                physicalDisplay = screenID
+                let target = CGDisplayBounds(vd.ids[0])
+                CGWarpMouseCursorPosition(CGPoint(x: target.midX, y: target.midY))
+                if options.gatherWindows {
+                    if WindowGatherer.isTrusted(prompt: true) {
+                        let n = WindowGatherer.gather(from: CGDisplayBounds(screenID), into: target)
+                        log("windows: moved \(n) window(s) to panel 1")
+                    } else {
+                        log("windows: allow Terminal in System Settings > Privacy & Security > Accessibility " +
+                            "to bring your open windows into the panels (new windows open there anyway)")
+                    }
+                }
+            }
             // The main display (your real desktop) sits left of the virtual row, matching
             // where the cursor goes when it leaves it to the right.
             panelDisplays = (options.includeMain ? [anchor] : []) + vd.ids
@@ -194,7 +215,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         startRenderLoop(layer: layer)
 
         statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.printStats() }
-        if options.gazeCursor && panelDisplays.count > 1 {
+        if (options.gazeCursor && panelDisplays.count > 1) || physicalDisplay != nil {
             gazeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
                 self?.followGaze()
             }
@@ -207,7 +228,16 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // When the gaze moves to another panel, bring the cursor along, keeping its relative
     // position (the main display is invisible behind the glasses image otherwise).
     private func followGaze() {
-        guard let p = pose.latest(), p.tracking else { return }
+        // The glasses surface is head-locked: a cursor there would be a second, floating one.
+        if let physical = physicalDisplay, let cursor = CGEvent(source: nil)?.location,
+           CGDisplayBounds(physical).contains(cursor) {
+            let gaze = pose.latest().map { renderer.panel(atGaze: $0.orientation) } ?? 0
+            let b = CGDisplayBounds(panelDisplays[max(0, min(panelDisplays.count - 1, gaze))])
+            CGWarpMouseCursorPosition(CGPoint(x: b.midX, y: b.midY))
+            CGAssociateMouseAndMouseCursorPosition(1)
+            return
+        }
+        guard options.gazeCursor, let p = pose.latest(), p.tracking else { return }
         let panel = renderer.panel(atGaze: p.orientation)
         guard panel != lastGazePanel else { return }
         lastGazePanel = panel
@@ -227,6 +257,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         gazeTimer?.invalidate()
         displayLink?.invalidate()
         pose?.stop()
+        physicalDisplay = nil
         let caps = captures
         let done = DispatchSemaphore(value: 0)
         Task.detached {

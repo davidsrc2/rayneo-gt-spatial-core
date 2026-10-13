@@ -11,13 +11,14 @@ struct ServerOptions {
     var k1: Float = 0
     var k2: Float = 0
 
-    var displays = 3              // virtual monitors; 0 = capture an existing display
-    var vdWidth = 1280            // points; with hiDPI: large, sharp text
-    var vdHeight = 720
+    var displays = 2              // virtual monitors; 0 = capture an existing display
+    var vdWidth = 1152            // points; with hiDPI: large, sharp text
+    var vdHeight = 648
     var hiDPI = true
     var testPattern = false
     var fit = false               // size panels so all of them are visible at once
-    var includeMain = true        // the Mac's main display as the leftmost panel
+    var includeMain = false       // --keep-main: glasses display stays main, shown as a panel
+    var gatherWindows = true      // move windows off the glasses display (Accessibility)
     var gazeCursor = true         // cursor jumps to the panel you look at
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
@@ -35,8 +36,8 @@ struct ServerOptions {
     static let usage = """
     usage: mac_spatial_server [options]
     layout
-      --displays N         virtual monitors in a row around you (3); 0 = capture an existing display
-      --vd-size WxH        virtual monitor size in points (1280x720: large text)
+      --displays N         virtual monitors in a row around you (2); 0 = capture an existing display
+      --vd-size WxH        virtual monitor size in points (1152x648: large text)
       --no-hidpi           1x virtual monitors (less sharp, 4x cheaper to capture)
       --fit                all panels visible at once (each at a fraction of full resolution)
       --arc DEG            horizontal size of each panel (38; 50 with --displays 0)
@@ -44,7 +45,9 @@ struct ServerOptions {
       --curved             curved panels (default: flat monitors angled towards you)
       --distance M         panel radius in metres (2.0)
       --test-pattern       labelled grid on each virtual monitor
-      --no-main            do not show the Mac's main display as the leftmost panel
+      --keep-main          keep the glasses display as macOS's main display, shown as the left
+                           panel (two cursors: macOS draws one on the glasses surface)
+      --no-gather          do not move windows from the glasses display to panel 1
       --no-gaze-cursor     keep the cursor where it is when you look at another panel
     optics
       --mono / --sbs       single view (glasses 2D) / half side-by-side (glasses 3D)
@@ -89,7 +92,9 @@ struct ServerOptions {
             case "--curved": o.curved = true
             case "--distance": guard let v = float() else { return nil }; o.distanceM = v
             case "--test-pattern": o.testPattern = true
+            case "--keep-main": o.includeMain = true
             case "--no-main": o.includeMain = false
+            case "--no-gather": o.gatherWindows = false
             case "--fit": o.fit = true
             case "--no-gaze-cursor": o.gazeCursor = false
             case "--mono": o.sideBySide = false

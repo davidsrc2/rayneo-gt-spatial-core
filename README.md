@@ -95,9 +95,9 @@ Crea N monitores virtuales en macOS (por defecto 3), los captura con ScreenCaptu
 
 Atajos globales: `Cmd+Opt+C` recentrar · `Cmd+Opt+Q` salir · `Cmd+Opt+flechas` mirar alrededor (solo `--sim`). También en la barra de menús: **◎ RayNeo > Recentrar / Salir**.
 
-- Estabilidad: `PoseStabilizer` (filtro One Euro sobre la orientación). Mirando fijo elimina temblor y ruido (~9x menos en tests; 0,35° -> 0,04°); al girar sube el corte con la velocidad (retraso ~0,45° a 60°/s). La predicción solo se aplica al girar (rampa entre ~3 y ~17 °/s).
-- Texto: monitores virtuales de 1280x720 puntos (HiDPI, captura a 2560x1440) por defecto: todo 1,5x más grande que a 1920x1080. `--vd-size` para cambiarlo.
-- Un solo cursor: el cursor de macOS se oculta mientras corre el servidor; se ve el capturado dentro de cada panel.
+- Estabilidad: `PoseStabilizer` con zona muerta. Mirando un punto, la imagen queda congelada como un monitor normal (0 temblor; tremor, pulso y respiración < 1,5° no llegan a la pantalla). Al girar de verdad sale de la zona muerta y sigue a la cabeza con un filtro rápido (< 0,6° de retraso a 60°/s) hasta que vuelves a quedarte quieto. La predicción solo se aplica al girar.
+- Escritorio virtual: por defecto todos los paneles son monitores virtuales; el panel 1 es la pantalla principal de macOS (barra de menús, Dock, ventanas nuevas) y la pantalla física de las gafas queda en una esquina (solo superficie de dibujo). Un solo cursor, siempre dentro de los paneles. Las ventanas abiertas se traen al panel 1 si Terminal tiene permiso de Accesibilidad. `--keep-main` vuelve al modo anterior (la pantalla de las gafas como panel izquierdo; dos cursores).
+- Texto: monitores virtuales de 1152x648 puntos (HiDPI, captura a 2x): todo 1,67x más grande que a 1920x1080. `--vd-size` para cambiarlo.
 
 ### Prueba sin gafas
 
