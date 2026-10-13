@@ -74,6 +74,29 @@ void GyroBiasEstimator::track_at_rest(const Vec3& g, float dt) {
     ++escapes_;
 }
 
+void GyroBiasEstimator::update_worn_block(const Vec3& g, float dt) {
+    block_sum_ = block_sum_ + g;
+    block_sq_ = block_sq_ + Vec3{g.x * g.x, g.y * g.y, g.z * g.z};
+    ++block_n_;
+    block_s_ += dt;
+    if (block_s_ < cfg_.worn_block_s) return;
+
+    const float inv = 1.0f / static_cast<float>(block_n_);
+    const Vec3 mean = block_sum_ * inv;
+    const Vec3 var = block_sq_ * inv - Vec3{mean.x * mean.x, mean.y * mean.y, mean.z * mean.z};
+    const float std_norm = std::sqrt(std::max(0.0f, var.x) + std::max(0.0f, var.y) + std::max(0.0f, var.z));
+    if (mean.norm() <= cfg_.bias_clamp_degs && std_norm <= cfg_.worn_max_std_degs &&
+        (!have_best_ || std_norm < best_std_)) {
+        have_best_ = true;
+        best_mean_ = mean;
+        best_std_ = std_norm;
+    }
+    block_sum_ = {};
+    block_sq_ = {};
+    block_n_ = 0;
+    block_s_ = 0.0f;
+}
+
 void GyroBiasEstimator::update_rest_detector(const Vec3& g, const Vec3& a, float dt) {
     if (!ema_init_) {
         gyro_ema_ = g;
@@ -111,6 +134,10 @@ Vec3 GyroBiasEstimator::update(const Vec3& g, const Vec3& a, float dt) {
         reset_window();
         reset_escape();
         rollback_s_ = 0.0f;
+        block_sum_ = {};
+        block_sq_ = {};
+        block_n_ = 0;
+        block_s_ = 0.0f;
         dwell_s_ = 0.0f;
         still_ = false;
         return g - bias_;
@@ -128,8 +155,15 @@ Vec3 GyroBiasEstimator::update(const Vec3& g, const Vec3& a, float dt) {
 
         case State::Calibrating:
             update_rest_detector(g, a, dt);
+            calib_elapsed_s_ += dt;
+            update_worn_block(g, dt);
             if (!still_) {
                 reset_window();  // Contiguous window only.
+                if (calib_elapsed_s_ >= cfg_.worn_fallback_s && have_best_) {
+                    bias_ = best_mean_;
+                    worn_start_ = true;
+                    state_ = State::Tracking;
+                }
                 return g;
             }
             window_sum_ = window_sum_ + g;
