@@ -59,6 +59,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var gazeTimer: Timer?
     private var lastGazePanel = -2
     private var physicalDisplay: CGDirectDisplayID?  // glasses surface when it is not a panel
+    private var glassesID: CGDirectDisplayID?        // render target (nil in --windowed)
+    private var lastPoseNs: UInt64 = 0
+    private var stalePoseSeconds = 0
     private let hotKeys = HotKeys()
     private var statusMenu: StatusMenu?
 
@@ -77,7 +80,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
         // Output: the glasses, or a debug window on the Mac screen.
         let glasses = Displays.glassesScreen()
-        let screen: NSScreen
+        var screen: NSScreen
         if options.windowed {
             screen = NSScreen.main!
         } else if let glasses {
@@ -156,6 +159,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             }
         }
 
+        // The arrangement above moved the glasses display: resolve its current frame again,
+        // otherwise the render window lands on whatever now occupies the old coordinates.
+        if !options.windowed, let moved = NSScreen.screens.first(where: { Displays.id(of: $0) == screenID }) {
+            screen = moved
+        }
+        glassesID = options.windowed ? nil : screenID
+
         // Render window.
         let rect = options.windowed ? NSRect(x: 80, y: 80, width: 1280, height: 720) : screen.frame
         window = NSWindow(contentRect: rect, styleMask: options.windowed ? [.titled, .miniaturizable] : [.borderless],
@@ -214,13 +224,50 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         try startCaptures(glasses: glasses)
         startRenderLoop(layer: layer)
 
-        statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.printStats() }
+        statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.printStats()
+            self?.checkGlassesPresent()
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            self?.screensChanged()
+        }
         if (options.gazeCursor && panelDisplays.count > 1) || physicalDisplay != nil {
             gazeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
                 self?.followGaze()
             }
             log("cursor: follows the panel you look at (--no-gaze-cursor to disable)")
         }
+    }
+
+    // MARK: glasses presence
+
+    // Keeps the render window on the glasses display whatever macOS does with the layout.
+    private func screensChanged() {
+        guard let id = glassesID else { return }
+        guard let s = NSScreen.screens.first(where: { Displays.id(of: $0) == id }) else {
+            shutDown("glasses display disconnected")
+            return
+        }
+        if window.frame != s.frame { window.setFrame(s.frame, display: true) }
+    }
+
+    // Unplugged glasses: the display disappears and/or the IMU stops. Quit, which restores
+    // the original display arrangement (all display changes are app-scoped).
+    private func checkGlassesPresent() {
+        if let id = glassesID, CGDisplayIsOnline(id) == 0 || CGDisplayIsActive(id) == 0 && CGDisplayIsInMirrorSet(id) == 0 {
+            shutDown("glasses display disconnected")
+            return
+        }
+        guard pose is ImuPoseSource, let p = pose.latest() else { return }
+        stalePoseSeconds = p.hostTimeNs == lastPoseNs ? stalePoseSeconds + 1 : 0
+        lastPoseNs = p.hostTimeNs
+        if stalePoseSeconds >= 2 { shutDown("glasses IMU stopped (unplugged?)") }
+    }
+
+    private func shutDown(_ reason: String) {
+        log("\(reason): stopping and restoring the displays")
+        NSApp.terminate(nil)
     }
 
     // MARK: gaze cursor
