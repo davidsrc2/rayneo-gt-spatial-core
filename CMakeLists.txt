@@ -37,12 +37,13 @@ else()
 endif()
 option(RAYNEO_SYSTEM_HIDAPI "Use an installed hidapi instead of building it" ${_rayneo_system_hidapi_default})
 
-if(WIN32)
-  # <windows.h> (hal) must not define min/max macros over std::min/std::max.
-  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
-endif()
-
+# Per-target settings for our own code (never applied to third-party deps such as hidapi,
+# which needs the full <windows.h>).
 function(rayneo_warnings target)
+  if(WIN32)
+    # <windows.h> (hal) must not define min/max macros over std::min/std::max.
+    target_compile_definitions(${target} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  endif()
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /permissive-)
   else()
