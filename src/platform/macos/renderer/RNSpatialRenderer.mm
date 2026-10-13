@@ -156,6 +156,13 @@ struct Panel {
     os_unfair_lock_unlock(&_sourceLock);
 }
 
+- (NSInteger)panelAtGaze:(simd_quatf)orientation {
+    RNRenderOptions* o = _options;
+    const auto centers = core::panel_centers(static_cast<int>(self.panelCount), o.arcDegrees * kDegToRad,
+                                             o.gapDegrees * kDegToRad);
+    return core::panel_at_gaze(from_simd(orientation), centers, o.arcDegrees * kDegToRad, o.gapDegrees * kDegToRad);
+}
+
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pb {
     [self setSourcePixelBuffer:pb forPanel:0];
 }

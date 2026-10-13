@@ -649,6 +649,21 @@ void test_flat_panels() {
     CHECK(near(panel_width(r, arc, false), r * arc, 1e-6f));
 }
 
+void test_panel_at_gaze() {
+    const float arc = 38 * kDeg, gap = 1 * kDeg;
+    const auto c = panel_centers(3, arc, gap);  // -39, 0, +39 deg
+    auto look = [](float yaw_left_deg, float pitch_up_deg) {
+        return Quat::from_axis_angle({0, 0, 1}, yaw_left_deg * kDeg) *
+               Quat::from_axis_angle({0, -1, 0}, pitch_up_deg * kDeg);
+    };
+    CHECK(panel_at_gaze(look(0, 0), c, arc, gap) == 1);
+    CHECK(panel_at_gaze(look(35, 0), c, arc, gap) == 0);    // turned left
+    CHECK(panel_at_gaze(look(-35, 10), c, arc, gap) == 2);  // right, slightly up
+    CHECK(panel_at_gaze(look(-21, 0), c, arc, gap) == 2);   // just past the seam at 19.5
+    CHECK(panel_at_gaze(look(80, 0), c, arc, gap) == -1);   // beyond the row
+    CHECK(panel_at_gaze(look(0, 0), {}, arc, gap) == -1);
+}
+
 void test_barrel_distort() {
     const Vec2 c = barrel_distort({0, 0}, 0.2f, 0.1f);
     CHECK(c.x == 0.0f && c.y == 0.0f);
@@ -697,6 +712,7 @@ int main() {
     test_barrel_distort();
     test_panel_layout();
     test_flat_panels();
+    test_panel_at_gaze();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

@@ -86,7 +86,8 @@ Solo núcleo (cualquier host, sin hidapi): `cmake -S . -B build -DRAYNEO_BUILD_H
 Crea N monitores virtuales en macOS (por defecto 3), los captura con ScreenCaptureKit y los dibuja como monitores planos fijos en el espacio, orientados hacia ti y contiguos como en una mesa con varios monitores (`--curved` para paneles curvos). Mueves la cabeza para mirar de uno a otro; el ratón y las ventanas pasan entre ellos como entre monitores físicos.
 
 - Monitores virtuales: API privada `CGVirtualDisplay` (la misma que DeskPad/BetterDisplay). Existen solo mientras corre el servidor; al salir, las ventanas que tuvieran vuelven a la pantalla principal.
-- Disposición en macOS: fila a la derecha de la pantalla principal (panel 1 = izquierda). Configuración de pantallas solo para la app, se revierte al salir.
+- Disposición: el panel de la izquierda es tu pantalla principal real (`--no-main` para quitarlo); a su derecha, los monitores virtuales en el mismo orden en que macOS los coloca, así el ratón pasa de uno a otro como entre monitores físicos. Configuración de pantallas solo para la app, se revierte al salir.
+- El cursor sigue a la mirada: al mirar otro panel salta a él conservando su posición relativa (`--no-gaze-cursor` para desactivarlo). `Cmd+Opt+C` también lo lleva al panel de delante.
 - Panel por defecto: plano, 38° de ancho (cabe entero en el FOV horizontal de ~42°), separación 1°, a 2 m.
 - Pose: IMU de las gafas con predicción hasta el instante de presentación. `--sim` sustituye la IMU por una cabeza simulada (sin gafas).
 - `--displays 0` vuelve al modo de Fase 3 (captura de una pantalla existente).
@@ -144,8 +145,8 @@ Ventana de vista previa en la pantalla del Mac con los 3 paneles (patrón de col
    - Si se ve doble: `--ipd 60` (o tu distancia interpupilar). Si los bordes se curvan: probar `--k1 0.05`.
 
 6. Trabajar
-   - Relanzar sin `--test-pattern`. Mover el ratón hacia la derecha desde la pantalla principal entra en el panel 1, luego 2 y 3.
-   - Arrastrar ventanas a los paneles (o usar Mission Control / Rectangle). El cursor se ve dentro de los paneles.
+   - Relanzar sin `--test-pattern`. Con `--displays 1` se ven dos monitores: tu pantalla del Mac (izquierda) y uno virtual (derecha).
+   - Mira el panel que quieras: el cursor salta a él. Arrastra ventanas desde tu pantalla (izquierda) a los monitores virtuales, o botón verde de la ventana > Mover a "RayNeo Panel N".
    - Ajustes útiles: `--displays 2`, `--arc 34` (paneles más pequeños), `--distance 1.6`, `--hidpi` (texto más nítido, más coste de captura).
    - Salir: `Cmd+Opt+Q` o Ctrl+C. Los monitores virtuales desaparecen y las ventanas vuelven a la pantalla principal.
 

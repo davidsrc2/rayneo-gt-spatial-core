@@ -16,6 +16,8 @@ struct ServerOptions {
     var vdHeight = 1080
     var hiDPI = false
     var testPattern = false
+    var includeMain = true        // the Mac's main display as the leftmost panel
+    var gazeCursor = true         // cursor jumps to the panel you look at
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
     var calibrationPath = "calibration.json"
@@ -40,6 +42,8 @@ struct ServerOptions {
       --curved             curved panels (default: flat monitors angled towards you)
       --distance M         panel radius in metres (2.0)
       --test-pattern       labelled grid on each virtual monitor
+      --no-main            do not show the Mac's main display as the leftmost panel
+      --no-gaze-cursor     keep the cursor where it is when you look at another panel
     optics
       --mono / --sbs       single view (glasses 2D) / half side-by-side (glasses 3D)
       --ipd MM             interpupillary distance (63)
@@ -55,7 +59,8 @@ struct ServerOptions {
       --unmirror           extend instead of mirror while running (reverted on exit)
       --60hz               keep the glasses' current refresh rate (default: 120 Hz)
       --duration S         exit after S seconds
-    hotkeys: Cmd+Opt+C recenter, Cmd+Opt+Q quit, Cmd+Opt+arrows look around (--sim)
+    hotkeys: Cmd+Opt+C recenter (and bring the cursor to the panel in front), Cmd+Opt+Q quit,
+             Cmd+Opt+arrows look around (--sim)
     """
 
     static func parse(_ args: [String]) -> ServerOptions? {
@@ -80,6 +85,8 @@ struct ServerOptions {
             case "--curved": o.curved = true
             case "--distance": guard let v = float() else { return nil }; o.distanceM = v
             case "--test-pattern": o.testPattern = true
+            case "--no-main": o.includeMain = false
+            case "--no-gaze-cursor": o.gazeCursor = false
             case "--mono": o.sideBySide = false
             case "--sbs": o.sideBySide = true
             case "--ipd": guard let v = float() else { return nil }; o.ipdMM = v

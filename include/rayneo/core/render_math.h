@@ -69,6 +69,10 @@ float panel_width(float radius_m, float arc_rad, bool flat);
 // ahead. Returns each panel's centre angle (render frame: negative = left), left to right.
 std::vector<float> panel_centers(int count, float panel_arc_rad, float gap_rad);
 
+// Panel the head is looking at: nearest centre to the view direction's yaw, or -1 when the
+// view is more than half a step (arc + gap) beyond the outermost panels.
+int panel_at_gaze(const Quat& head_rel, const std::vector<float>& centers, float panel_arc_rad, float gap_rad);
+
 // Arc width (rad) that shows a source `pixels_wide` at `pixels_per_degree` angular density.
 float arc_for_pixels(float pixels_wide, float pixels_per_degree);
 

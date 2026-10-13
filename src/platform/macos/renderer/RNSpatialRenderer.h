@@ -39,6 +39,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer forPanel:(NSUInteger)panel;
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer;  // panel 0
 
+// Panel index the given head orientation (core frame) looks at, or -1.
+- (NSInteger)panelAtGaze:(simd_quatf)orientation;
+
 // Predicts the pose to targetHostNs, renders both eyes and presents. Render thread only.
 // orientation/angularVelocity are in the core frame (RNPose). Returns the prediction
 // horizon actually applied, in ms.

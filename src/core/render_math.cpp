@@ -137,6 +137,18 @@ std::vector<float> panel_centers(int count, float panel_arc_rad, float gap_rad) 
     return out;
 }
 
+int panel_at_gaze(const Quat& head_rel, const std::vector<float>& centers, float panel_arc_rad, float gap_rad) {
+    if (centers.empty()) return -1;
+    const Vec3 fwd = render_rotation(head_rel).transform_point({0.0f, 0.0f, 1.0f});
+    const float yaw = std::atan2(fwd.x, fwd.z);  // render: positive = right
+    int best = 0;
+    for (int i = 1; i < static_cast<int>(centers.size()); ++i) {
+        if (std::fabs(yaw - centers[static_cast<size_t>(i)]) < std::fabs(yaw - centers[static_cast<size_t>(best)])) best = i;
+    }
+    const float half_step = 0.5f * (panel_arc_rad + gap_rad);
+    return std::fabs(yaw - centers[static_cast<size_t>(best)]) <= half_step ? best : -1;
+}
+
 float arc_for_pixels(float pixels_wide, float pixels_per_degree) {
     return pixels_per_degree > 0.0f ? (pixels_wide / pixels_per_degree) * 0.017453292519943295f : 0.0f;
 }

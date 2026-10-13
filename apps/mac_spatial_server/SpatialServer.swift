@@ -55,6 +55,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var captures: [ScreenCapture] = []
     private var desktop: VirtualDesktop?
     private var patternWindows: [NSWindow] = []
+    private var panelDisplays: [CGDirectDisplayID] = []  // left -> right
+    private var gazeTimer: Timer?
+    private var lastGazePanel = -2
     private let hotKeys = HotKeys()
 
     private let statsLock = NSLock()
@@ -118,10 +121,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 let b = CGDisplayBounds(id)
                 return "\(id)@\(Int(b.minX)),\(Int(b.minY)) \(Int(b.width))x\(Int(b.height))"
             }.joined(separator: "  ") + "  (right of display \(anchor))")
+            // The main display (your real desktop) sits left of the virtual row, matching
+            // where the cursor goes when it leaves it to the right.
+            panelDisplays = (options.includeMain ? [anchor] : []) + vd.ids
+            let offset = options.includeMain ? 1 : 0
             if options.testPattern {
                 for (i, id) in vd.ids.enumerated() {
                     guard let s = vd.screen(for: id) else { continue }
-                    patternWindows.append(TestPatternView.makeWindow(on: s, index: i, total: vd.ids.count))
+                    patternWindows.append(TestPatternView.makeWindow(on: s, index: i + offset, total: panelDisplays.count))
                 }
             }
         }
@@ -168,17 +175,45 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.fovYDegrees = options.fovYDeg
         ro.k1 = options.k1
         ro.k2 = options.k2
-        renderer.panelCount = UInt(max(1, options.displays))
-        log("render: \(sbs ? "half-SBS" : "mono"), \(max(1, options.displays)) \(options.curved ? "curved" : "flat") panel(s) of \(options.panelArcDeg)° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
+        let panels = max(1, panelDisplays.count)
+        renderer.panelCount = UInt(panels)
+        log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(options.panelArcDeg)° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
         try startCaptures(glasses: glasses)
         startRenderLoop(layer: layer)
 
         statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.printStats() }
+        if options.gazeCursor && panelDisplays.count > 1 {
+            gazeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+                self?.followGaze()
+            }
+            log("cursor: follows the panel you look at (--no-gaze-cursor to disable)")
+        }
+    }
+
+    // MARK: gaze cursor
+
+    // When the gaze moves to another panel, bring the cursor along, keeping its relative
+    // position (the main display is invisible behind the glasses image otherwise).
+    private func followGaze() {
+        guard let p = pose.latest(), p.tracking else { return }
+        let panel = renderer.panel(atGaze: p.orientation)
+        guard panel != lastGazePanel else { return }
+        lastGazePanel = panel
+        guard panel >= 0, panel < panelDisplays.count, let cursor = CGEvent(source: nil)?.location else { return }
+        let target = CGDisplayBounds(panelDisplays[panel])
+        if target.contains(cursor) { return }
+        var rel = CGPoint(x: 0.5, y: 0.5)
+        if let from = panelDisplays.map(CGDisplayBounds).first(where: { $0.contains(cursor) }) {
+            rel = CGPoint(x: (cursor.x - from.minX) / from.width, y: (cursor.y - from.minY) / from.height)
+        }
+        CGWarpMouseCursorPosition(CGPoint(x: target.minX + rel.x * target.width, y: target.minY + rel.y * target.height))
+        CGAssociateMouseAndMouseCursorPosition(1)
     }
 
     func stop() {
+        gazeTimer?.invalidate()
         displayLink?.invalidate()
         pose?.stop()
         let caps = captures
@@ -198,6 +233,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let mods = cmdKey | optionKey
         hotKeys.register(keyCode: kVK_ANSI_C, modifiers: mods) { [weak self] in
             self?.pose.recenter()
+            self?.lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
             self?.log("recenter")
         }
         hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: mods) { NSApp.terminate(nil) }
@@ -215,8 +251,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func startCaptures(glasses: NSScreen?) throws {
         // (display, panel, excludeOwnApp)
         var plan: [(CGDirectDisplayID, Int, Bool)] = []
-        if let desktop {
-            plan = desktop.ids.enumerated().map { ($0.element, $0.offset, false) }
+        if desktop != nil {
+            // Own windows: excluded on the main display (the renderer may sit there), kept on
+            // virtual monitors (test patterns).
+            let mainID = options.includeMain ? panelDisplays.first : nil
+            plan = panelDisplays.enumerated().map { ($0.element, $0.offset, $0.element == mainID) }
         } else {
             plan = [(try captureDisplay(glasses: glasses), 0, true)]
         }
