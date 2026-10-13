@@ -1,0 +1,60 @@
+#ifndef RAYNEO_ENGINE_H
+#define RAYNEO_ENGINE_H
+
+/*
+ * Stable C ABI over the engine. This is the only surface the OS integration layer
+ * (Swift via module.modulemap, Objective-C++, or Win32/C#) needs to consume.
+ */
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct rayneo_engine rayneo_engine;
+
+typedef enum {
+    RAYNEO_OK = 0,
+    RAYNEO_ERR_INIT = -1,
+    RAYNEO_ERR_NOT_FOUND = -2,
+    RAYNEO_ERR_STATE = -3,
+} rayneo_status;
+
+typedef struct {
+    float qw, qx, qy, qz;      /* relative orientation, earth frame Z-up */
+    float yaw_deg, pitch_deg, roll_deg; /* diagnostics only */
+    float bias_x, bias_y, bias_z; /* gyro bias, deg/s */
+    uint32_t device_tick_100us;
+    uint64_t host_time_ns;
+    uint64_t sequence;         /* increments per fused sample */
+    bool tracking;
+} rayneo_pose;
+
+typedef struct {
+    float madgwick_beta;
+    bool use_magnetometer;
+} rayneo_config;
+
+rayneo_config rayneo_default_config(void);
+
+rayneo_engine* rayneo_engine_create(const rayneo_config* cfg);
+void rayneo_engine_destroy(rayneo_engine* e);
+
+rayneo_status rayneo_engine_start(rayneo_engine* e);
+void rayneo_engine_stop(rayneo_engine* e);
+
+/* Lock-light snapshot of the most recent pose. Safe from any thread (e.g. CVDisplayLink). */
+bool rayneo_engine_latest_pose(rayneo_engine* e, rayneo_pose* out);
+
+void rayneo_engine_recenter(rayneo_engine* e);
+
+/* Last error message, valid until the next call on this engine. */
+const char* rayneo_engine_last_error(rayneo_engine* e);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* RAYNEO_ENGINE_H */
