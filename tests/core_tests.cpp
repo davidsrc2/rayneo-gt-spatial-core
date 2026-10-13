@@ -8,6 +8,7 @@
 #include "rayneo/core/gt_protocol.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/madgwick.h"
+#include "rayneo/core/tick_monitor.h"
 
 using namespace rayneo::core;
 
@@ -154,6 +155,41 @@ void test_pipeline_recenter() {
     CHECK(near(after.euler.yaw, 0.0f, 0.05f));
 }
 
+// Reference-unit cadence: 7 deltas of 22 ticks, then one of 21 (21.875 avg, ~457.14 Hz).
+uint32_t reference_delta(int i) { return i % 8 == 7 ? 21u : 22u; }
+
+void test_tick_monitor_reference_cadence() {
+    TickMonitor m;
+    uint32_t tick = 0xFFFF0000u;  // crosses the 32-bit wrap
+    m.update(tick);
+    for (int i = 0; i < 8 * 1000; ++i) {
+        tick += reference_delta(i);
+        m.update(tick);
+    }
+    CHECK(m.samples() == 8001);
+    CHECK(m.missed() == 0 && m.irregular() == 0);
+    CHECK(near(static_cast<float>(m.rate_hz()), static_cast<float>(gt::kNominalRateHz), 0.01f));
+    CHECK(near(static_cast<float>(gt::kNominalRateHz), 457.14f, 0.01f));
+}
+
+void test_tick_monitor_gaps() {
+    TickMonitor m;
+    uint32_t tick = 1000;
+    m.update(tick);
+    tick += 22;
+    m.update(tick);
+    tick += 22 + 22 + 22 + 21;  // three samples lost on the wire
+    m.update(tick);
+    CHECK(m.missed() == 3 && m.irregular() == 0);
+    tick += 10;  // off the sample grid
+    m.update(tick);
+    CHECK(m.irregular() == 1 && m.missed() == 3);
+    tick += 0;  // duplicated tick
+    m.update(tick);
+    CHECK(m.irregular() == 2);
+    CHECK(m.max_delta() == 87);
+}
+
 }  // namespace
 
 int main() {
@@ -166,6 +202,8 @@ int main() {
     test_madgwick_yaw_integration();
     test_pipeline_bias_removed();
     test_pipeline_recenter();
+    test_tick_monitor_reference_cadence();
+    test_tick_monitor_gaps();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

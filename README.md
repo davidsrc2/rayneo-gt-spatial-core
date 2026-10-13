@@ -1,6 +1,6 @@
 # rayneo-gt-spatial-core
 
-Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~476 Hz). PoC para un gestor de ventanas espaciales en macOS (Apple Silicon); el núcleo es portable a Windows.
+Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para un gestor de ventanas espaciales en macOS (Apple Silicon); el núcleo es portable a Windows.
 
 ## Capas
 
@@ -29,11 +29,12 @@ Flujo de datos:
 ## Build (macOS, Apple Silicon)
 
 ```sh
-brew install cmake hidapi          # hidapi opcional: si falta se descarga 0.14.0
+brew install cmake ninja           # hidapi 0.15.0 se compila estático (-DRAYNEO_SYSTEM_HIDAPI=ON para usar el del sistema)
 cmake -S . -B build -G Ninja
 cmake --build build
 ctest --test-dir build
 ./build/imu_probe --list           # enumera dispositivos 0x3941
+./build/imu_probe --raw 20         # descriptor, hex y cadencia de ticks sin pasar por el motor
 ./build/imu_probe                  # stream + pose (dejar las gafas quietas ~5 s)
 ```
 

@@ -1,6 +1,6 @@
 # RayNeo GT — protocolo USB HID
 
-Fuente: `docs/PROTOCOL-NOTES.md` de Rayneo-Spatial-App (verificado en Windows 11, firmware "Sep 7 2026"). Pendiente de verificar en macOS.
+Fuente: `docs/PROTOCOL-NOTES.md` de Rayneo-Spatial-App (verificado en Windows 11, firmware "Sep 7 2026"). Verificado en macOS 27.2 / M4 contra la unidad de referencia (ver abajo); donde difieren, manda la unidad de referencia.
 
 ## Identidad USB
 
@@ -32,7 +32,8 @@ ACK: `99 c8`, opcode reflejado en byte 8.
 | 16 | gyro X,Y,Z float32 (deg/s) |
 | 28 | temperatura float32 (°C) |
 | 32 / 36 | mag X / Y float32 (µT) |
-| 40 | tick uint32 (100 µs) — +21 por muestra ≈ 476 Hz |
+| 40 | tick uint32 (100 µs) — +21.875 por muestra (patrón 22×7, 21×1) ≈ 457.14 Hz |
+| 48 | copia del tick (no usada) |
 | 52 | mag Z float32 (µT) |
 
 ## Notas de fusión
@@ -47,4 +48,13 @@ ACK: `99 c8`, opcode reflejado en byte 8.
 
 - Mapeo de ejes sensor -> cabeza (calibración de orientación).
 - Ruta de escape/rollback del estimador de bias para escalones persistentes.
-- Verificar en macOS si hidapi devuelve el report id inicial (el decoder acepta ambos casos).
+
+## Verificación macOS (unidad de referencia, 2026-10-13)
+
+Medido con `imu_probe --raw 20`:
+
+- Report descriptor (40 B): page `0xFF00`, input y output de 64 B, **sin** item Report ID. hidapi/IOKit entrega 64 B sin byte de report id; `hid_write` acepta 65 B con `0x00` inicial.
+- Dos colecciones (`ff00:0001`, `ff00:0002`) en el mismo `IOHIDDevice`; ambas enumeran la misma ruta.
+- ACK `99 c8` a ~1 ms del `66 01`; bytes 4..7 del ACK = tick del dispositivo, byte 8 = opcode.
+- Deltas de tick en 20 s: 22 → 8022, 21 → 1118, 23 → 1. Media 21.875 ticks = **457.14 Hz** (no 476). Sin pérdidas ni huecos.
+- Input Monitoring: no requerido para la página vendor `0xFF00`.

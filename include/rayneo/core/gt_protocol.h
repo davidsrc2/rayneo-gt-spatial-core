@@ -27,7 +27,10 @@ inline constexpr uint8_t kCmdStreamOff = 0x02;
 inline constexpr uint8_t kBoardGt = 0x40;
 inline constexpr uint8_t kBoardGtMax = 0x41;
 
-inline constexpr double kNominalRateHz = 476.0;
+// Measured on the reference unit (macOS, Oct 2026): tick deltas 22 x7 / 21 x1 ->
+// 21.875 ticks (2.1875 ms) per sample. Upstream notes claimed 21 / 476 Hz.
+inline constexpr double kNominalTickStep = 21.875;
+inline constexpr double kNominalRateHz = 1.0 / (kNominalTickStep * 100e-6);  // ~457.14
 
 // Output report: [0x00 report id][0x66][cmd][0x00 x 62] -> 65 bytes for hid_write.
 using CommandFrame = std::array<uint8_t, kReportSize + 1>;
