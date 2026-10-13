@@ -73,6 +73,13 @@ std::vector<float> panel_centers(int count, float panel_arc_rad, float gap_rad);
 // view is more than half a step (arc + gap) beyond the outermost panels.
 int panel_at_gaze(const Quat& head_rel, const std::vector<float>& centers, float panel_arc_rad, float gap_rad);
 
+// Horizontal FOV from the vertical FOV and the perceived per-eye aspect.
+float horizontal_fov(float fovy_rad, float aspect);
+
+// Panel arc so that `count` panels plus their gaps fill `fov_rad` (minus a margin on each
+// side): every panel visible at once, at the cost of angular resolution.
+float fit_panel_arc(float fov_rad, int count, float gap_rad, float margin_rad);
+
 // Arc width (rad) that shows a source `pixels_wide` at `pixels_per_degree` angular density.
 float arc_for_pixels(float pixels_wide, float pixels_per_degree);
 

@@ -149,6 +149,16 @@ int panel_at_gaze(const Quat& head_rel, const std::vector<float>& centers, float
     return std::fabs(yaw - centers[static_cast<size_t>(best)]) <= half_step ? best : -1;
 }
 
+float horizontal_fov(float fovy_rad, float aspect) {
+    return 2.0f * std::atan(std::tan(fovy_rad * 0.5f) * aspect);
+}
+
+float fit_panel_arc(float fov_rad, int count, float gap_rad, float margin_rad) {
+    if (count <= 0) return 0.0f;
+    const float usable = fov_rad - 2.0f * margin_rad - static_cast<float>(count - 1) * gap_rad;
+    return usable > 0.0f ? usable / static_cast<float>(count) : 0.0f;
+}
+
 float arc_for_pixels(float pixels_wide, float pixels_per_degree) {
     return pixels_per_degree > 0.0f ? (pixels_wide / pixels_per_degree) * 0.017453292519943295f : 0.0f;
 }

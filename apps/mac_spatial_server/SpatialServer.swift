@@ -177,7 +177,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k2 = options.k2
         let panels = max(1, panelDisplays.count)
         renderer.panelCount = UInt(panels)
-        log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(options.panelArcDeg)° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
+        if options.fit && options.arcDeg == nil {
+            ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(panels))
+        }
+        log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(options.fovYDeg)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
         try startCaptures(glasses: glasses)
@@ -263,7 +266,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         for (id, panel, exclude) in plan {
             let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: UInt(panel)) }
             captures.append(cap)
-            let (w, h) = try awaitOnMain { try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude) }
+            let renderWindow = CGWindowID(window.windowNumber)
+            let (w, h) = try awaitOnMain {
+                try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude, excludeWindowIDs: [renderWindow])
+            }
             log("capture: panel \(panel + 1) <- display \(id) \(w)x\(h) @\(fps) fps")
         }
     }

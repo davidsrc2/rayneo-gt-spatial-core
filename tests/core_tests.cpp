@@ -664,6 +664,18 @@ void test_panel_at_gaze() {
     CHECK(panel_at_gaze(look(0, 0), {}, arc, gap) == -1);
 }
 
+void test_fit_panels() {
+    const float hfov = horizontal_fov(24.5f * kDeg, 16.0f / 9.0f);
+    CHECK(near(hfov, 42.2f * kDeg, 0.2f * kDeg));
+    const float arc = fit_panel_arc(hfov, 2, 1 * kDeg, 1 * kDeg);
+    // Both panels, the gap and the margins exactly fill the view.
+    CHECK(near(2 * arc + 1 * kDeg + 2 * 1 * kDeg, hfov, 1e-5f));
+    const auto c = panel_centers(2, arc, 1 * kDeg);
+    CHECK(near(c[1] + arc / 2, hfov / 2 - 1 * kDeg, 1e-5f));  // right edge inside the view
+    CHECK(fit_panel_arc(hfov, 0, 0, 0) == 0.0f);
+    CHECK(fit_panel_arc(0.1f, 3, 0.1f, 0.0f) == 0.0f);
+}
+
 void test_barrel_distort() {
     const Vec2 c = barrel_distort({0, 0}, 0.2f, 0.1f);
     CHECK(c.x == 0.0f && c.y == 0.0f);
@@ -713,6 +725,7 @@ int main() {
     test_panel_layout();
     test_flat_panels();
     test_panel_at_gaze();
+    test_fit_panels();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

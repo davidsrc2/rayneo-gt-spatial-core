@@ -16,6 +16,7 @@ struct ServerOptions {
     var vdHeight = 1080
     var hiDPI = false
     var testPattern = false
+    var fit = false               // size panels so all of them are visible at once
     var includeMain = true        // the Mac's main display as the leftmost panel
     var gazeCursor = true         // cursor jumps to the panel you look at
 
@@ -37,6 +38,7 @@ struct ServerOptions {
       --displays N         virtual monitors in a row around you (3); 0 = capture an existing display
       --vd-size WxH        virtual monitor size in points (1920x1080)
       --hidpi              Retina virtual monitors (sharper text, 4x capture cost)
+      --fit                all panels visible at once (each at a fraction of full resolution)
       --arc DEG            horizontal size of each panel (38; 50 with --displays 0)
       --gap DEG            space between panels (1)
       --curved             curved panels (default: flat monitors angled towards you)
@@ -86,6 +88,7 @@ struct ServerOptions {
             case "--distance": guard let v = float() else { return nil }; o.distanceM = v
             case "--test-pattern": o.testPattern = true
             case "--no-main": o.includeMain = false
+            case "--fit": o.fit = true
             case "--no-gaze-cursor": o.gazeCursor = false
             case "--mono": o.sideBySide = false
             case "--sbs": o.sideBySide = true

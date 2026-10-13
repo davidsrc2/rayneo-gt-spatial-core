@@ -148,6 +148,7 @@ Ventana de vista previa en la pantalla del Mac con los 3 paneles (patrón de col
    - Relanzar sin `--test-pattern`. Con `--displays 1` se ven dos monitores: tu pantalla del Mac (izquierda) y uno virtual (derecha).
    - Mira el panel que quieras: el cursor salta a él. Arrastra ventanas desde tu pantalla (izquierda) a los monitores virtuales, o botón verde de la ventana > Mover a "RayNeo Panel N".
    - Ajustes útiles: `--displays 2`, `--arc 34` (paneles más pequeños), `--distance 1.6`, `--hidpi` (texto más nítido, más coste de captura).
+   - `--fit`: todos los paneles caben a la vez en la vista. Las gafas tienen 1920 px de ancho por ojo, así que con 2 paneles cada uno se ve con ~960 px (texto pequeño); sin `--fit` cada panel se ve a resolución completa y se gira la cabeza para pasar de uno a otro.
    - Salir: `Cmd+Opt+Q` o Ctrl+C. Los monitores virtuales desaparecen y las ventanas vuelven a la pantalla principal.
 
 7. Qué reportar: anclaje (sí/no), drift tras 2 min, sensación de latencia, nitidez/doble imagen, si el SBS se ve en 3D correctamente, y el log de la terminal (líneas `TRACK render ...`).

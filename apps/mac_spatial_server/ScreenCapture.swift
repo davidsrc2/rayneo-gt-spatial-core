@@ -15,14 +15,20 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 
     // excludeOwnApp: needed when capturing the display we render on (feedback loop). Off for
     // virtual monitors so this process's test-pattern windows are captured.
-    func start(displayID: CGDirectDisplayID, fps: Int, excludeOwnApp: Bool) async throws -> (Int, Int) {
-        // Freshly created virtual monitors take a moment to appear in the shareable content.
+    // excludeWindowIDs: windows hidden from this capture regardless of their owner (the
+    // renderer window; app-based exclusion misses processes launched from a terminal).
+    func start(displayID: CGDirectDisplayID, fps: Int, excludeOwnApp: Bool,
+               excludeWindowIDs: [CGWindowID] = []) async throws -> (Int, Int) {
+        // Freshly created virtual monitors and just-ordered-front windows take a moment to
+        // appear in the shareable content; a window missing here would not be excluded.
         var found: (SCShareableContent, SCDisplay)?
-        for _ in 0..<30 {
+        for attempt in 0..<30 {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             if let d = content.displays.first(where: { $0.displayID == displayID }) {
+                let ids = Set(content.windows.map(\.windowID))
+                let windowsReady = excludeWindowIDs.allSatisfy(ids.contains) || attempt >= 20
                 found = (content, d)
-                break
+                if windowsReady { break }
             }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
@@ -30,8 +36,11 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             throw NSError(domain: "ScreenCapture", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "display \(displayID) not capturable"])
         }
-        let me = excludeOwnApp ? content.applications.filter { $0.processID == getpid() } : []
-        let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
+        let pid = getpid()
+        let hidden = content.windows.filter {
+            excludeWindowIDs.contains($0.windowID) || (excludeOwnApp && $0.owningApplication?.processID == pid)
+        }
+        let filter = SCContentFilter(display: display, excludingWindows: hidden)
 
         let cfg = SCStreamConfiguration()
         let scale = CGFloat(filter.pointPixelScale)

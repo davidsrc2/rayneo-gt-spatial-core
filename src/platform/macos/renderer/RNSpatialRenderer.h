@@ -39,6 +39,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer forPanel:(NSUInteger)panel;
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer;  // panel 0
 
+// Panel arc (deg) that fits `count` panels in the horizontal FOV of the current options.
+- (float)fitArcDegreesForPanels:(NSUInteger)count;
+
 // Panel index the given head orientation (core frame) looks at, or -1.
 - (NSInteger)panelAtGaze:(simd_quatf)orientation;
 

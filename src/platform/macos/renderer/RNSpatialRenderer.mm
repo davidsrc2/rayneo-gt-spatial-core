@@ -156,6 +156,12 @@ struct Panel {
     os_unfair_lock_unlock(&_sourceLock);
 }
 
+- (float)fitArcDegreesForPanels:(NSUInteger)count {
+    RNRenderOptions* o = _options;
+    const float hfov = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect);
+    return core::fit_panel_arc(hfov, static_cast<int>(count), o.gapDegrees * kDegToRad, 1.0f * kDegToRad) / kDegToRad;
+}
+
 - (NSInteger)panelAtGaze:(simd_quatf)orientation {
     RNRenderOptions* o = _options;
     const auto centers = core::panel_centers(static_cast<int>(self.panelCount), o.arcDegrees * kDegToRad,
