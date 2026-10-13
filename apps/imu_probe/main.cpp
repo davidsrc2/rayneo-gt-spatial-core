@@ -218,60 +218,76 @@ public:
         return !g_quit.load() && !reader_.device_lost();
     }
 
-    bool tracking() const { return last_.tracking; }
-    bool still() const { return pipe_.bias_estimator().still(); }
-
-    // Waits for the bias calibration, then averages gravity over `secs` of rest.
-    bool capture_gravity(core::Vec3* out, float secs) {
-        gravity_ = true;
-        grav_sum_ = {};
-        grav_n_ = 0;
-        grav_s_ = 0.0f;
+    // Bias calibration needs true rest: glasses on the table, not on the head.
+    bool wait_bias(float timeout_s) {
+        const auto t0 = std::chrono::steady_clock::now();
         while (pump()) {
-            if (grav_s_ >= secs && grav_n_ > 0) {
+            if (last_.tracking) return true;
+            const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            if (el > timeout_s) return false;
+            status("waiting for rest");
+        }
+        return false;
+    }
+
+    // After the head has moved (putting the glasses on), averages accel over `secs`
+    // of continuous hold.
+    bool capture_gravity(core::Vec3* out, float secs, float timeout_s) {
+        gravity_ = true;
+        reset_gravity();
+        bool moved = false;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_s);
+        while (pump() && std::chrono::steady_clock::now() < deadline) {
+            if (hold_.moving()) moved = true;
+            if (moved && grav_s_ >= secs && grav_n_ > 0) {
                 gravity_ = false;
                 *out = grav_sum_ * (1.0f / static_cast<float>(grav_n_));
                 return true;
             }
+            status(moved ? "hold still" : "put the glasses on");
         }
         gravity_ = false;
         return false;
     }
 
-    // Integrates bias-corrected gyro from now until the head has moved and come to rest
+    // Integrates bias-corrected gyro from now until the head has moved and is held again
     // with at least `min_deg` of rotation. Returns the rotation vector (deg, sensor frame).
     bool capture_motion(core::Vec3* out, float min_deg, float timeout_s) {
         integ_ = {};
         integrating_ = true;
         bool moved = false;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_s);
-        while (pump()) {
-            if (std::chrono::steady_clock::now() > deadline) break;
-            if (!still()) moved = true;
-            if (moved && still() && integ_.norm() >= min_deg) {
+        while (pump() && std::chrono::steady_clock::now() < deadline) {
+            if (hold_.moving()) moved = true;
+            if (moved && hold_.holding() && integ_.norm() >= min_deg) {
                 integrating_ = false;
                 *out = integ_;
                 return true;
             }
+            status(!moved ? "move" : (integ_.norm() < min_deg ? "further" : "hold"));
         }
         integrating_ = false;
         return false;
     }
 
-    // Waits until the head has moved back and is at rest again (no measurement).
+    // Waits until the head has moved back and is held again (no measurement).
     bool settle(float timeout_s) {
         core::Vec3 ignored;
         return capture_motion(&ignored, 0.0f, timeout_s);
     }
 
+    void end_status() {
+        std::printf("\r%60s\r", "");
+        std::fflush(stdout);
+    }
+
 private:
     void on_sample() {
+        hold_.update(last_.gyro_corrected_degs, dt_);
         if (integrating_) integ_ = integ_ + last_.gyro_corrected_degs * dt_;
         if (!gravity_) return;
-        if (!tracking() || !still()) {  // contiguous rest window only
-            grav_sum_ = {};
-            grav_n_ = 0;
-            grav_s_ = 0.0f;
+        if (!hold_.holding()) {  // contiguous hold window only
+            reset_gravity();
             return;
         }
         grav_sum_ = grav_sum_ + last_.accel_mps2;
@@ -279,9 +295,29 @@ private:
         grav_s_ += dt_;
     }
 
+    void reset_gravity() {
+        grav_sum_ = {};
+        grav_n_ = 0;
+        grav_s_ = 0.0f;
+    }
+
+    // Live feedback, ~10 Hz.
+    void status(const char* what) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_status_ < std::chrono::milliseconds(100)) return;
+        last_status_ = now;
+        const char* bias = last_.tracking ? "ok" : (pipe_.bias_estimator().state() == core::GyroBiasEstimator::State::Warmup
+                                                        ? "warmup"
+                                                        : "calibrating");
+        std::printf("\r  [%-18s] rate %5.1f deg/s  rotation %5.1f deg  bias %-11s", what, hold_.rate_degs(),
+                    integ_.norm(), bias);
+        std::fflush(stdout);
+    }
+
     hal::ImuStreamReader reader_;
     core::ImuPipeline pipe_;
     core::Pose last_;
+    core::HoldDetector hold_;
     float dt_ = 0.0f;
     bool have_tick_ = false;
     bool integrating_ = false;
@@ -290,6 +326,7 @@ private:
     core::Vec3 grav_sum_;
     int grav_n_ = 0;
     float grav_s_ = 0.0f;
+    std::chrono::steady_clock::time_point last_status_{};
 };
 
 int run_calibrate(const std::string& out_path) {
@@ -299,15 +336,27 @@ int run_calibrate(const std::string& out_path) {
         std::fprintf(stderr, "start failed: %s\n", err.c_str());
         return 1;
     }
-    std::printf("Put the glasses on, look straight ahead with your head level and keep still.\n"
-                "Each step: move, then hold until the next prompt (rest is detected after ~1.5 s).\n\n");
+
+    std::printf("[0/5] Leave the glasses on the TABLE, untouched, until 'bias ok' (~6 s)\n");
     std::fflush(stdout);
+    if (!s.wait_bias(60.0f)) {
+        s.end_status();
+        std::fprintf(stderr, "no rest detected in 60 s: put the glasses on a stable surface\n");
+        return 1;
+    }
+    s.end_status();
+    std::printf("      bias ok\n");
 
     core::HeadCalibrationInput in;
-    std::printf("[1/5] center... ");
+    std::printf("[1/5] Put the glasses on, look straight ahead with the head level and hold\n");
     std::fflush(stdout);
-    if (!s.capture_gravity(&in.gravity_center, 1.5f)) return 1;
-    std::printf("ok  (gravity %.2f %.2f %.2f)\n", in.gravity_center.x, in.gravity_center.y, in.gravity_center.z);
+    if (!s.capture_gravity(&in.gravity_center, 1.0f, 60.0f)) {
+        s.end_status();
+        std::fprintf(stderr, "timed out or interrupted\n");
+        return 1;
+    }
+    s.end_status();
+    std::printf("      ok (gravity %.2f %.2f %.2f)\n", in.gravity_center.x, in.gravity_center.y, in.gravity_center.z);
 
     struct Step {
         const char* prompt;
@@ -319,19 +368,23 @@ int run_calibrate(const std::string& out_path) {
                           {"turn RIGHT (~30 deg) and hold", &in.rot_right}};
     int i = 2;
     for (const Step& st : steps) {
-        std::printf("[%d/5] %s... ", i++, st.prompt);
+        std::printf("[%d/5] %s\n", i++, st.prompt);
         std::fflush(stdout);
         if (!s.capture_motion(st.out, 15.0f, 30.0f)) {
-            std::fprintf(stderr, "\ntimed out or interrupted\n");
+            s.end_status();
+            std::fprintf(stderr, "timed out or interrupted\n");
             return 1;
         }
-        std::printf("%.1f deg. Back to CENTER and hold... ", st.out->norm());
+        s.end_status();
+        std::printf("      %.1f deg. Back to CENTER and hold\n", st.out->norm());
         std::fflush(stdout);
         if (!s.settle(30.0f)) {
-            std::fprintf(stderr, "\ntimed out or interrupted\n");
+            s.end_status();
+            std::fprintf(stderr, "timed out or interrupted\n");
             return 1;
         }
-        std::printf("ok\n");
+        s.end_status();
+        std::printf("      ok\n");
     }
 
     const auto r = core::solve_head_calibration(in);

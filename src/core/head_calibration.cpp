@@ -72,6 +72,17 @@ HeadCalibrationResult solve_head_calibration(const HeadCalibrationInput& in, con
     return r;
 }
 
+void HoldDetector::update(const Vec3& g, float dt) {
+    if (dt <= 0.0f) return;
+    const float r = g.norm();
+    if (!init_) {
+        rate_ = r;
+        init_ = true;
+    }
+    rate_ += (r - rate_) * (dt / (cfg_.tau_s + dt));
+    hold_time_ = rate_ < cfg_.hold_degs ? hold_time_ + dt : 0.0f;
+}
+
 std::string calibration_to_json(const Quat& q) {
     char buf[256];
     std::snprintf(buf, sizeof(buf),
