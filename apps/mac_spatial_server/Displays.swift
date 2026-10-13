@@ -35,6 +35,24 @@ enum Displays {
         return CGCompleteDisplayConfiguration(config, .forAppOnly) == .success
     }
 
+    // App-scoped: native 1:1 mode (e.g. 1920x1080 px at 1x) at `hz` if available. The user's
+    // "larger text" HiDPI mode is a scaled 2560x1440 surface the glasses downsample; while
+    // the server runs, the display is only a render target, so render natively. Reverted on
+    // exit, restoring the user's setting.
+    static func setNative(_ display: CGDirectDisplayID, hz: Double) -> CGDisplayMode? {
+        let opts = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        let modes = (CGDisplayCopyAllDisplayModes(display, opts) as? [CGDisplayMode]) ?? []
+        let native = modes.filter { $0.pixelWidth == $0.width && $0.isUsableForDesktopGUI() }
+        guard let maxW = native.map(\.pixelWidth).max() else { return nil }
+        let candidates = native.filter { $0.pixelWidth == maxW }
+        guard let mode = candidates.first(where: { $0.refreshRate == hz }) ?? candidates.max(by: { $0.refreshRate < $1.refreshRate })
+        else { return nil }
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success else { return nil }
+        CGConfigureDisplayWithDisplayMode(config, display, mode, nil)
+        return CGCompleteDisplayConfiguration(config, .forAppOnly) == .success ? mode : nil
+    }
+
     // App-scoped mode switch (reverted automatically when the process exits).
     static func setRefresh(_ display: CGDirectDisplayID, hz: Double) -> Bool {
         guard let current = CGDisplayCopyDisplayMode(display) else { return false }

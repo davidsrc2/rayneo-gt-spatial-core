@@ -95,8 +95,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         log("output: \(screen.localizedName) id=\(screenID) \(Int(screen.frame.width))x\(Int(screen.frame.height))"
             + (Displays.isMirrored(screenID) ? " [mirrored]" : "") + (options.windowed ? " [window]" : ""))
-        if options.refresh120 && !options.windowed {
-            log(Displays.setRefresh(screenID, hz: 120) ? "refresh: 120 Hz" : "refresh: 120 Hz unavailable, keeping current")
+        if !options.windowed {
+            if let m = Displays.setNative(screenID, hz: options.refresh120 ? 120 : 60) {
+                log("glasses mode: \(m.pixelWidth)x\(m.pixelHeight) native @\(Int(m.refreshRate)) Hz (your setting is restored on exit)")
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))
+                if let s = NSScreen.screens.first(where: { Displays.id(of: $0) == screenID }) { screen = s }
+            } else {
+                log("glasses mode: unchanged")
+            }
         }
 
         // Pose first: the IMU needs ~6 s of rest, let it start while the rest comes up.
@@ -287,6 +293,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         guard options.gazeCursor, let p = pose.latest(), p.tracking else { return }
         let panel = renderer.panel(atGaze: p.orientation)
         guard panel != lastGazePanel else { return }
+        // The mouse wins: while it is in use, looking elsewhere must not yank the cursor.
+        let mouseIdle = [CGEventType.mouseMoved, .leftMouseDragged, .rightMouseDragged, .scrollWheel].map {
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0)
+        }.min() ?? .infinity
+        if mouseIdle < 1.5 { return }  // re-evaluated next tick, once the mouse rests
         lastGazePanel = panel
         guard panel >= 0, panel < panelDisplays.count, let cursor = CGEvent(source: nil)?.location else { return }
         let target = CGDisplayBounds(panelDisplays[panel])
