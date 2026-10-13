@@ -1,0 +1,81 @@
+name: build
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolation:
+    name: core/hal isolation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check_core_isolation.sh
+
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple Clang, arm64)
+            os: macos-latest
+            generator: -G Ninja
+          - name: Windows (MSVC)
+            os: windows-latest
+            generator: ""
+          - name: Linux (GCC)
+            os: ubuntu-latest
+            generator: -G Ninja
+            cc: gcc
+            cxx: g++
+          - name: Linux (Clang)
+            os: ubuntu-latest
+            generator: -G Ninja
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libhidapi-dev libudev-dev
+
+      - name: Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure
+        run: cmake -S . -B build ${{ matrix.generator }} -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Core tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      # Core must stay OS-agnostic at link level too: no framework / Win32 symbols.
+      - name: Core link isolation (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if nm -u build/librayneo_core.a | grep -E '_(IO[A-Z]|CF[A-Z]|NS[A-Z]|objc_|MTL|dispatch_)'; then
+            echo "core references Apple framework symbols"; exit 1
+          fi
+          file build/imu_probe | grep arm64
+          test -d build/mac_spatial_server.app || echo "mac_spatial_server.app not built on this branch"
+
+      - name: Core-only build (no hidapi)
+        run: |
+          cmake -S . -B build-core ${{ matrix.generator }} -DCMAKE_BUILD_TYPE=Release -DRAYNEO_BUILD_HAL=OFF
+          cmake --build build-core --config Release --parallel
+          ctest --test-dir build-core -C Release --output-on-failure

@@ -6,6 +6,11 @@
 
 namespace rayneo::hal {
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4324)  // padding from alignas(64) is the point: no false sharing
+#endif
+
 // Wait-free single-producer / single-consumer ring. Capacity must be a power of two.
 template <typename T, size_t Capacity>
 class SpscRing {
@@ -37,5 +42,9 @@ private:
     alignas(64) std::atomic<size_t> tail_{0};
     std::array<T, Capacity> buf_{};
 };
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 }  // namespace rayneo::hal
