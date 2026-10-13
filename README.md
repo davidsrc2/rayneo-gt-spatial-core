@@ -4,37 +4,89 @@ Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para
 
 ## Estado del proyecto
 
-Última actualización: 2026-10-13. Hardware de referencia: RayNeo GT conectadas a un MacBook M4 (macOS 27.2). Cuando el hardware contradice la documentación, manda el hardware.
+Última actualización: 2026-10-14. Hardware de referencia: RayNeo GT conectadas por USB-C a un MacBook Pro M4 (macOS 27.2). Cuando el hardware contradice la documentación, manda el hardware.
+
+**Objetivo del producto:** usar las gafas como un escritorio de varios monitores virtuales fijos en el espacio. Miras a un monitor u otro girando la cabeza, el texto se lee cómodo y la imagen está tan quieta como la de un monitor normal.
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| 1 | HAL en macOS M4: build arm64 sin warnings, hidapi estático, `imu_probe --list/--raw`, `TickMonitor`, stats en el C ABI | Fusionada (PR #1). Validada con las gafas |
-| 2 | Escape y rollback del bias, calibración `sensor_to_head` (`imu_probe --calibrate`, `calibration.json`) | Fusionada (PR #2). Tests sin hardware |
-| fix | Calibración guiada atascada con las gafas puestas: bias sobre la mesa + `HoldDetector` | Fusionada (PR #3). Pendiente de probar con las gafas puestas |
-| 3 | Servidor Metal: ScreenCaptureKit, pantalla curva, half-SBS, predicción, `Cmd+Opt+C` | Rama `feat/phase3-macos-renderer`. Funciona sobre las gafas (120 fps); falta validación visual |
-| 3b | Escritorio de N monitores virtuales (`CGVirtualDisplay`) como paneles fijos, cabeza simulada `--sim` | Rama `feat/phase3b-virtual-displays` (encima de la 3). Probado sin gafas; falta prueba con las gafas |
-| 4 | CI en GitHub Actions: macOS arm64, Windows MSVC, Linux GCC/Clang + chequeo de aislamiento de core/hal | Fusionada (PR #4). Verde en los 3 SO, 0 warnings propios en MSVC |
+| 1 | HAL en macOS M4: build arm64 sin warnings, hidapi estático, `imu_probe --list/--raw`, `TickMonitor` | Fusionada (#1). Validada con las gafas |
+| 2 | Escape y rollback del bias, calibración `sensor_to_head` (`imu_probe --calibrate`) | Fusionada (#2) |
+| fixes | Calibración con las gafas puestas (#3), cabeceo con giro mezclado (#5), tracking con las gafas puestas desde el arranque (#6), deriva de yaw con las gafas puestas (#7) | Fusionadas. Calibración validada con las gafas (métricas 4,6° / 3,5° / 1,6°) |
+| 3 | Servidor Metal: ScreenCaptureKit, render half-SBS/mono, predicción hasta el scanout | Rama `feat/phase3-macos-renderer` |
+| 3b | Escritorio de monitores virtuales (`CGVirtualDisplay`), paneles planos, estabilizador con zona muerta, un solo cursor, cursor que sigue la mirada, barra de menús ◎ RayNeo | Rama `feat/phase3b-virtual-displays` (encima de la 3). En prueba con las gafas |
+| 4 | CI en GitHub Actions: macOS arm64, Windows MSVC, Linux GCC/Clang + aislamiento de core/hal | Fusionada (#4). Verde en los 3 SO |
+| 5 | **Interfaz gráfica** (ver «Interfaz gráfica: requisitos») | Siguiente |
+
+### Qué funciona hoy con las gafas (validado por el usuario)
+
+- Calibración guiada, recentrado (`Cmd+Opt+C` y menú ◎ RayNeo), dos monitores virtuales visibles.
+- Sin deriva apreciable tras los arreglos #6 y #7.
+- Desconectar las gafas cierra el servidor y restaura las pantallas.
+- Letra del Mac en 1280×720 HiDPI (ajuste del sistema).
+
+### Pendiente de afinar con las gafas
+
+- **Escala angular:** la imagen parece moverse más despacio que la cabeza, porque el FOV de render (24,5°) es una estimación. Se ajusta en vivo con `Cmd+Opt+-` / `Cmd+Opt+=` hasta que los monitores no se muevan al girar, y queda guardado.
+- **Sensación del estabilizador:** al volver a quedarse fija, la imagen hace un gesto algo forzado. Zona muerta reducida a 1,0° y seguimiento más rápido; pendiente de validar.
+- **Letra más grande en los monitores virtuales:** por defecto 1152×648 pt HiDPI; `--vd-size 1024x576` para más grande.
 
 ### Medidas sobre el hardware de referencia
 
-- **Informe IMU:** 64 B sin report ID. El ACK `99 c8` llega en ~1 ms.
-- **Frecuencia real del sensor:** **457,14 Hz**, no los 476 documentados. Los deltas de tick son 22 siete de cada ocho veces y 21 la restante.
-- **Estabilidad del stream:** 0 pérdidas y 0 drops del ring en sesiones de 20 s. El bias en reposo es de unos 0,4 °/s.
-- **Pantalla `SmartGlasses`:** 1920×1080 a 60 o 120 Hz, en espejo con la pantalla interna. No hay modo 3840×1080, así que el estéreo es half-SBS.
-- **Latencia muestra IMU → scanout:** 26,4 ms con espejo a 120 Hz, que es el suelo de WindowServer (1,4 ms de edad de la pose más 3 refrescos). La predicción la compensa.
-- **Ajustes de latencia probados sin efecto:** quitar el espejo (43 ms), modo exclusivo (43 ms), 3 drawables y `frameLatency` < 1 dan lo mismo; sin vsync el scanout no se adelanta.
-
-### Próximos pasos
-
-1. Probar con las gafas la calibración y el escritorio de 3 paneles, siguiendo la guía de más abajo.
-2. Si la prueba sale bien, fusionar las fases 3 y 3b.
-3. Backend Windows (Win32/Direct3D) sobre el mismo core; el CI ya compila core y hal en MSVC.
+- **Informe IMU:** 64 B sin report ID; el ACK `99 c8` llega en ~1 ms.
+- **Frecuencia real del sensor:** **457,14 Hz** (deltas de tick: 22 siete de cada ocho, 21 la restante), no los 476 documentados.
+- **Estabilidad del stream:** 0 pérdidas y 0 drops del ring. Bias en reposo ~0,4 °/s. El IMU va montado inclinado ~29° en la montura.
+- **Pantalla `SmartGlasses`:** 1920×1080 a 60/120 Hz, en espejo con la pantalla interna; sin modo 3840×1080 (estéreo = half-SBS).
+- **Latencia muestra IMU → scanout:** 26,4 ms a 120 Hz (suelo de WindowServer: edad de pose 1,4 ms + 3 refrescos), compensada con predicción solo al girar.
 
 ### Riesgos conocidos
 
-- `CGVirtualDisplay` es una API privada: puede romperse con una actualización de macOS y la app no pasaría la revisión de la App Store.
-- La distorsión de lente está desactivada (`k1 = k2 = 0`) porque no se conoce la óptica de las GT.
-- El FOV de 24,5° es una estimación pendiente de ajustar con las gafas.
+- `CGVirtualDisplay` y el ocultado de cursor en segundo plano son APIs privadas: pueden romperse con una actualización de macOS y la app no pasaría la revisión de la App Store.
+- Distorsión de lente desactivada (`k1 = k2 = 0`): no se conoce la óptica de las GT.
+- Traer las ventanas abiertas a los monitores virtuales requiere el permiso de Accesibilidad.
+
+## Interfaz gráfica: requisitos (fase 5)
+
+Hoy todo se controla con flags en Terminal. La fase 5 sustituye eso por una app de Mac. Este apartado es el brief de diseño.
+
+**Tono: muy tranquila.** Es una herramienta que se usa con unas gafas puestas y la vista cansada.
+- Pocos elementos, mucho aire, tipografía grande y legible (sistema, 15–17 pt de base).
+- Colores suaves y apagados, sin rojos ni acentos estridentes. Modo oscuro por defecto.
+- Animaciones lentas y discretas (≥ 250 ms, ease-in-out); nada que parpadee.
+- Lenguaje llano en español, sin jerga técnica en la pantalla principal; lo técnico va en «Avanzado».
+
+**Pantalla principal: disposición de monitores**
+- Un lienzo con los monitores como tarjetas que se arrastran en una cuadrícula: al lado (horizontal) **o encima/debajo** (vertical), por ejemplo 2×1, 1×2, 2×2 o 3×1. Las tarjetas encajan con suavidad en la rejilla.
+- Botones + / − para añadir o quitar monitores (1 a 6).
+- Vista previa en perspectiva de cómo se verán alrededor de la cabeza (desde dentro, como en las gafas), que se actualiza en vivo.
+- Plantillas de un toque: «Uno grande», «Dos lado a lado», «Dos apilados», «Tres en arco».
+
+**Controles esenciales** (siempre visibles, como deslizadores grandes)
+- **Tamaño del texto** (resolución de cada monitor virtual: 1024×576 … 1920×1080), con una etiqueta en lenguaje llano («Muy grande», «Grande», «Normal»).
+- **Distancia** de los monitores (1,2–3 m).
+- **Separación** entre monitores.
+- **Plano / curvo**.
+
+**Acciones**
+- Un botón grande **Empezar / Parar**.
+- **Recentrar**, con su atajo visible (⌘⌥C).
+- Estado tranquilo en una línea: «Gafas conectadas · siguiendo tu cabeza» / «Calibrando, deja las gafas quietas…» / «Gafas desconectadas».
+
+**Asistentes**
+- **Primera vez:** conectar las gafas, conceder permisos (Grabación de pantalla, Accesibilidad) con explicación breve, calibrar mirando arriba, abajo, izquierda y derecha (con ilustración y progreso), y ajustar la escala girando la cabeza («si los monitores se mueven contigo, pulsa −»).
+- **Recalibrar** accesible desde Ajustes.
+
+**Avanzado** (plegado por defecto)
+- FOV, IPD, mono/SBS (3D), zona muerta del estabilizador, cursor que sigue la mirada, traer ventanas al empezar, k1/k2.
+
+**Comportamiento**
+- Icono en la barra de menús (◎) con: Recentrar, Empezar/Parar, Abrir disposición, Salir.
+- Recordar la última disposición y los ajustes.
+- Al desconectar las gafas, parar y restaurar las pantallas, con un aviso discreto.
+
+**Técnica (para quien implemente)**
+- SwiftUI sobre el servidor actual (`apps/mac_spatial_server`): las opciones de `Options.swift` son el modelo, y la UI las edita y relanza el servidor (o las aplica en caliente cuando sea posible: FOV, distancia, separación, plano/curvo).
+- La disposición vertical requiere ampliar `core::panel_centers` a una cuadrícula (yaw + pitch), mallas inclinadas en pitch y `VirtualDesktop` colocando los monitores en filas y columnas, para que el ratón pase entre ellos como en la realidad.
 
 ## Capas
 
