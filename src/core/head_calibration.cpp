@@ -54,18 +54,25 @@ HeadCalibrationResult solve_head_calibration(const HeadCalibrationInput& in, con
     // Turning left rotates about +up.
     const Vec3 yaw_axis = in.rot_left - in.rot_right;
 
+    auto horizontal = [&](const Vec3& v) { return v - up * v.dot(up); };
+
     r.yaw_axis_error_deg = angle_deg(yaw_axis, up);
     r.pitch_axis_tilt_deg = std::fabs(90.0f - angle_deg(left_raw, up));
+    r.nod_mismatch_deg = angle_deg(horizontal(in.rot_up * -1.0f), horizontal(in.rot_down));
     if (r.yaw_axis_error_deg > lim.max_yaw_axis_error_deg) {
         r.error = "left/right turn axis is not vertical: keep the head level and turn only";
         return r;
     }
     if (r.pitch_axis_tilt_deg > lim.max_pitch_axis_tilt_deg) {
-        r.error = "up/down nod axis is not horizontal: nod without turning or tilting";
+        r.error = "up/down nods were mostly a turn: nod (look up/down) without turning";
+        return r;
+    }
+    if (r.nod_mismatch_deg > lim.max_nod_mismatch_deg) {
+        r.error = "up and down nods disagree: nod without tilting the head towards a shoulder";
         return r;
     }
 
-    const Vec3 left = (left_raw - up * left_raw.dot(up)).normalized();
+    const Vec3 left = horizontal(left_raw).normalized();
     const Vec3 forward = left.cross(up);
     r.sensor_to_head = Quat::from_rows(forward, left, up);
     r.ok = true;

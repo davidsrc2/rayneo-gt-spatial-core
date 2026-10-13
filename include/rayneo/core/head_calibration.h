@@ -24,17 +24,24 @@ struct HeadCalibrationResult {
     Quat sensor_to_head;           // v_head = q * v_sensor * q^-1
     float yaw_axis_error_deg = 0;  // gyro yaw axis vs gravity (quality metric)
     float pitch_axis_tilt_deg = 0; // gyro pitch axis vs horizontal plane (quality metric)
+    float nod_mismatch_deg = 0;    // horizontal axis of the up nod vs the down nod
     std::string error;
 };
 
 struct HeadCalibrationLimits {
     float min_rotation_deg = 10.0f;
     float max_yaw_axis_error_deg = 20.0f;
-    float max_pitch_axis_tilt_deg = 25.0f;
+    // A turn mixed into the nods tilts the nod axis towards vertical; that component is
+    // removed by orthogonalising against gravity, so only a near-vertical axis is fatal.
+    float max_pitch_axis_tilt_deg = 60.0f;
+    // A head tilt (roll) mixed into the nods is not removable; it shows up as the up and
+    // down nods disagreeing on the horizontal axis.
+    float max_nod_mismatch_deg = 25.0f;
 };
 
 // Up = gravity at center; left = pitch axis (look down - look up) orthogonalized against up;
-// forward = left x up. The left/right turns only validate the result.
+// forward = left x up. The left/right turns and the agreement between the two nods only
+// validate the result.
 HeadCalibrationResult solve_head_calibration(const HeadCalibrationInput& in,
                                              const HeadCalibrationLimits& lim = {});
 

@@ -318,6 +318,36 @@ void test_head_calibration_solves_mounting() {
     CHECK(vec_near(q.rotate({1, 0, 0}), {0, -1, 0}, 1e-5f));
 }
 
+// Reference-unit run (2026-10-13): small nods with a turn mixed in tilted the nod axis
+// ~30 deg. The turn is removable, so the mounting must still be recovered.
+void test_head_calibration_tolerates_turn_in_nods() {
+    const Quat mount = Quat::from_axis_angle({1, 0, 0}, -29.4f * 0.0174533f);  // IMU pitched in the frame
+    const Quat to_sensor = mount.conjugate();
+    const Vec3 left{0, 1, 0}, up{0, 0, 1};
+    HeadCalibrationInput in = synth_calibration(mount);
+    in.rot_up = to_sensor.rotate(left * -15.0f + up * 9.0f);
+    in.rot_down = to_sensor.rotate(left * 17.4f + up * -8.0f);
+    const auto r = solve_head_calibration(in);
+    CHECK(r.pitch_axis_tilt_deg > 25.0f);  // what the old check rejected
+    CHECK(r.ok);
+    CHECK(quat_near(r.sensor_to_head, mount, 2e-4f));
+    CHECK(r.nod_mismatch_deg < 1.0f);
+
+    // A head tilt (roll about forward) mixed in with opposite senses is not removable.
+    const Vec3 fwd{1, 0, 0};
+    HeadCalibrationInput rolled = synth_calibration(mount);
+    rolled.rot_up = to_sensor.rotate(left * -15.0f + fwd * 10.0f);
+    rolled.rot_down = to_sensor.rotate(left * 17.0f + fwd * 10.0f);
+    const auto rr = solve_head_calibration(rolled);
+    CHECK(!rr.ok && rr.nod_mismatch_deg > 25.0f);
+
+    // Nods that are really turns: degenerate.
+    HeadCalibrationInput turned = synth_calibration(mount);
+    turned.rot_up = to_sensor.rotate(left * -5.0f + up * 20.0f);
+    turned.rot_down = to_sensor.rotate(left * 5.0f + up * -20.0f);
+    CHECK(!solve_head_calibration(turned).ok);
+}
+
 void test_head_calibration_rejects_bad_input() {
     HeadCalibrationInput small = synth_calibration(Quat{});
     small.rot_left = small.rot_left * 0.1f;
@@ -426,6 +456,7 @@ int main() {
     test_bias_escape_rollback();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();
+    test_head_calibration_tolerates_turn_in_nods();
     test_calibration_json_roundtrip();
     test_hold_detector();
     test_pipeline_applies_sensor_to_head();
