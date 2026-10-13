@@ -1,11 +1,20 @@
 #include "rayneo/core/imu_pipeline.h"
 
+#include <cmath>
+
 #include "rayneo/core/gt_protocol.h"
 
 namespace rayneo::core {
 namespace {
 
 constexpr float kDegToRad = 0.017453292519943295f;
+
+// Pure-yaw rotation that takes earth X onto the horizontal projection of `forward`.
+Quat heading_of(const Vec3& forward) {
+    const float h = std::sqrt(forward.x * forward.x + forward.y * forward.y);
+    if (h < 1e-3f) return Quat{};  // looking straight up/down: heading undefined
+    return Quat::from_axis_angle({0.0f, 0.0f, 1.0f}, std::atan2(forward.y, forward.x));
+}
 
 }  // namespace
 
@@ -19,6 +28,7 @@ void ImuPipeline::reset() {
     attitude_init_ = false;
     recenter_pending_ = true;
     reference_ = Quat{};
+    heading_ref_ = Quat{};
 }
 
 std::optional<Pose> ImuPipeline::process_report(const uint8_t* data, size_t length) {
@@ -55,15 +65,21 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     p.absolute = filter_.quaternion();
     p.tracking = bias_.tracking();
     p.gyro_bias_degs = bias_.bias();
+    p.gyro_corrected_degs = gyro_corr_degs;
+    p.accel_mps2 = s.accel_mps2;
     p.tick_100us = s.tick_100us;
 
     if (p.tracking && recenter_pending_) {
         reference_ = p.absolute;
+        // Head forward (+X) in sensor coordinates, then in earth coordinates.
+        const Vec3 fwd_sensor = sensor_to_head_.conjugate().rotate({1.0f, 0.0f, 0.0f});
+        heading_ref_ = heading_of(p.absolute.rotate(fwd_sensor));
         recenter_pending_ = false;
     }
-    // Earth-frame relative rotation. q_ref^-1 * q would leak yaw into pitch/roll when
-    // recentered with a tilted head.
-    p.relative = (p.absolute * reference_.conjugate()).normalized();
+    // Earth-frame delta (q_ref^-1 * q would leak yaw into pitch/roll when recentered with a
+    // tilted head), conjugated by a pure yaw so its axes read as head forward/left/up.
+    const Quat delta = p.absolute * reference_.conjugate();
+    p.relative = (heading_ref_.conjugate() * delta * heading_ref_).normalized();
     p.euler = to_euler_deg(p.relative);
     return p;
 }

@@ -27,6 +27,10 @@ struct rayneo_engine {
     std::atomic<bool> running{false};
     std::atomic<bool> recenter{false};
 
+    std::mutex calib_mutex;
+    rayneo::core::Quat sensor_to_head;  // last requested, survives restarts
+    bool calib_pending = false;
+
     std::mutex pose_mutex;
     rayneo_pose latest{};
     bool has_pose = false;
@@ -46,6 +50,13 @@ void fusion_loop(rayneo_engine* e) {
         bool drained = false;
         while (e->reader->pop(rr)) {
             drained = true;
+            {
+                std::lock_guard<std::mutex> lock(e->calib_mutex);
+                if (e->calib_pending) {
+                    e->pipeline->set_sensor_to_head(e->sensor_to_head);
+                    e->calib_pending = false;
+                }
+            }
             if (e->recenter.exchange(false)) e->pipeline->recenter();
             const auto pose = e->pipeline->process_report(rr.data, rr.length);
             if (!pose) {
@@ -124,6 +135,11 @@ rayneo_status rayneo_engine_start(rayneo_engine* e) {
     }
     e->reader = std::make_unique<ImuStreamReader>();
     e->pipeline = std::make_unique<ImuPipeline>(e->cfg);
+    {
+        std::lock_guard<std::mutex> lock(e->calib_mutex);
+        e->pipeline->set_sensor_to_head(e->sensor_to_head);
+        e->calib_pending = false;
+    }
     if (!e->reader->open_device(&e->error)) return RAYNEO_ERR_NOT_FOUND;
     if (!e->reader->start()) {
         e->error = "reader start failed";
@@ -169,6 +185,13 @@ bool rayneo_engine_stats(rayneo_engine* e, rayneo_stats* out) {
 
 void rayneo_engine_recenter(rayneo_engine* e) {
     if (e != nullptr) e->recenter.store(true, std::memory_order_release);
+}
+
+void rayneo_engine_set_sensor_to_head(rayneo_engine* e, float qw, float qx, float qy, float qz) {
+    if (e == nullptr) return;
+    std::lock_guard<std::mutex> lock(e->calib_mutex);
+    e->sensor_to_head = rayneo::core::Quat{qw, qx, qy, qz}.normalized();
+    e->calib_pending = true;
 }
 
 const char* rayneo_engine_last_error(rayneo_engine* e) {

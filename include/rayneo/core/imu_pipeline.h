@@ -29,6 +29,14 @@ public:
 
     // Next pose's relative orientation becomes identity.
     void recenter() { recenter_pending_ = true; }
+
+    // Mounting of the IMU on the head: v_head = q * v_sensor * q^-1 (see HeadCalibration).
+    // Defines which way is "forward" for the relative pose. Triggers a recenter.
+    void set_sensor_to_head(const Quat& q) {
+        sensor_to_head_ = q.normalized();
+        recenter_pending_ = true;
+    }
+    const Quat& sensor_to_head() const { return sensor_to_head_; }
     void reset();
 
     const GyroBiasEstimator& bias_estimator() const { return bias_; }
@@ -43,6 +51,8 @@ private:
     bool attitude_init_ = false;
     bool recenter_pending_ = true;
     Quat reference_;
+    Quat heading_ref_;  // pure yaw: level frame aligned with the head's forward at recenter
+    Quat sensor_to_head_;
 };
 
 }  // namespace rayneo::core

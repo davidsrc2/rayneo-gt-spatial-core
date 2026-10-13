@@ -54,6 +54,7 @@ add_library(rayneo_core STATIC
   src/core/gyro_bias_estimator.cpp
   src/core/imu_pipeline.cpp
   src/core/tick_monitor.cpp
+  src/core/head_calibration.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
 target_include_directories(rayneo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

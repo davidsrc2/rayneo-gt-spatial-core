@@ -23,6 +23,57 @@ void GyroBiasEstimator::reset_window() {
     window_s_ = 0.0f;
 }
 
+void GyroBiasEstimator::reset_escape() {
+    escape_anchor_ = {};
+    escape_sum_ = {};
+    escape_n_ = 0;
+    escape_s_ = 0.0f;
+}
+
+void GyroBiasEstimator::track_at_rest(const Vec3& g, float dt) {
+    if (verify_left_s_ > 0.0f) {
+        // Gyro back on the pre-escape bias while the new one is off: the "step" was motion.
+        const bool on_prev = (gyro_ema_ - prev_bias_).norm() <= cfg_.routine_residual_max_degs;
+        const bool off_new = (gyro_ema_ - bias_).norm() > cfg_.routine_residual_max_degs;
+        rollback_s_ = on_prev && off_new ? rollback_s_ + dt : 0.0f;
+        if (rollback_s_ >= cfg_.rollback_persist_s) {
+            bias_ = prev_bias_;
+            verify_left_s_ = 0.0f;
+            rollback_s_ = 0.0f;
+            ++rollbacks_;
+            reset_escape();
+            return;
+        }
+    }
+
+    const Vec3 residual = gyro_ema_ - bias_;
+    if (residual.norm() <= cfg_.routine_residual_max_degs) {
+        reset_escape();
+        const float k = dt / (cfg_.routine_tau_s + dt);
+        bias_ = clamp_norm(bias_ + residual * k, cfg_.bias_clamp_degs);
+        return;
+    }
+
+    // Out-of-routine residual: only a long, stable plateau inside the clamp qualifies.
+    if (escape_n_ == 0 || (gyro_ema_ - escape_anchor_).norm() > cfg_.escape_stability_degs) {
+        reset_escape();
+        escape_anchor_ = gyro_ema_;
+    }
+    escape_sum_ = escape_sum_ + g;
+    ++escape_n_;
+    escape_s_ += dt;
+    if (escape_s_ < cfg_.escape_persist_s) return;
+
+    const Vec3 candidate = escape_sum_ * (1.0f / static_cast<float>(escape_n_));
+    reset_escape();
+    if (candidate.norm() > cfg_.bias_clamp_degs) return;  // implausible as bias: reject
+    prev_bias_ = bias_;
+    bias_ = candidate;
+    verify_left_s_ = cfg_.verify_s;
+    rollback_s_ = 0.0f;
+    ++escapes_;
+}
+
 void GyroBiasEstimator::update_rest_detector(const Vec3& g, const Vec3& a, float dt) {
     if (!ema_init_) {
         gyro_ema_ = g;
@@ -58,6 +109,8 @@ Vec3 GyroBiasEstimator::update(const Vec3& g, const Vec3& a, float dt) {
     if (dt >= cfg_.gap_reset_s) {
         // Timestamp gap: invalidate any partial window and rest dwell.
         reset_window();
+        reset_escape();
+        rollback_s_ = 0.0f;
         dwell_s_ = 0.0f;
         still_ = false;
         return g - bias_;
@@ -90,14 +143,12 @@ Vec3 GyroBiasEstimator::update(const Vec3& g, const Vec3& a, float dt) {
 
         case State::Tracking: {
             update_rest_detector(g, a, dt);
+            verify_left_s_ = std::max(0.0f, verify_left_s_ - dt);
             if (still_) {
-                const Vec3 residual = gyro_ema_ - bias_;
-                if (residual.norm() <= cfg_.routine_residual_max_degs) {
-                    const float k = dt / (cfg_.routine_tau_s + dt);
-                    bias_ = clamp_norm(bias_ + residual * k, cfg_.bias_clamp_degs);
-                }
-                // TODO: slow escape path + rollback for persistent bias steps
-                // (see Rayneo-Spatial-App docs/PROTOCOL-NOTES.md, "Fusion notes").
+                track_at_rest(g, dt);
+            } else {
+                reset_escape();  // contiguous rest only
+                rollback_s_ = 0.0f;
             }
             return g - bias_;
         }

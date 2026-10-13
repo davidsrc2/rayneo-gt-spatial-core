@@ -44,10 +44,8 @@ ACK: `99 c8`, opcode reflejado en byte 8.
 - Rotación relativa: `q_rel = q * q_ref⁻¹` (marco tierra). `q_ref⁻¹ * q` filtra yaw a pitch/roll si se recentra con la cabeza inclinada.
 - Gap de tick ≥50 ms invalida la ventana de calibración y el dwell de reposo.
 
-## Pendiente
-
-- Mapeo de ejes sensor -> cabeza (calibración de orientación).
-- Ruta de escape/rollback del estimador de bias para escalones persistentes.
+- Escalón de bias fuera de la ventana rutinaria (>0.35 deg/s, ≤1.5 deg/s): se adopta solo tras 10 s de reposo continuo con la EMA estable (±0.15 deg/s). Durante 30 s posteriores, si el giroscopio vuelve al bias anterior durante 2 s, se hace rollback (era un giro lento, no deriva).
+- Montaje sensor -> cabeza: `calibration.json` (`imu_probe --calibrate`). Solo define el rumbo "al frente"; la pose relativa es el delta en marco tierra expresado en el marco nivelado alineado con ese rumbo.
 
 ## Verificación macOS (unidad de referencia, 2026-10-13)
 
