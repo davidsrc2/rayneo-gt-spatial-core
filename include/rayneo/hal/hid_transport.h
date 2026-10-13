@@ -38,6 +38,9 @@ public:
     // Blocking read with timeout. Returns bytes read, 0 on timeout, -1 on error/disconnect.
     virtual int read(uint8_t* data, size_t capacity, int timeout_ms) = 0;
 
+    // Raw HID report descriptor. Returns bytes copied or -1.
+    virtual int report_descriptor(uint8_t* data, size_t capacity) = 0;
+
     virtual std::string last_error() const = 0;
 };
 

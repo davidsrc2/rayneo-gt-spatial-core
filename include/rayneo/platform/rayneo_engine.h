@@ -32,6 +32,18 @@ typedef struct {
     bool tracking;
 } rayneo_pose;
 
+/* Transport and device-clock health counters, cumulative since start. */
+typedef struct {
+    uint64_t reports_read;       /* HID reports read by the I/O thread */
+    uint64_t reports_dropped;    /* ring overflow (fusion thread too slow) */
+    uint64_t imu_samples;        /* decoded 99 65 reports */
+    uint64_t other_reports;      /* acks and anything that is not 99 65 */
+    uint64_t missed_samples;     /* inferred from device tick gaps */
+    uint64_t irregular_ticks;    /* tick deltas off the 21-tick grid */
+    uint64_t device_span_100us;  /* device time covered by imu_samples */
+    double device_rate_hz;       /* imu_samples per device second */
+} rayneo_stats;
+
 typedef struct {
     float madgwick_beta;
     bool use_magnetometer;
@@ -47,6 +59,8 @@ void rayneo_engine_stop(rayneo_engine* e);
 
 /* Lock-light snapshot of the most recent pose. Safe from any thread (e.g. CVDisplayLink). */
 bool rayneo_engine_latest_pose(rayneo_engine* e, rayneo_pose* out);
+
+bool rayneo_engine_stats(rayneo_engine* e, rayneo_stats* out);
 
 void rayneo_engine_recenter(rayneo_engine* e);
 

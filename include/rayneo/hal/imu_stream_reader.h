@@ -18,10 +18,10 @@ struct RawReport {
 };
 
 // Discovers the RayNeo GT, enables IMU streaming and pumps raw HID reports into a
-// lock-free ring on a dedicated high-priority thread (~476 Hz). Does not parse payloads.
+// lock-free ring on a dedicated high-priority thread (~457 Hz). Does not parse payloads.
 class ImuStreamReader {
 public:
-    static constexpr size_t kRingCapacity = 1024;  // ~2 s of headroom at 476 Hz
+    static constexpr size_t kRingCapacity = 1024;  // ~2 s of headroom at 457 Hz
     using Ring = SpscRing<RawReport, kRingCapacity>;
 
     ImuStreamReader();

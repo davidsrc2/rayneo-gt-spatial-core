@@ -28,6 +28,14 @@ option(RAYNEO_BUILD_HAL     "Build the hidapi hardware layer and engine" ON)
 option(RAYNEO_BUILD_TESTS   "Build core unit tests" ON)
 option(RAYNEO_BUILD_APPS    "Build CLI tools" ON)
 option(RAYNEO_FETCH_HIDAPI  "Fetch and build hidapi if not found on the system" ON)
+# Homebrew's dylib targets the host macOS, not CMAKE_OSX_DEPLOYMENT_TARGET (ld warning,
+# and the app would not run on older systems). Build hidapi statically by default on Apple.
+if(APPLE)
+  set(_rayneo_system_hidapi_default OFF)
+else()
+  set(_rayneo_system_hidapi_default ON)
+endif()
+option(RAYNEO_SYSTEM_HIDAPI "Use an installed hidapi instead of building it" ${_rayneo_system_hidapi_default})
 
 function(rayneo_warnings target)
   if(MSVC)
@@ -45,6 +53,7 @@ add_library(rayneo_core STATIC
   src/core/madgwick.cpp
   src/core/gyro_bias_estimator.cpp
   src/core/imu_pipeline.cpp
+  src/core/tick_monitor.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
 target_include_directories(rayneo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -63,15 +72,19 @@ if(NOT RAYNEO_BUILD_HAL)
 endif()
 
 # ---------------------------------------------------------------------------
-# hidapi: system package (brew install hidapi) -> fallback to FetchContent.
+# hidapi: system package (RAYNEO_SYSTEM_HIDAPI) -> fallback to static FetchContent.
 # ---------------------------------------------------------------------------
-find_package(hidapi 0.12 CONFIG QUIET)
+if(RAYNEO_SYSTEM_HIDAPI)
+  find_package(hidapi 0.12 CONFIG QUIET)
+endif()
 if(TARGET hidapi::hidapi)
   set(RAYNEO_HIDAPI_TARGET hidapi::hidapi)
 elseif(TARGET hidapi::darwin)
   set(RAYNEO_HIDAPI_TARGET hidapi::darwin)
 else()
-  find_package(PkgConfig QUIET)
+  if(RAYNEO_SYSTEM_HIDAPI)
+    find_package(PkgConfig QUIET)
+  endif()
   if(PkgConfig_FOUND)
     if(APPLE OR WIN32)
       pkg_check_modules(HIDAPI IMPORTED_TARGET hidapi)
@@ -87,7 +100,7 @@ else()
     set(HIDAPI_WITH_LIBUSB OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(hidapi
       GIT_REPOSITORY https://github.com/libusb/hidapi.git
-      GIT_TAG        hidapi-0.14.0
+      GIT_TAG        hidapi-0.15.0
       GIT_SHALLOW    TRUE)
     FetchContent_MakeAvailable(hidapi)
     set(RAYNEO_HIDAPI_TARGET hidapi::hidapi)

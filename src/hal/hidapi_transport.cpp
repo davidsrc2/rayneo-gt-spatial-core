@@ -1,5 +1,6 @@
 #include <hidapi.h>
 #if defined(__APPLE__)
+#include <IOKit/hidsystem/IOHIDLib.h>
 #include <hidapi_darwin.h>
 #endif
 
@@ -28,7 +29,9 @@ public:
 
     bool open(const std::string& path) override {
         close();
+        open_hint_.clear();
         dev_ = hid_open_path(path.c_str());
+        if (dev_ == nullptr) open_hint_ = access_hint();
         return dev_ != nullptr;
     }
 
@@ -49,10 +52,28 @@ public:
         return dev_ != nullptr ? hid_read_timeout(dev_, data, capacity, timeout_ms) : -1;
     }
 
-    std::string last_error() const override { return narrow(hid_error(dev_)); }
+    int report_descriptor(uint8_t* data, size_t capacity) override {
+        return dev_ != nullptr ? hid_get_report_descriptor(dev_, data, capacity) : -1;
+    }
+
+    std::string last_error() const override { return narrow(hid_error(dev_)) + open_hint_; }
 
 private:
+    // The vendor page 0xFF00 opens without TCC consent on the reference unit, but
+    // keyboard-class collections (and possibly future firmware) need Input Monitoring.
+    static std::string access_hint() {
+#if defined(__APPLE__)
+        if (IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted) {
+            IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);  // registers the app in the list
+            return " -- grant Input Monitoring to this app/terminal in System Settings > "
+                   "Privacy & Security, then relaunch";
+        }
+#endif
+        return {};
+    }
+
     hid_device* dev_ = nullptr;
+    std::string open_hint_;
 };
 
 }  // namespace

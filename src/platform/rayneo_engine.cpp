@@ -8,12 +8,14 @@
 #include <thread>
 
 #include "rayneo/core/imu_pipeline.h"
+#include "rayneo/core/tick_monitor.h"
 #include "rayneo/hal/hid_transport.h"
 #include "rayneo/hal/imu_stream_reader.h"
 
 using rayneo::core::ImuPipeline;
 using rayneo::core::ImuPipelineConfig;
 using rayneo::core::Pose;
+using rayneo::core::TickMonitor;
 using rayneo::hal::ImuStreamReader;
 using rayneo::hal::RawReport;
 
@@ -28,6 +30,8 @@ struct rayneo_engine {
     std::mutex pose_mutex;
     rayneo_pose latest{};
     bool has_pose = false;
+    TickMonitor ticks;  // guarded by pose_mutex
+    uint64_t other_reports = 0;
 
     std::string error;
     bool hal_ready = false;
@@ -44,7 +48,11 @@ void fusion_loop(rayneo_engine* e) {
             drained = true;
             if (e->recenter.exchange(false)) e->pipeline->recenter();
             const auto pose = e->pipeline->process_report(rr.data, rr.length);
-            if (!pose) continue;
+            if (!pose) {
+                std::lock_guard<std::mutex> lock(e->pose_mutex);
+                ++e->other_reports;
+                continue;
+            }
 
             rayneo_pose p{};
             p.qw = pose->relative.w;
@@ -65,6 +73,7 @@ void fusion_loop(rayneo_engine* e) {
             std::lock_guard<std::mutex> lock(e->pose_mutex);
             e->latest = p;
             e->has_pose = true;
+            e->ticks.update(p.device_tick_100us);
         }
         if (!drained) {
             if (!e->reader->running()) break;  // device lost
@@ -107,6 +116,12 @@ rayneo_status rayneo_engine_start(rayneo_engine* e) {
         }
         e->hal_ready = true;
     }
+    {
+        std::lock_guard<std::mutex> lock(e->pose_mutex);
+        e->has_pose = false;
+        e->ticks.reset();
+        e->other_reports = 0;
+    }
     e->reader = std::make_unique<ImuStreamReader>();
     e->pipeline = std::make_unique<ImuPipeline>(e->cfg);
     if (!e->reader->open_device(&e->error)) return RAYNEO_ERR_NOT_FOUND;
@@ -131,6 +146,24 @@ bool rayneo_engine_latest_pose(rayneo_engine* e, rayneo_pose* out) {
     std::lock_guard<std::mutex> lock(e->pose_mutex);
     if (!e->has_pose) return false;
     *out = e->latest;
+    return true;
+}
+
+bool rayneo_engine_stats(rayneo_engine* e, rayneo_stats* out) {
+    if (e == nullptr || out == nullptr || !e->reader) return false;
+    rayneo_stats s{};
+    s.reports_read = e->reader->reports_read();
+    s.reports_dropped = e->reader->reports_dropped();
+    {
+        std::lock_guard<std::mutex> lock(e->pose_mutex);
+        s.imu_samples = e->ticks.samples();
+        s.other_reports = e->other_reports;
+        s.missed_samples = e->ticks.missed();
+        s.irregular_ticks = e->ticks.irregular();
+        s.device_span_100us = e->ticks.span_ticks();
+        s.device_rate_hz = e->ticks.rate_hz();
+    }
+    *out = s;
     return true;
 }
 
