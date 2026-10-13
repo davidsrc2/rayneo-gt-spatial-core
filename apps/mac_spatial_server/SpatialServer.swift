@@ -64,6 +64,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var stats = LatencyStats()
     private var lastCaptureFrames: UInt64 = 0
     private var statsTimer: Timer?
+    private var calibSeconds = 0
 
     init(options: ServerOptions) {
         self.options = options
@@ -374,6 +375,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         guard s.frames > 0 else {
             log("render: no frames")
             return
+        }
+        if !s.tracking && pose is ImuPoseSource {
+            calibSeconds += 1
+            if calibSeconds % 3 == 1 {
+                log("CALIB: head tracking starts after ~6 s with the glasses still on the table" +
+                    " (or ~14 s if you are already wearing them)")
+            }
         }
         let n = Double(s.frames)
         let pn = Double(max(1, s.presentedN))
