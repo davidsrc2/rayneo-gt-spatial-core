@@ -28,6 +28,7 @@ option(RAYNEO_BUILD_HAL     "Build the hidapi hardware layer and engine" ON)
 option(RAYNEO_BUILD_TESTS   "Build core unit tests" ON)
 option(RAYNEO_BUILD_APPS    "Build CLI tools" ON)
 option(RAYNEO_FETCH_HIDAPI  "Fetch and build hidapi if not found on the system" ON)
+option(RAYNEO_BUILD_MAC_APP "Build the Metal/ScreenCaptureKit spatial server (macOS only)" ON)
 # Homebrew's dylib targets the host macOS, not CMAKE_OSX_DEPLOYMENT_TARGET (ld warning,
 # and the app would not run on older systems). Build hidapi statically by default on Apple.
 if(APPLE)
@@ -61,6 +62,7 @@ add_library(rayneo_core STATIC
   src/core/imu_pipeline.cpp
   src/core/tick_monitor.cpp
   src/core/head_calibration.cpp
+  src/core/render_math.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
 target_include_directories(rayneo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -152,6 +154,56 @@ if(APPLE)
   target_include_directories(rayneo_macos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos)
   target_compile_options(rayneo_macos PRIVATE -fobjc-arc)
   target_link_libraries(rayneo_macos PUBLIC rayneo::engine "-framework Foundation")
+  rayneo_warnings(rayneo_macos)
+endif()
+
+# ---------------------------------------------------------------------------
+# macOS renderer (Metal, shaders compiled at runtime) + Swift spatial server.
+# ---------------------------------------------------------------------------
+if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
+  enable_language(Swift)
+
+  set(RAYNEO_RENDERER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos/renderer)
+  file(READ ${RAYNEO_RENDERER_DIR}/Shaders.metal RAYNEO_METAL_SOURCE)
+  configure_file(${RAYNEO_RENDERER_DIR}/rn_shaders.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/rn_shaders.h @ONLY)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${RAYNEO_RENDERER_DIR}/Shaders.metal)
+
+  add_library(rayneo_macos_renderer STATIC ${RAYNEO_RENDERER_DIR}/RNSpatialRenderer.mm)
+  target_include_directories(rayneo_macos_renderer
+    PUBLIC  ${RAYNEO_RENDERER_DIR}
+    PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+  target_compile_options(rayneo_macos_renderer PRIVATE -fobjc-arc)
+  target_link_libraries(rayneo_macos_renderer PUBLIC rayneo::core
+    "-framework Metal" "-framework QuartzCore" "-framework CoreVideo" "-framework Foundation")
+  rayneo_warnings(rayneo_macos_renderer)
+
+  set(RAYNEO_SERVER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/apps/mac_spatial_server)
+  add_executable(mac_spatial_server
+    ${RAYNEO_SERVER_DIR}/main.swift
+    ${RAYNEO_SERVER_DIR}/SpatialServer.swift
+    ${RAYNEO_SERVER_DIR}/ScreenCapture.swift
+    ${RAYNEO_SERVER_DIR}/Displays.swift
+    ${RAYNEO_SERVER_DIR}/HotKeys.swift
+    ${RAYNEO_SERVER_DIR}/Options.swift)
+  target_compile_options(mac_spatial_server PRIVATE
+    "SHELL:-import-objc-header ${RAYNEO_SERVER_DIR}/BridgingHeader.h"
+    "SHELL:-Xcc -I${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos"
+    "SHELL:-Xcc -I${RAYNEO_RENDERER_DIR}"
+    -swift-version 5 -warnings-as-errors)
+  target_link_libraries(mac_spatial_server PRIVATE rayneo_macos rayneo_macos_renderer
+    "-framework AppKit" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework Carbon")
+  # CMake adds libc++ once per implicit language (CXX, OBJCXX) when Swift drives the link.
+  target_link_options(mac_spatial_server PRIVATE "SHELL:-Xlinker -no_warn_duplicate_libraries")
+
+  # App bundle with its own identity: Screen Recording consent (TCC) is granted to
+  # "RayNeo Spatial Server" instead of the terminal that launched it.
+  set_target_properties(mac_spatial_server PROPERTIES
+    MACOSX_BUNDLE TRUE
+    MACOSX_BUNDLE_INFO_PLIST ${RAYNEO_SERVER_DIR}/Info.plist.in)
+  add_custom_command(TARGET mac_spatial_server POST_BUILD
+    COMMAND codesign --force --sign - --identifier es.gestorae.rayneo.spatialserver
+            $<TARGET_BUNDLE_DIR:mac_spatial_server>
+    COMMENT "Ad-hoc signing mac_spatial_server.app")
 endif()
 
 if(RAYNEO_BUILD_APPS)

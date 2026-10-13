@@ -76,6 +76,9 @@ void fusion_loop(rayneo_engine* e) {
             p.bias_x = pose->gyro_bias_degs.x;
             p.bias_y = pose->gyro_bias_degs.y;
             p.bias_z = pose->gyro_bias_degs.z;
+            p.wx = pose->angular_velocity_rads.x;
+            p.wy = pose->angular_velocity_rads.y;
+            p.wz = pose->angular_velocity_rads.z;
             p.device_tick_100us = pose->tick_100us;
             p.host_time_ns = rr.host_time_ns;
             p.sequence = ++seq;

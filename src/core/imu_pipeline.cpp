@@ -80,6 +80,9 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     // tilted head), conjugated by a pure yaw so its axes read as head forward/left/up.
     const Quat delta = p.absolute * reference_.conjugate();
     p.relative = (heading_ref_.conjugate() * delta * heading_ref_).normalized();
+    // d(relative)/dt = 1/2 * w_rel * relative with w_rel = H^-1 * w_earth.
+    const Vec3 w_earth = p.absolute.rotate(gyro_corr_degs * kDegToRad);
+    p.angular_velocity_rads = p.tracking ? heading_ref_.conjugate().rotate(w_earth) : Vec3{};
     p.euler = to_euler_deg(p.relative);
     return p;
 }

@@ -42,6 +42,21 @@ ctest --test-dir build
 
 Solo núcleo (cualquier host, sin hidapi): `cmake -S . -B build -DRAYNEO_BUILD_HAL=OFF`.
 
+## Servidor espacial macOS (`mac_spatial_server.app`)
+
+Captura el escritorio (ScreenCaptureKit), lo proyecta en una pantalla curva anclada en el espacio (Metal) y lo presenta en half-SBS en la pantalla `SmartGlasses`.
+
+```sh
+./build/mac_spatial_server.app/Contents/MacOS/mac_spatial_server          # gafas en modo 3D (SBS)
+./build/mac_spatial_server.app/Contents/MacOS/mac_spatial_server --mono   # gafas en modo 2D
+```
+
+- Atajos globales: `Cmd+Opt+C` recentrar, `Cmd+Opt+Q` salir.
+- Permiso Screen Recording para la app que lo lanza (Terminal) o para el bundle si se abre con `open`.
+- Marcos: core (X adelante, Y izquierda, Z arriba, RH) -> render `(-y, z, x)` (X derecha, Y arriba, Z adelante, LH). Ver `core/render_math.h`.
+- La pose se extrapola (velocidad angular del pipeline) hasta el instante exacto de presentación del `CAMetalDisplayLink`.
+- Latencia medida (M4, espejo, 120 Hz): muestra IMU -> scanout 26,4 ms = edad de pose 1,4 ms + 3 refrescos de WindowServer. `--unmirror`, modo exclusivo, 3 drawables, `frameLatency` < 1 y sin vsync no lo reducen (43 ms sin espejo).
+
 ## Calibración sensor -> cabeza
 
 `calibration.json` (ver `config/calibration.example.json`) guarda el cuaternión `sensor_to_head` (`v_head = q·v_sensor·q⁻¹`, cabeza X adelante, Y izquierda, Z arriba). Arriba = gravedad en el centro; izquierda = eje del cabeceo (abajo − arriba) ortogonalizado; los giros izquierda/derecha solo validan (eje de yaw vs gravedad ≤20°). Es específico de cada unidad y usuario: no se versiona.

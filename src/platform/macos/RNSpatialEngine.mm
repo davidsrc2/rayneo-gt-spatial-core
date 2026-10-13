@@ -1,5 +1,10 @@
 #import "RNSpatialEngine.h"
 
+#include <chrono>
+#include <fstream>
+#include <sstream>
+
+#include "rayneo/core/head_calibration.h"
 #include "rayneo/platform/rayneo_engine.h"
 
 @implementation RNPose {
@@ -14,6 +19,8 @@
 }
 
 - (simd_quatf)orientation { return simd_quaternion(_p.qx, _p.qy, _p.qz, _p.qw); }
+- (simd_float3)angularVelocity { return simd_make_float3(_p.wx, _p.wy, _p.wz); }
+- (uint64_t)hostTimeNs { return _p.host_time_ns; }
 - (float)yawDegrees { return _p.yaw_deg; }
 - (float)pitchDegrees { return _p.pitch_deg; }
 - (float)rollDegrees { return _p.roll_deg; }
@@ -45,13 +52,37 @@
         NSString* msg = [NSString stringWithUTF8String:rayneo_engine_last_error(_engine)];
         *error = [NSError errorWithDomain:@"RayNeoEngine"
                                      code:st
-                                 userInfo:@{NSLocalizedDescriptionKey : msg ?: @"unknown"}];
+                                 userInfo:@{NSLocalizedDescriptionKey : msg != nil ? msg : @"unknown"}];
     }
     return NO;
 }
 
 - (void)stop { rayneo_engine_stop(_engine); }
 - (void)recenter { rayneo_engine_recenter(_engine); }
+
+- (BOOL)loadCalibrationFromFile:(NSString*)path error:(NSError**)error {
+    std::ifstream f(path.fileSystemRepresentation);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    const auto q = f ? rayneo::core::calibration_from_json(ss.str()) : std::nullopt;
+    if (!q) {
+        if (error != nullptr) {
+            *error = [NSError errorWithDomain:@"RayNeoEngine"
+                                         code:RAYNEO_ERR_STATE
+                                     userInfo:@{NSLocalizedDescriptionKey : [NSString
+                                                   stringWithFormat:@"invalid or missing calibration: %@", path]}];
+        }
+        return NO;
+    }
+    rayneo_engine_set_sensor_to_head(_engine, q->w, q->x, q->y, q->z);
+    return YES;
+}
+
++ (uint64_t)hostNowNs {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                     std::chrono::steady_clock::now().time_since_epoch())
+                                     .count());
+}
 
 - (RNPose*)latestPose {
     rayneo_pose p;

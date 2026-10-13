@@ -10,6 +10,7 @@
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/madgwick.h"
+#include "rayneo/core/render_math.h"
 #include "rayneo/core/tick_monitor.h"
 
 using namespace rayneo::core;
@@ -498,7 +499,114 @@ void test_pipeline_applies_sensor_to_head() {
             CHECK(near(nod.euler.pitch, 0.0f, 1.5f));
         }
         CHECK(near(nod.euler.yaw, 0.0f, 1.5f));
+        // Angular velocity is reported in the relative frame: a nod is about head -Y
+        // (calibrated) or core X (uncalibrated: sensor axes taken as head axes).
+        const Vec3 w = nod.angular_velocity_rads;
+        const float r = rate * 0.0174533f;
+        if (calibrated_pipeline) {
+            CHECK(near(std::fabs(w.y), r, 0.03f) && near(w.x, 0, 0.03f));
+        } else {
+            CHECK(near(std::fabs(w.x), r, 0.03f) && near(w.y, 0, 0.03f));
+        }
+        // Predicting 10 ms ahead matches the pose 10 ms later.
+        const Quat pred = predict_orientation(nod.relative, w, 0.0105f);
+        const Pose later = feed(rate, 5);
+        CHECK(quat_near(pred, later.relative, 2e-5f));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Render math (core Z-up RH -> render Y-up LH)
+// ---------------------------------------------------------------------------
+
+constexpr float kDeg = 0.0174532925f;
+
+float det3(const Mat4& m) {
+    return m.at(0, 0) * (m.at(1, 1) * m.at(2, 2) - m.at(1, 2) * m.at(2, 1)) -
+           m.at(0, 1) * (m.at(1, 0) * m.at(2, 2) - m.at(1, 2) * m.at(2, 0)) +
+           m.at(0, 2) * (m.at(1, 0) * m.at(2, 1) - m.at(1, 1) * m.at(2, 0));
+}
+
+void test_core_to_render_axes() {
+    CHECK(vec_near(core_to_render({1, 0, 0}), {0, 0, 1}, 1e-6f));   // forward -> +Z
+    CHECK(vec_near(core_to_render({0, 1, 0}), {-1, 0, 0}, 1e-6f));  // left -> -X
+    CHECK(vec_near(core_to_render({0, 0, 1}), {0, 1, 0}, 1e-6f));   // up -> +Y
+    // Handedness flips: core X x Y = Z, render images satisfy the left-handed rule.
+    const Vec3 x = core_to_render({1, 0, 0}), y = core_to_render({0, 1, 0});
+    CHECK(vec_near(x.cross(y), core_to_render({0, 0, 1}) * -1.0f, 1e-6f));
+}
+
+void test_render_rotation() {
+    // Turn left 30 deg: the view direction swings to -X.
+    const Mat4 yaw = render_rotation(Quat::from_axis_angle({0, 0, 1}, 30 * kDeg));
+    CHECK(vec_near(yaw.transform_point({0, 0, 1}), {-std::sin(30 * kDeg), 0, std::cos(30 * kDeg)}, 1e-5f));
+    CHECK(near(det3(yaw), 1.0f, 1e-5f));
+    // Look up 20 deg (rotation about core -Y): view direction gains +Y.
+    const Mat4 up = render_rotation(Quat::from_axis_angle({0, -1, 0}, 20 * kDeg));
+    CHECK(vec_near(up.transform_point({0, 0, 1}), {0, std::sin(20 * kDeg), std::cos(20 * kDeg)}, 1e-5f));
+    // Roll right ear down (rotation about core +X): render up vector tilts to +X.
+    const Mat4 roll = render_rotation(Quat::from_axis_angle({1, 0, 0}, 15 * kDeg));
+    CHECK(vec_near(roll.transform_point({0, 1, 0}), {std::sin(15 * kDeg), std::cos(15 * kDeg), 0}, 1e-5f));
+    const Mat4 any = render_rotation(Quat::from_axis_angle({0.3f, -0.7f, 0.4f}, 1.3f));
+    CHECK(near(det3(any), 1.0f, 1e-5f));
+}
+
+void test_view_and_projection() {
+    // Head turned left 30 deg: a world point 30 deg to the left lands straight ahead.
+    const Quat q = Quat::from_axis_angle({0, 0, 1}, 30 * kDeg);
+    const Vec3 world{-2.0f * std::sin(30 * kDeg), 0.0f, 2.0f * std::cos(30 * kDeg)};
+    CHECK(vec_near(view_matrix(q, 0.0f).transform_point(world), {0, 0, 2}, 1e-5f));
+    // Left eye sits at -IPD/2: a centred point appears to its right.
+    CHECK(vec_near(view_matrix(Quat{}, -0.032f).transform_point({0, 0, 2}), {0.032f, 0, 2}, 1e-6f));
+
+    const Mat4 p = perspective_lh(40 * kDeg, 16.0f / 9.0f, 0.1f, 100.0f);
+    auto ndc_z = [&](float z) {
+        const float cz = p.at(2, 2) * z + p.at(2, 3);
+        const float cw = p.at(3, 2) * z;
+        return cz / cw;
+    };
+    CHECK(near(ndc_z(0.1f), 0.0f, 1e-5f));
+    CHECK(near(ndc_z(100.0f), 1.0f, 1e-5f));
+    // Top edge of the vertical FOV maps to NDC y = 1.
+    const float y_top = std::tan(20 * kDeg) * 5.0f;
+    CHECK(near(p.at(1, 1) * y_top / 5.0f, 1.0f, 1e-5f));
+}
+
+void test_predict_orientation() {
+    const Quat q = predict_orientation(Quat{}, {0, 0, 1.0f}, 0.5f);
+    CHECK(near(to_euler_deg(q).yaw, 28.6479f, 0.01f));
+    const Quat base = Quat::from_axis_angle({0, -1, 0}, 10 * kDeg);
+    CHECK(quat_near(predict_orientation(base, {0, 0, 0}, 0.02f), base, 1e-7f));
+    // Extrapolation composes in the world frame: yaw added on top of a pitch.
+    const Quat p = predict_orientation(base, {0, 0, 1.0f}, 0.1f);
+    CHECK(quat_near(p, Quat::from_axis_angle({0, 0, 1}, 0.1f) * base, 1e-6f));
+}
+
+void test_curved_screen_mesh() {
+    const ScreenMesh m = curved_screen_mesh(2.0f, 60 * kDeg, 1.0f, 32);
+    CHECK(m.vertices.size() == 66 && m.indices.size() == 32 * 6);
+    for (const auto& v : m.vertices) {
+        CHECK(near(std::sqrt(v.px * v.px + v.pz * v.pz), 2.0f, 1e-5f));
+        CHECK(near(std::fabs(v.py), 0.5f, 1e-6f));
+    }
+    const auto& left_top = m.vertices.front();
+    CHECK(left_top.px < 0 && left_top.u == 0.0f && left_top.v == 0.0f && left_top.py > 0);
+    CHECK(near(left_top.px, -2.0f * std::sin(30 * kDeg), 1e-5f));
+    const auto& mid = m.vertices[32];  // u = 0.5, top
+    CHECK(near(mid.px, 0.0f, 1e-6f) && near(mid.pz, 2.0f, 1e-6f));
+    for (uint16_t i : m.indices) CHECK(i < m.vertices.size());
+    CHECK(curved_screen_mesh(2.0f, 0.0f, 1.0f, 8).vertices.empty());
+}
+
+void test_barrel_distort() {
+    const Vec2 c = barrel_distort({0, 0}, 0.2f, 0.1f);
+    CHECK(c.x == 0.0f && c.y == 0.0f);
+    const Vec2 e = barrel_distort({0, 1}, 0.1f, 0.0f);
+    CHECK(near(e.y, 1.1f, 1e-6f));
+    const Vec2 d = barrel_distort({0.6f, 0.8f}, 0.1f, 0.05f);  // r = 1
+    CHECK(near(d.x, 0.6f * 1.15f, 1e-6f) && near(d.y, 0.8f * 1.15f, 1e-6f));
+    const Vec2 id = barrel_distort({0.3f, -0.4f}, 0, 0);
+    CHECK(id.x == 0.3f && id.y == -0.4f);
 }
 
 }  // namespace
@@ -530,6 +638,12 @@ int main() {
     test_calibration_json_roundtrip();
     test_hold_detector();
     test_pipeline_applies_sensor_to_head();
+    test_core_to_render_axes();
+    test_render_rotation();
+    test_view_and_projection();
+    test_predict_orientation();
+    test_curved_screen_mesh();
+    test_barrel_distort();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }
