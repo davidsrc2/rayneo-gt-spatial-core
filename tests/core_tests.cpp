@@ -332,6 +332,36 @@ void test_head_calibration_rejects_bad_input() {
     CHECK(!solve_head_calibration(same_sense).ok);
 }
 
+// Worn-head tremor (~3 deg/s per axis) still counts as holding; a nod does not.
+void test_hold_detector() {
+    Lcg rng;
+    HoldDetector h;
+    auto run = [&](Vec3 base, float noise, float secs) {
+        for (int i = 0; i < static_cast<int>(secs / kRefDt); ++i) {
+            h.update(base + Vec3{rng.uni() * noise, rng.uni() * noise, rng.uni() * noise}, kRefDt);
+        }
+    };
+    run({0, 0, 0}, 3.0f, 0.5f);
+    CHECK(!h.holding());  // needs hold_s
+    run({0, 0, 0}, 3.0f, 0.3f);
+    CHECK(h.holding() && !h.moving());
+    run({0, -40.0f, 0}, 3.0f, 0.5f);
+    CHECK(h.moving() && !h.holding());
+    run({0, 0, 0}, 3.0f, 0.6f);
+    CHECK(!h.holding());  // decay + hold time not yet elapsed
+    run({0, 0, 0}, 3.0f, 0.6f);
+    CHECK(h.holding());
+    // A slow drift of the head (6 deg/s) is neither a hold nor a deliberate move.
+    h.reset();
+    run({6.0f, 0, 0}, 0.5f, 2.0f);
+    CHECK(!h.holding() && !h.moving());
+    // The bias estimator's desk rest gate rejects the same tremor.
+    GyroBiasEstimator e;
+    Lcg rng2;
+    run_rest(e, rng2, {0, 0, 0}, 10.0f, 3.0f);
+    CHECK(!e.tracking());
+}
+
 void test_calibration_json_roundtrip() {
     const Quat q = Quat::from_axis_angle({1, -2, 0.5f}, 1.1f);
     const auto back = calibration_from_json(calibration_to_json(q));
@@ -397,6 +427,7 @@ int main() {
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();
     test_calibration_json_roundtrip();
+    test_hold_detector();
     test_pipeline_applies_sensor_to_head();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
