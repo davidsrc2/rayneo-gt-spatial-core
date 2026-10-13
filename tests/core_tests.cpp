@@ -303,6 +303,50 @@ void test_bias_worn_start() {
     CHECK(!t.tracking());
 }
 
+// Worn head: tremor plus the occasional slow drift of the head while settling.
+void run_worn(GyroBiasEstimator& e, Lcg& rng, Vec3 bias, float secs) {
+    const int n = static_cast<int>(secs / kRefDt);
+    for (int i = 0; i < n; ++i) {
+        const float t = static_cast<float>(i) * kRefDt;
+        // 0.8 deg/s yaw for 0.5 s every 2 s, alternating direction (net zero).
+        const float phase = std::fmod(t, 4.0f);
+        const float slow = phase < 0.5f ? 0.8f : (phase >= 2.0f && phase < 2.5f ? -0.8f : 0.0f);
+        const Vec3 tremor{rng.uni() * 3.0f, rng.uni() * 3.0f, rng.uni() * 3.0f};
+        e.update(bias + Vec3{0, 0, slow} + tremor, {0, 0, 9.81f}, kRefDt);
+    }
+}
+
+// Worn start: median over the steady blocks is close to the true bias even with head motion.
+void test_bias_worn_start_median() {
+    Lcg rng;
+    GyroBiasEstimator e;
+    run_worn(e, rng, kBias0, 16.0f);
+    CHECK(e.tracking() && e.worn_start());
+    CHECK(vec_near(e.bias(), kBias0, 0.08f));
+}
+
+// Thermal shift while worn (no desk rest at all): the bias follows.
+void test_bias_worn_drift_correction() {
+    Lcg rng;
+    GyroBiasEstimator e = calibrated(rng);
+    const Vec3 warm = kBias0 + Vec3{0, 0, 0.3f};
+    run_worn(e, rng, warm, 90.0f);
+    CHECK(vec_near(e.bias(), warm, 0.05f));
+}
+
+// Reading-like head motion while worn: slow pans (1 deg/s, 3 s) with fast returns. The
+// pans exceed the residual gate; the bias must not be dragged.
+void test_bias_worn_ignores_head_motion() {
+    Lcg rng;
+    GyroBiasEstimator e = calibrated(rng);
+    for (int cycle = 0; cycle < 20; ++cycle) {
+        run_rest(e, rng, kBias0, 4.0f, 3.0f);                    // hold (tremor)
+        run_rest(e, rng, kBias0 + Vec3{0, 0, 1.0f}, 3.0f, 3.0f);   // slow pan +3 deg
+        run_rest(e, rng, kBias0 + Vec3{0, 0, -30.0f}, 0.1f, 3.0f); // fast return
+    }
+    CHECK(vec_near(e.bias(), kBias0, 0.05f));
+}
+
 // ---------------------------------------------------------------------------
 // Sensor -> head calibration
 // ---------------------------------------------------------------------------
@@ -477,6 +521,9 @@ int main() {
     test_bias_escape_adopts_persistent_step();
     test_bias_escape_rollback();
     test_bias_worn_start();
+    test_bias_worn_start_median();
+    test_bias_worn_drift_correction();
+    test_bias_worn_ignores_head_motion();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();
     test_head_calibration_tolerates_turn_in_nods();
