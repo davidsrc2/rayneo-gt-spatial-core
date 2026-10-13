@@ -2,6 +2,40 @@
 
 Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para un gestor de ventanas espaciales en macOS (Apple Silicon); el núcleo es portable a Windows.
 
+## Estado del proyecto
+
+Última actualización: 2026-10-13. Hardware de referencia: RayNeo GT conectadas a un MacBook M4 (macOS 27.2). Cuando el hardware contradice la documentación, manda el hardware.
+
+| Fase | Contenido | Estado |
+|---|---|---|
+| 1 | HAL en macOS M4: build arm64 sin warnings, hidapi estático, `imu_probe --list/--raw`, `TickMonitor`, stats en el C ABI | Fusionada (PR #1). Validada con las gafas |
+| 2 | Escape y rollback del bias, calibración `sensor_to_head` (`imu_probe --calibrate`, `calibration.json`) | Fusionada (PR #2). Tests sin hardware |
+| fix | Calibración guiada atascada con las gafas puestas: bias sobre la mesa + `HoldDetector` | Fusionada (PR #3). Pendiente de probar con las gafas puestas |
+| 3 | Servidor Metal: ScreenCaptureKit, pantalla curva, half-SBS, predicción, `Cmd+Opt+C` | Rama `feat/phase3-macos-renderer`. Funciona sobre las gafas (120 fps); falta validación visual |
+| 3b | Escritorio de N monitores virtuales (`CGVirtualDisplay`) como paneles fijos, cabeza simulada `--sim` | Rama `feat/phase3b-virtual-displays` (encima de la 3). Probado sin gafas; falta prueba con las gafas |
+| 4 | CI en GitHub Actions (macOS, Windows, Linux) | Pendiente |
+
+### Medidas sobre el hardware de referencia
+
+- **Informe IMU:** 64 B sin report ID. El ACK `99 c8` llega en ~1 ms.
+- **Frecuencia real del sensor:** **457,14 Hz**, no los 476 documentados. Los deltas de tick son 22 siete de cada ocho veces y 21 la restante.
+- **Estabilidad del stream:** 0 pérdidas y 0 drops del ring en sesiones de 20 s. El bias en reposo es de unos 0,4 °/s.
+- **Pantalla `SmartGlasses`:** 1920×1080 a 60 o 120 Hz, en espejo con la pantalla interna. No hay modo 3840×1080, así que el estéreo es half-SBS.
+- **Latencia muestra IMU → scanout:** 26,4 ms con espejo a 120 Hz, que es el suelo de WindowServer (1,4 ms de edad de la pose más 3 refrescos). La predicción la compensa.
+- **Ajustes de latencia probados sin efecto:** quitar el espejo (43 ms), modo exclusivo (43 ms), 3 drawables y `frameLatency` < 1 dan lo mismo; sin vsync el scanout no se adelanta.
+
+### Próximos pasos
+
+1. Probar con las gafas la calibración y el escritorio de 3 paneles, siguiendo la guía de más abajo.
+2. Si la prueba sale bien, fusionar las fases 3 y 3b.
+3. Hacer la Fase 4 (CI multiplataforma).
+
+### Riesgos conocidos
+
+- `CGVirtualDisplay` es una API privada: puede romperse con una actualización de macOS y la app no pasaría la revisión de la App Store.
+- La distorsión de lente está desactivada (`k1 = k2 = 0`) porque no se conoce la óptica de las GT.
+- El FOV de 24,5° es una estimación pendiente de ajustar con las gafas.
+
 ## Capas
 
 ```
@@ -9,10 +43,15 @@ include/rayneo/
   core/      Protocolo GT + Madgwick + corrección de drift. C++17 puro, sin dependencias de SO.
   hal/       Transporte HID (hidapi) + hilo lector de alta frecuencia + ring SPSC lock-free.
   platform/  C ABI estable (rayneo_engine.h) para Swift / Obj-C++ / Win32.
+  core/render_math.h  Mapeo Z-up RH -> Y-up LH, matrices, predicción, malla curva, paneles.
 src/platform/macos/
   RNSpatialEngine.{h,mm}  Fachada Objective-C++ (ARC).
   module.modulemap        Importación directa del C ABI desde Swift.
-apps/imu_probe/           CLI: descubre el dispositivo e imprime la pose.
+  renderer/               RNSpatialRenderer (Metal) + Shaders.metal (compilado en runtime).
+  virtual_display/        RNVirtualDisplay (monitores virtuales, API privada).
+apps/imu_probe/           CLI: lista, volcado raw, calibración guiada, pose a 10 Hz.
+apps/mac_spatial_server/  App Swift: captura, render espacial, hotkeys, cabeza simulada.
+config/                   calibration.example.json
 tests/                    Tests del núcleo (sin hardware).
 ```
 
