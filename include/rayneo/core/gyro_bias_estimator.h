@@ -10,6 +10,10 @@ namespace rayneo::core {
 //  2. Startup calibration: average ONE contiguous rest window (fragments never stitched).
 //  3. Routine adaptation: during dwell-qualified rest, chase only small residuals so a
 //     deliberate slow head turn is not learned as drift.
+//  4. Escape path: a larger residual (thermal step) is adopted only after it has been
+//     stable for escape_persist_s of uninterrupted rest and stays inside the clamp.
+//  5. Rollback: for verify_s after an escape, if the gyro settles back on the previous
+//     bias for rollback_persist_s, the escape was a slow motion, not drift: undo it.
 // Gates are vector magnitudes, so they are invariant to the sensor->head rotation.
 struct GyroBiasConfig {
     float warmup_s = 4.0f;
@@ -29,6 +33,11 @@ struct GyroBiasConfig {
     float routine_tau_s = 5.0f;
     float ema_tau_s = 0.2f;
     float gap_reset_s = 0.05f;
+
+    float escape_persist_s = 10.0f;
+    float escape_stability_degs = 0.15f;  // candidate EMA must stay this close to its anchor
+    float verify_s = 30.0f;
+    float rollback_persist_s = 2.0f;
 };
 
 class GyroBiasEstimator {
@@ -47,9 +56,15 @@ public:
     bool still() const { return still_; }
     const Vec3& bias() const { return bias_; }
 
+    int escapes() const { return escapes_; }
+    int rollbacks() const { return rollbacks_; }
+    bool verifying() const { return verify_left_s_ > 0.0f; }
+
 private:
     void update_rest_detector(const Vec3& g, const Vec3& a, float dt);
     void reset_window();
+    void reset_escape();
+    void track_at_rest(const Vec3& g, float dt);
 
     GyroBiasConfig cfg_;
     State state_ = State::Warmup;
@@ -71,6 +86,20 @@ private:
     float window_s_ = 0.0f;
 
     Vec3 bias_;
+
+    // Escape candidate: contiguous rest with a stable, out-of-routine residual.
+    Vec3 escape_anchor_;
+    Vec3 escape_sum_;
+    int escape_n_ = 0;
+    float escape_s_ = 0.0f;
+
+    // Post-escape verification.
+    Vec3 prev_bias_;
+    float verify_left_s_ = 0.0f;
+    float rollback_s_ = 0.0f;
+
+    int escapes_ = 0;
+    int rollbacks_ = 0;
 };
 
 }  // namespace rayneo::core

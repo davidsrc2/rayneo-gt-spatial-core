@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "rayneo/core/gt_protocol.h"
+#include "rayneo/core/gyro_bias_estimator.h"
+#include "rayneo/core/head_calibration.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/madgwick.h"
 #include "rayneo/core/tick_monitor.h"
@@ -190,6 +192,189 @@ void test_tick_monitor_gaps() {
     CHECK(m.max_delta() == 87);
 }
 
+// ---------------------------------------------------------------------------
+// Gyro bias escape path / rollback
+// ---------------------------------------------------------------------------
+
+struct Lcg {
+    uint32_t s = 12345;
+    float uni() {  // [-1, 1)
+        s = s * 1664525u + 1013904223u;
+        return static_cast<float>(s >> 8) * (2.0f / 16777216.0f) - 1.0f;
+    }
+};
+
+constexpr float kRefDt = 1.0f / 457.14f;
+const Vec3 kBias0{0.4f, 0.45f, 0.02f};  // reference unit at room temperature
+
+void run_rest(GyroBiasEstimator& e, Lcg& rng, Vec3 g, float secs, float noise = 0.05f) {
+    const int n = static_cast<int>(secs / kRefDt);
+    for (int i = 0; i < n; ++i) {
+        const Vec3 jitter{rng.uni() * noise, rng.uni() * noise, rng.uni() * noise};
+        e.update(g + jitter, {0, 0, 9.81f}, kRefDt);
+    }
+}
+
+bool vec_near(const Vec3& a, const Vec3& b, float eps) { return (a - b).norm() <= eps; }
+
+GyroBiasEstimator calibrated(Lcg& rng) {
+    GyroBiasEstimator e;
+    run_rest(e, rng, kBias0, 8.0f);
+    CHECK(e.tracking());
+    CHECK(vec_near(e.bias(), kBias0, 0.02f));
+    return e;
+}
+
+// A 3 s step (e.g. slow, smooth head turn) must not be learned as drift.
+void test_bias_rejects_transient_step() {
+    Lcg rng;
+    GyroBiasEstimator e = calibrated(rng);
+    run_rest(e, rng, kBias0 + Vec3{1.0f, 0, 0}, 3.0f);
+    run_rest(e, rng, kBias0, 5.0f);
+    CHECK(vec_near(e.bias(), kBias0, 0.02f));
+    CHECK(e.escapes() == 0);
+}
+
+// Zero-mean noise step (amplitude just under the rest gate) must not move the bias.
+void test_bias_rejects_noise_burst() {
+    Lcg rng;
+    GyroBiasEstimator e = calibrated(rng);
+    run_rest(e, rng, kBias0, 6.0f, 1.2f);
+    CHECK(vec_near(e.bias(), kBias0, 0.03f));
+    CHECK(e.escapes() == 0);
+}
+
+// A persistent step larger than any plausible bias is never adopted.
+void test_bias_rejects_out_of_clamp_step() {
+    Lcg rng;
+    GyroBiasEstimator e = calibrated(rng);
+    run_rest(e, rng, kBias0 + Vec3{0, 0, 2.5f}, 25.0f);
+    CHECK(vec_near(e.bias(), kBias0, 0.02f));
+    CHECK(e.escapes() == 0);
+}
+
+// A stable thermal step outside the routine window is adopted through the escape path.
+void test_bias_escape_adopts_persistent_step() {
+    Lcg rng;
+    GyroBiasEstimator e = calibrated(rng);
+    const Vec3 stepped = kBias0 + Vec3{0.6f, 0, 0};
+    run_rest(e, rng, stepped, 9.0f);
+    CHECK(vec_near(e.bias(), kBias0, 0.02f));  // not yet: needs escape_persist_s
+    run_rest(e, rng, stepped, 4.0f);
+    CHECK(e.escapes() == 1);
+    CHECK(e.verifying());
+    CHECK(vec_near(e.bias(), stepped, 0.03f));
+    run_rest(e, rng, stepped, 35.0f);  // survives verification
+    CHECK(e.rollbacks() == 0 && !e.verifying());
+    CHECK(vec_near(e.bias(), stepped, 0.03f));
+}
+
+// The plateau ends and the gyro returns to the old bias: the escape was motion, undo it.
+void test_bias_escape_rollback() {
+    Lcg rng;
+    GyroBiasEstimator e = calibrated(rng);
+    run_rest(e, rng, kBias0 + Vec3{0.8f, 0, 0}, 11.0f);
+    CHECK(e.escapes() == 1);
+    run_rest(e, rng, kBias0, 4.0f);
+    CHECK(e.rollbacks() == 1);
+    CHECK(!e.verifying());
+    CHECK(vec_near(e.bias(), kBias0, 0.03f));
+}
+
+// ---------------------------------------------------------------------------
+// Sensor -> head calibration
+// ---------------------------------------------------------------------------
+
+bool quat_near(const Quat& a, const Quat& b, float eps) {
+    const float d = std::fabs(a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z);  // q ~ -q
+    return d >= 1.0f - eps;
+}
+
+HeadCalibrationInput synth_calibration(const Quat& sensor_to_head, Vec3 yaw_axis_head = {0, 0, 1}) {
+    const Quat to_sensor = sensor_to_head.conjugate();
+    const Vec3 left{0, 1, 0};
+    HeadCalibrationInput in;
+    in.gravity_center = to_sensor.rotate({0, 0, 9.81f});
+    in.rot_up = to_sensor.rotate(left * -25.0f);
+    in.rot_down = to_sensor.rotate(left * 22.0f);
+    in.rot_left = to_sensor.rotate(yaw_axis_head * 35.0f);
+    in.rot_right = to_sensor.rotate(yaw_axis_head * -30.0f);
+    return in;
+}
+
+void test_head_calibration_solves_mounting() {
+    const Quat mount = Quat::from_axis_angle({0.3f, 1.0f, 0.2f}, 50.0f * 0.0174533f);
+    HeadCalibrationInput in = synth_calibration(mount);
+    in.rot_up = in.rot_up + Vec3{0.5f, -0.3f, 0.4f};  // imperfect human motion
+    in.rot_left = in.rot_left + Vec3{-0.8f, 0.6f, 0.2f};
+    const auto r = solve_head_calibration(in);
+    CHECK(r.ok);
+    CHECK(quat_near(r.sensor_to_head, mount, 2e-4f));
+    CHECK(r.yaw_axis_error_deg < 3.0f);
+
+    // Rows -> quaternion -> rows round trip for a non-trivial frame.
+    const Quat q = Quat::from_rows({0, 1, 0}, {-1, 0, 0}, {0, 0, 1});
+    CHECK(vec_near(q.rotate({0, 1, 0}), {1, 0, 0}, 1e-5f));
+    CHECK(vec_near(q.rotate({1, 0, 0}), {0, -1, 0}, 1e-5f));
+}
+
+void test_head_calibration_rejects_bad_input() {
+    HeadCalibrationInput small = synth_calibration(Quat{});
+    small.rot_left = small.rot_left * 0.1f;
+    CHECK(!solve_head_calibration(small).ok);
+
+    // Turned around a 40 deg tilted axis: the head was not level.
+    const Vec3 tilted{0.0f, std::sin(0.698f), std::cos(0.698f)};
+    CHECK(!solve_head_calibration(synth_calibration(Quat{}, tilted)).ok);
+
+    HeadCalibrationInput same_sense = synth_calibration(Quat{});
+    same_sense.rot_down = same_sense.rot_up;
+    CHECK(!solve_head_calibration(same_sense).ok);
+}
+
+void test_calibration_json_roundtrip() {
+    const Quat q = Quat::from_axis_angle({1, -2, 0.5f}, 1.1f);
+    const auto back = calibration_from_json(calibration_to_json(q));
+    CHECK(back.has_value() && quat_near(*back, q, 1e-6f));
+    CHECK(!calibration_from_json("{}").has_value());
+    CHECK(!calibration_from_json(R"({"sensor_to_head": {"w": 2, "x": 0, "y": 0, "z": 0}})").has_value());
+    CHECK(!calibration_from_json(R"({"sensor_to_head": {"w": 1, "x": 0}})").has_value());
+}
+
+// IMU mounted with its +Y pointing forward. A nod (head pitch) is a sensor X rotation:
+// without calibration it reads as roll, with the calibration quaternion as pitch.
+void test_pipeline_applies_sensor_to_head() {
+    const Quat mount = Quat::from_rows({0, 1, 0}, {-1, 0, 0}, {0, 0, 1});
+    for (bool calibrated_pipeline : {false, true}) {
+        ImuPipeline p;
+        if (calibrated_pipeline) p.set_sensor_to_head(mount);
+        uint32_t tick = 0;
+        Quat truth;  // sensor -> earth
+        const float rate = 60.0f;
+        auto feed = [&](float gx_degs, int n) {
+            Pose last;
+            for (int i = 0; i < n; ++i) {
+                tick += 21;
+                truth = (truth * Quat::from_axis_angle({1, 0, 0}, gx_degs * 0.0174533f * 0.0021f)).normalized();
+                const Vec3 a = truth.conjugate().rotate({0, 0, 9.81f});
+                const auto r = make_imu_report(a, {gx_degs, 0, 0}, tick);
+                last = *p.process_report(r.data(), r.size());
+            }
+            return last;
+        };
+        feed(0.0f, 476 * 6);
+        const Pose nod = feed(rate, 238);  // 0.5 s -> 30 deg
+        if (calibrated_pipeline) {
+            CHECK(near(std::fabs(nod.euler.pitch), 30.0f, 1.5f));
+            CHECK(near(nod.euler.roll, 0.0f, 1.5f));
+        } else {
+            CHECK(near(std::fabs(nod.euler.roll), 30.0f, 1.5f));
+            CHECK(near(nod.euler.pitch, 0.0f, 1.5f));
+        }
+        CHECK(near(nod.euler.yaw, 0.0f, 1.5f));
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -204,6 +389,15 @@ int main() {
     test_pipeline_recenter();
     test_tick_monitor_reference_cadence();
     test_tick_monitor_gaps();
+    test_bias_rejects_transient_step();
+    test_bias_rejects_noise_burst();
+    test_bias_rejects_out_of_clamp_step();
+    test_bias_escape_adopts_persistent_step();
+    test_bias_escape_rollback();
+    test_head_calibration_solves_mounting();
+    test_head_calibration_rejects_bad_input();
+    test_calibration_json_roundtrip();
+    test_pipeline_applies_sensor_to_head();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

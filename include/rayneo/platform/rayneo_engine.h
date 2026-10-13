@@ -64,6 +64,10 @@ bool rayneo_engine_stats(rayneo_engine* e, rayneo_stats* out);
 
 void rayneo_engine_recenter(rayneo_engine* e);
 
+/* Sensor -> head mounting quaternion (calibration.json). Applied on the fusion thread at
+ * the next sample; implies a recenter. Identity by default. */
+void rayneo_engine_set_sensor_to_head(rayneo_engine* e, float qw, float qx, float qy, float qz);
+
 /* Last error message, valid until the next call on this engine. */
 const char* rayneo_engine_last_error(rayneo_engine* e);
 

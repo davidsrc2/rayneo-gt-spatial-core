@@ -2,7 +2,10 @@
 //   imu_probe --list          enumerate 0x3941 HID interfaces
 //   imu_probe --raw [secs]    bypass the engine: dump the descriptor and raw reports,
 //                             validate framing and measure the device-clock rate
-//   imu_probe                 stream IMU and print the fused pose at 10 Hz
+//   imu_probe --calibrate [out.json]
+//                             guided look-around -> sensor_to_head quaternion
+//   imu_probe [--calib file]  stream IMU and print the fused pose at 10 Hz
+//                             (loads ./calibration.json when present)
 // Ctrl+C to exit, 'stream-off' is sent on shutdown.
 
 #include <atomic>
@@ -10,20 +13,28 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
 
 #include "rayneo/core/gt_protocol.h"
+#include "rayneo/core/head_calibration.h"
+#include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/tick_monitor.h"
 #include "rayneo/hal/hid_transport.h"
+#include "rayneo/hal/imu_stream_reader.h"
 #include "rayneo/platform/rayneo_engine.h"
 
 namespace {
 
+namespace core = rayneo::core;
 namespace gt = rayneo::core::gt;
 namespace hal = rayneo::hal;
+
+constexpr const char* kDefaultCalibPath = "calibration.json";
 
 std::atomic<bool> g_quit{false};
 void on_signal(int) { g_quit.store(true); }
@@ -172,9 +183,201 @@ int run_raw(double secs) {
     return ack_seen && unknown == 0 ? 0 : 2;
 }
 
-int run_stream() {
+// ---------------------------------------------------------------------------
+// Guided sensor -> head calibration
+// ---------------------------------------------------------------------------
+
+class CalibrationSession {
+public:
+    bool open(std::string* err) {
+        if (!hal::hal_init()) {
+            *err = "hid_init failed";
+            return false;
+        }
+        return reader_.open_device(err) && reader_.start();
+    }
+    ~CalibrationSession() {
+        reader_.stop();
+        hal::hal_shutdown();
+    }
+
+    // Drains the ring; false when the device is gone or the user quit.
+    bool pump() {
+        hal::RawReport rr;
+        bool any = false;
+        while (reader_.pop(rr)) {
+            const auto p = pipe_.process_report(rr.data, rr.length);
+            if (!p) continue;
+            dt_ = have_tick_ ? static_cast<float>(gt::tick_delta_seconds(last_.tick_100us, p->tick_100us)) : 0.0f;
+            have_tick_ = true;
+            last_ = *p;
+            on_sample();
+            any = true;
+        }
+        if (!any) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        return !g_quit.load() && !reader_.device_lost();
+    }
+
+    bool tracking() const { return last_.tracking; }
+    bool still() const { return pipe_.bias_estimator().still(); }
+
+    // Waits for the bias calibration, then averages gravity over `secs` of rest.
+    bool capture_gravity(core::Vec3* out, float secs) {
+        gravity_ = true;
+        grav_sum_ = {};
+        grav_n_ = 0;
+        grav_s_ = 0.0f;
+        while (pump()) {
+            if (grav_s_ >= secs && grav_n_ > 0) {
+                gravity_ = false;
+                *out = grav_sum_ * (1.0f / static_cast<float>(grav_n_));
+                return true;
+            }
+        }
+        gravity_ = false;
+        return false;
+    }
+
+    // Integrates bias-corrected gyro from now until the head has moved and come to rest
+    // with at least `min_deg` of rotation. Returns the rotation vector (deg, sensor frame).
+    bool capture_motion(core::Vec3* out, float min_deg, float timeout_s) {
+        integ_ = {};
+        integrating_ = true;
+        bool moved = false;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_s);
+        while (pump()) {
+            if (std::chrono::steady_clock::now() > deadline) break;
+            if (!still()) moved = true;
+            if (moved && still() && integ_.norm() >= min_deg) {
+                integrating_ = false;
+                *out = integ_;
+                return true;
+            }
+        }
+        integrating_ = false;
+        return false;
+    }
+
+    // Waits until the head has moved back and is at rest again (no measurement).
+    bool settle(float timeout_s) {
+        core::Vec3 ignored;
+        return capture_motion(&ignored, 0.0f, timeout_s);
+    }
+
+private:
+    void on_sample() {
+        if (integrating_) integ_ = integ_ + last_.gyro_corrected_degs * dt_;
+        if (!gravity_) return;
+        if (!tracking() || !still()) {  // contiguous rest window only
+            grav_sum_ = {};
+            grav_n_ = 0;
+            grav_s_ = 0.0f;
+            return;
+        }
+        grav_sum_ = grav_sum_ + last_.accel_mps2;
+        ++grav_n_;
+        grav_s_ += dt_;
+    }
+
+    hal::ImuStreamReader reader_;
+    core::ImuPipeline pipe_;
+    core::Pose last_;
+    float dt_ = 0.0f;
+    bool have_tick_ = false;
+    bool integrating_ = false;
+    core::Vec3 integ_;
+    bool gravity_ = false;
+    core::Vec3 grav_sum_;
+    int grav_n_ = 0;
+    float grav_s_ = 0.0f;
+};
+
+int run_calibrate(const std::string& out_path) {
+    CalibrationSession s;
+    std::string err;
+    if (!s.open(&err)) {
+        std::fprintf(stderr, "start failed: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("Put the glasses on, look straight ahead with your head level and keep still.\n"
+                "Each step: move, then hold until the next prompt (rest is detected after ~1.5 s).\n\n");
+    std::fflush(stdout);
+
+    core::HeadCalibrationInput in;
+    std::printf("[1/5] center... ");
+    std::fflush(stdout);
+    if (!s.capture_gravity(&in.gravity_center, 1.5f)) return 1;
+    std::printf("ok  (gravity %.2f %.2f %.2f)\n", in.gravity_center.x, in.gravity_center.y, in.gravity_center.z);
+
+    struct Step {
+        const char* prompt;
+        core::Vec3* out;
+    };
+    const Step steps[] = {{"look UP (~30 deg) and hold", &in.rot_up},
+                          {"look DOWN (~30 deg) and hold", &in.rot_down},
+                          {"turn LEFT (~30 deg) and hold", &in.rot_left},
+                          {"turn RIGHT (~30 deg) and hold", &in.rot_right}};
+    int i = 2;
+    for (const Step& st : steps) {
+        std::printf("[%d/5] %s... ", i++, st.prompt);
+        std::fflush(stdout);
+        if (!s.capture_motion(st.out, 15.0f, 30.0f)) {
+            std::fprintf(stderr, "\ntimed out or interrupted\n");
+            return 1;
+        }
+        std::printf("%.1f deg. Back to CENTER and hold... ", st.out->norm());
+        std::fflush(stdout);
+        if (!s.settle(30.0f)) {
+            std::fprintf(stderr, "\ntimed out or interrupted\n");
+            return 1;
+        }
+        std::printf("ok\n");
+    }
+
+    const auto r = core::solve_head_calibration(in);
+    std::printf("\nyaw axis vs gravity %.1f deg, nod axis tilt %.1f deg\n", r.yaw_axis_error_deg,
+                r.pitch_axis_tilt_deg);
+    if (!r.ok) {
+        std::fprintf(stderr, "calibration rejected: %s\n", r.error.c_str());
+        return 2;
+    }
+    std::ofstream f(out_path);
+    f << core::calibration_to_json(r.sensor_to_head);
+    if (!f) {
+        std::fprintf(stderr, "cannot write %s\n", out_path.c_str());
+        return 1;
+    }
+    std::printf("sensor_to_head = [%.5f %.5f %.5f %.5f] -> %s\n", r.sensor_to_head.w, r.sensor_to_head.x,
+                r.sensor_to_head.y, r.sensor_to_head.z, out_path.c_str());
+    return 0;
+}
+
+std::optional<core::Quat> load_calibration(const std::string& path, bool required) {
+    std::ifstream f(path);
+    if (!f) {
+        if (required) std::fprintf(stderr, "cannot read %s\n", path.c_str());
+        return std::nullopt;
+    }
+    std::stringstream ss;
+    ss << f.rdbuf();
+    const auto q = core::calibration_from_json(ss.str());
+    if (!q) std::fprintf(stderr, "invalid calibration file %s%s\n", path.c_str(), required ? "" : " (ignored)");
+    return q;
+}
+
+int run_stream(const std::string& calib_path, bool calib_required) {
+    const auto calib = load_calibration(calib_path, calib_required);
+    if (calib_required && !calib) return 1;
+
     rayneo_config cfg = rayneo_default_config();
     rayneo_engine* engine = rayneo_engine_create(&cfg);
+    if (calib) {
+        rayneo_engine_set_sensor_to_head(engine, calib->w, calib->x, calib->y, calib->z);
+        std::printf("calibration: %s sensor_to_head = [%.5f %.5f %.5f %.5f]\n", calib_path.c_str(), calib->w,
+                    calib->x, calib->y, calib->z);
+    } else {
+        std::printf("calibration: none (identity sensor_to_head)\n");
+    }
     if (rayneo_engine_start(engine) != RAYNEO_OK) {
         std::fprintf(stderr, "start failed: %s\n", rayneo_engine_last_error(engine));
         rayneo_engine_destroy(engine);
@@ -226,5 +429,17 @@ int main(int argc, char** argv) {
     const std::string_view mode = argc > 1 ? argv[1] : "";
     if (mode == "--list") return run_list();
     if (mode == "--raw") return run_raw(argc > 2 ? std::atof(argv[2]) : 5.0);
-    return run_stream();
+    if (mode == "--calibrate") return run_calibrate(argc > 2 ? argv[2] : kDefaultCalibPath);
+    if (mode == "--calib") {
+        if (argc < 3) {
+            std::fprintf(stderr, "--calib needs a file\n");
+            return 1;
+        }
+        return run_stream(argv[2], true);
+    }
+    if (!mode.empty()) {
+        std::fprintf(stderr, "usage: imu_probe [--list | --raw [secs] | --calibrate [out.json] | --calib file]\n");
+        return 1;
+    }
+    return run_stream(kDefaultCalibPath, false);
 }
