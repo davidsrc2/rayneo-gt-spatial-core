@@ -55,11 +55,46 @@ Driver IddCx (monitores virtuales)     instalado aparte, con firma
 Tamaños: S = días, M = 1–2 semanas, L = 3+ semanas.
 
 ### W0 · Preparación y prueba de hardware (S) — empezar ya
-Ejecutar en el PC, desde la raíz del repo y con las gafas conectadas:
+
+#### Guía paso a paso (en el PC con Windows)
+
+**1. Instalar herramientas** (una vez, PowerShell):
+```powershell
+winget install Git.Git Kitware.CMake
+winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+Cierra y abre PowerShell después, para que encuentre `git` y `cmake`. Si ya tienes Visual Studio 2022, basta con que tenga «Desarrollo para el escritorio con C++».
+
+**2. Bajar el código:**
+```powershell
+git clone https://github.com/davidsrc2/rayneo-gt-spatial-core
+cd rayneo-gt-spatial-core
+```
+Si ya estaba clonado: `git checkout main; git pull`.
+
+**3. Conectar las gafas** a un USB-C que saque vídeo (suele llevar el icono DP o el del rayo). Deben verse como una pantalla más en Configuración > Pantalla. Déjalas **quietas sobre la mesa**.
+
+**4. Ejecutar la comprobación** (desde la carpeta del repo):
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\windows\w0_check.ps1
 ```
-Deja el resultado en `w0_report.txt`.
+Tarda unos minutos la primera vez (compila). Todo queda en `w0_report.txt`.
+
+**5. Leer el resultado:**
+
+| Línea | Bien | Si no |
+|---|---|---|
+| `pantalla de las gafas detectada` | OK en verde | Ese USB-C no saca vídeo: prueba otro puerto o cable. Sin esto no hay W2 |
+| `dispositivo USB de las gafas presente` | OK en verde | Cable o puerto: el USB de datos no llega |
+| `device-clock rate` | ~457 Hz | Anotar el valor |
+| `missed` | 0 | Pérdidas: anotar; se mira la prioridad del hilo |
+| `ack` | 1 o más | Las gafas no respondieron al comando de stream |
+
+**6. Opcional:** `build-win\Release\imu_probe.exe` muestra la pose en vivo; mueve la cabeza con las gafas puestas y comprueba que yaw/pitch/roll siguen el movimiento (Ctrl+C para salir).
+
+**7. Mandar `w0_report.txt`** (o pegar su contenido) para empezar la W2.
+
+#### Qué valida
 
 1. **Comprobar el PC:** USB-C con **DisplayPort Alt Mode** (las gafas son una pantalla DP; sin eso no hay imagen) y GPU con D3D11.1. Revisar el mini PC.
 2. Compilar con Visual Studio 2022 / CMake: `cmake -S . -B build -G "Visual Studio 17 2022"`.
