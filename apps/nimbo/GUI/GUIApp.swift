@@ -10,7 +10,7 @@ final class GUIApp: NSObject {
     let server = ServerController()
     private var window: NSWindow?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let popover = NSPopover()
+    private var panel: KeyPanel?
     private let hotKeys = HotKeys()
 
     func launch() {
@@ -45,26 +45,52 @@ final class GUIApp: NSObject {
         }
     }
 
-    // Compact glass panel under the ◎ icon.
+    // Compact glass panel under the menu bar. A window of its own rather than an NSPopover:
+    // when the ◎ item is hidden behind the notch (a crowded menu bar), a popover anchored to
+    // it lands half off the top of the screen.
     @objc func togglePanel() {
-        popover.isShown ? popover.performClose(nil) : showPanel()
+        if let panel, panel.isVisible { panel.orderOut(nil); return }
+        // The click on ◎ that just closed it (focus moved to the menu bar): stay closed.
+        if let panel, Date().timeIntervalSince(panel.closedAt) < 0.3 { return }
+        showPanel()
     }
 
     func showPanel() {
-        guard let button = statusItem.button else { return }
-        if popover.contentViewController == nil {
-            popover.behavior = .transient
-            popover.animates = true
-            popover.appearance = NSAppearance(named: .darkAqua)
-            popover.contentViewController = NSHostingController(rootView: QuickPanel(model: model, server: server) { [weak self] in
-                self?.popover.performClose(nil)
+        if panel == nil {
+            let host = NSHostingView(rootView: QuickPanel(model: model, server: server) { [weak self] in
+                self?.panel?.orderOut(nil)
                 self?.openLayout()
-            })
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)))
+            let p = KeyPanel(contentRect: NSRect(origin: .zero, size: host.fittingSize),
+                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            p.contentView = host
+            p.isOpaque = false
+            p.backgroundColor = .clear
+            p.hasShadow = true
+            p.level = .popUpMenu
+            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+            p.appearance = NSAppearance(named: .darkAqua)
+            p.hidesOnDeactivate = false
+            p.onResignKey = { [weak p] in p?.orderOut(nil) }  // click elsewhere: close, like a popover
+            panel = p
         }
-        // A transient popover of an inactive app closes at once: become active first.
+        guard let panel, let host = panel.contentView else { return }
+        // Under the ◎ item when it is on screen, else at the right edge; always below the menu
+        // bar and fully inside the visible area.
+        let item = statusItem.button?.window
+        let screen = item?.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        let visible = screen.visibleFrame
+        var size = host.fittingSize
+        size.height = min(size.height, visible.height - 12)
+        var x = visible.maxX - size.width - 10
+        if let item, item.occlusionState.contains(.visible), screen.frame.contains(item.frame) {
+            x = item.frame.midX - size.width / 2
+        }
+        x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
+        panel.setFrame(NSRect(x: x, y: visible.maxY - size.height - 6, width: size.width, height: size.height), display: true)
         NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        panel.makeKeyAndOrderFront(nil)
     }
 
     private var previewWindow: NSWindow?
@@ -145,4 +171,19 @@ final class GUIApp: NSObject {
     @objc private func recenter() { server.recenter() }
     @objc private func toggleServer() { server.toggle() }
     @objc private func quit() { NSApp.terminate(nil) }
+}
+
+// Borderless panel that can take key focus (sliders, toggles) and closes when it loses it.
+final class KeyPanel: NSPanel {
+    var onResignKey: (() -> Void)?
+    private(set) var closedAt = Date.distantPast
+    override var canBecomeKey: Bool { true }
+    override func resignKey() {
+        super.resignKey()
+        onResignKey?()
+    }
+    override func orderOut(_ sender: Any?) {
+        if isVisible { closedAt = Date() }
+        super.orderOut(sender)
+    }
 }
