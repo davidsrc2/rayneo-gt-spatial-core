@@ -58,11 +58,13 @@ Después se abre desde Launchpad / Spotlight («Nimbo»). Para desarrollo tambi�
 
 - Sin argumentos se abre como **app de barra de menús**: clic en **◎** abre el panel compacto (cristal nativo, oscuro). Clic derecho: menú rápido.
   - Arriba, el estado tipo semáforo (verde «Sensores estabilizados», ámbar «Calibrando (deja las gafas en la mesa 5 s)», gris apagado) y el interruptor de encendido.
-  - Tarjetas de un clic: **1 Pantalla Curva**, **Doble Monitor**, **Triple Ultrawide**. Con las gafas siguiendo la cabeza, la tarjeta activa ilumina el monitor que estás mirando.
+  - Tarjetas de un clic: **1 Pantalla Curva**, **Doble Monitor**, **Triple Ultrawide**. Con las gafas siguiendo la cabeza, la tarjeta activa ilumina el monitor que estás mirando. Atajos globales **⌘⌥1 / ⌘⌥2 / ⌘⌥3** sin abrir el panel (con un aviso nativo).
   - **Recentrar vista** (⌘⌥C; no ⌘⇧R porque es «recargar» en Safari y Chrome y un atajo global lo anularía). La imagen se desliza a su sitio en 300 ms en vez de saltar.
   - Deslizadores con anclajes: **Distancia** (Cerca / Normal / Lejos), **Curvatura** continua (Plana / Suave / Envolvente; `core::bent_screen_mesh`), **Tamaño**.
   - Perfiles **Modo Código** y **Modo Cine**, y **Auto-iniciar al conectar las RayNeo GT**.
   - «Más opciones…» abre la ventana completa: editor de cuadrícula (horizontal y vertical), tamaño de texto, Ajustes y Avanzado.
+- Avisos en el centro de notificaciones al conectar y desconectar las gafas.
+- Ajustes > Pantallas: **Atenuar los monitores que no miras** (activado por defecto; `--dim 0..1` en CLI).
 - Al pulsar Empezar el panel sigue respondiendo mientras se preparan los monitores (2–3 s); se puede cancelar apagando el interruptor.
 - Con flags sigue funcionando como CLI (`--help`; `--curvature 0..1`).
 - Primera vez: asistente con permisos (Grabación de pantalla y Accesibilidad **para la app**, no para Terminal), calibración guiada (reutiliza tu `calibration.json` si ya existía) y ajuste de escala.
@@ -216,6 +218,7 @@ Atajos globales: `Cmd+Opt+C` recentrar · `Cmd+Opt+Q` salir · `Cmd+Opt+flechas`
 - Estabilidad: `PoseStabilizer` con zona muerta. Mirando un punto, la imagen queda congelada como un monitor normal (0 temblor; tremor, pulso y respiración < 1,5° no llegan a la pantalla). Al girar de verdad sale de la zona muerta y sigue a la cabeza con un filtro rápido (< 0,6° de retraso a 60°/s) hasta que vuelves a quedarte quieto. La predicción solo se aplica al girar.
 - Escritorio virtual: por defecto todos los paneles son monitores virtuales; el panel 1 es la pantalla principal de macOS (barra de menús, Dock, ventanas nuevas) y la pantalla física de las gafas queda en una esquina (solo superficie de dibujo). Un solo cursor, siempre dentro de los paneles. Las ventanas abiertas se traen al panel 1 si Terminal tiene permiso de Accesibilidad. `--keep-main` vuelve al modo anterior (la pantalla de las gafas como panel izquierdo; dos cursores).
 - Nitidez: los paneles se muestrean con mipmaps y filtrado anisotrópico, así el texto reducido no vibra ni se ve dentado con micromovimientos.
+- Color: pipeline sRGB (filtrado, mipmaps y atenuado en luz lineal), sin bordes de texto oscurecidos.
 - Ahorro de energía: con la cabeza quieta y sin cambios en ningún monitor no se redibuja (el log muestra `render N fps (M idle)`).
 - Texto: monitores virtuales de 1152x648 puntos (HiDPI, captura a 2x): todo 1,67x más grande que a 1920x1080. `--vd-size` para cambiarlo.
 
