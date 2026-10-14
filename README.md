@@ -156,6 +156,10 @@ Hoy todo se controla con flags en Terminal. La fase 5 sustituye eso por una app 
 - SwiftUI sobre el servidor actual (`apps/nimbo`): las opciones de `Options.swift` son el modelo, y la UI las edita y relanza el servidor (o las aplica en caliente cuando sea posible: FOV, distancia, separación, plano/curvo).
 - La disposición vertical requiere ampliar `core::panel_centers` a una cuadrícula (yaw + pitch), mallas inclinadas en pitch y `VirtualDesktop` colocando los monitores en filas y columnas, para que el ratón pase entre ellos como en la realidad.
 
+## Windows
+
+Plan de trabajo para la versión de Windows: [docs/WINDOWS_PLAN.md](docs/WINDOWS_PLAN.md).
+
 ## Capas
 
 ```
