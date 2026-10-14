@@ -82,7 +82,7 @@ int main() {
     d.Height = h;
     d.MipLevels = 1;
     d.ArraySize = 1;
-    d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    d.Format = DXGI_FORMAT_B8G8R8A8_TYPELESS;  // a swap chain buffer takes an sRGB view as is; a texture must be typeless
     d.SampleDesc.Count = 1;
     d.Usage = D3D11_USAGE_DEFAULT;
     d.BindFlags = D3D11_BIND_RENDER_TARGET;
@@ -102,6 +102,7 @@ int main() {
         return 1;
     }
 
+    d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     d.Usage = D3D11_USAGE_STAGING;
     d.BindFlags = 0;
     d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
