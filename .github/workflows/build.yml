@@ -81,6 +81,7 @@ jobs:
           name: nimbo-win-x64
           path: |
             build/Release/nimbo_win.exe
+            build/Release/nimbo.dll
             build/Release/imu_probe.exe
 
       - name: Core-only build (no hidapi)
