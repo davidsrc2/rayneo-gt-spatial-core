@@ -90,8 +90,14 @@ final class GUIApp: NSObject {
     // Click: the panel. Right-click: the quick menu.
     private func buildStatusItem() {
         guard let button = statusItem.button else { return }
-        button.title = "◎"
-        button.font = NSFont.systemFont(ofSize: 15)
+        // Template image: macOS tints it for light/dark menu bars and the highlighted state.
+        if let icon = Bundle.main.image(forResource: "MenuBarIcon") {
+            icon.isTemplate = true
+            icon.size = NSSize(width: 18, height: 18)
+            button.image = icon
+        } else {
+            button.title = "◎"
+        }
         button.target = self
         button.action = #selector(statusClicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])

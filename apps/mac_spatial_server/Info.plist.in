@@ -5,7 +5,15 @@
   <key>CFBundleIdentifier</key>
   <string>es.gestorae.rayneo.spatialserver</string>
   <key>CFBundleName</key>
-  <string>RayNeo Spatial Server</string>
+  <string>RayNeo Spatial</string>
+  <key>CFBundleDisplayName</key>
+  <string>RayNeo Spatial</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.productivity</string>
+  <key>NSHumanReadableCopyright</key>
+  <string>© 2026 gestorae.es</string>
   <key>CFBundleExecutable</key>
   <string>mac_spatial_server</string>
   <key>CFBundlePackageType</key>

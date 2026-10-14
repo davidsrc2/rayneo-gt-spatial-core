@@ -67,6 +67,19 @@ open ~/rayneo-gt-spatial-core/build/mac_spatial_server.app      # o doble clic e
 - La firma es ad-hoc: tras recompilar, macOS puede volver a pedir los permisos.
 - SwiftUI sin la macro `@State` (su plugin solo viene con Xcode; el build usa las Command Line Tools).
 
+## Icono y distribución (DMG)
+
+- Icono propio (no el logo de RayNeo/TCL): tres pantallas en arco sobre unas gafas, paleta de la app. Generado por código: `swift scripts/make_icons.swift assets/icon && iconutil -c icns assets/icon/AppIcon.iconset -o assets/icon/AppIcon.icns`. Incluye el icono de barra de menús (*template*, se adapta a claro/oscuro).
+- DMG para instalar arrastrando a Aplicaciones:
+  ```sh
+  scripts/make_dmg.sh                       # -> dist/RayNeoSpatial-<versión>.dmg (firma ad-hoc)
+  DEVELOPER_ID="Developer ID Application: … (TEAMID)" NOTARY_PROFILE=rayneo scripts/make_dmg.sh
+  ```
+  - Sin Developer ID, en otros Macs Gatekeeper pide confirmar la primera vez (clic derecho > Abrir).
+  - Con Developer ID (Apple Developer Program, 99 €/año) y `xcrun notarytool store-credentials rayneo`, la app se firma con *hardened runtime*, se notariza y se graba el ticket: abre sin avisos en cualquier Mac.
+  - La versión sale de `project(... VERSION x.y.z)` en `CMakeLists.txt`.
+- Nombre: «RayNeo Spatial». Antes de publicarlo conviene un nombre propio (RayNeo es marca de TCL) y usar «para RayNeo GT» como descripción.
+
 ## Interfaz gráfica: requisitos (fase 5)
 
 Hoy todo se controla con flags en Terminal. La fase 5 sustituye eso por una app de Mac. Este apartado es el brief de diseño.

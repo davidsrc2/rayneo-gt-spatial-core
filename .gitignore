@@ -58,3 +58,7 @@ captures/
 
 # Per-unit calibration (see config/calibration.example.json)
 /calibration.json
+
+# Release packaging
+/build-release/
+/dist/
