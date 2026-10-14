@@ -22,6 +22,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float k1;               // barrel pre-distortion, 0 = off
 @property(nonatomic) float k2;
 @property(nonatomic) float maxPredictionMs;  // extrapolation clamp, 50
+@property(nonatomic) float dimOthers;        // brightness of the panels you are not looking at, 1 = off
 @end
 
 @interface RNSpatialRenderer : NSObject
@@ -50,6 +51,12 @@ NS_ASSUME_NONNULL_BEGIN
 // Panel index the given head orientation (core frame) looks at, or -1.
 - (NSInteger)panelAtGaze:(simd_quatf)orientation;
 
+// A brightness fade is in progress: the next frame differs even with a still head and
+// unchanged sources. Render thread only.
+@property(nonatomic, readonly) BOOL animating;
+
+// The pixel format must be an sRGB one (MTLPixelFormatBGRA8Unorm_sRGB): filtering and
+// dimming happen in linear light, which keeps text edges from darkening.
 // Predicts the pose to targetHostNs, renders both eyes and presents. Render thread only.
 // orientation/angularVelocity are in the core frame (RNPose). Returns the prediction
 // horizon actually applied, in ms.

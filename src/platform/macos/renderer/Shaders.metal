@@ -28,10 +28,12 @@ vertex VOut screen_vertex(uint vid [[vertex_id]],
     return out;
 }
 
+// Textures are sRGB views: sampling, mipmaps and this brightness work on linear light.
 fragment float4 screen_fragment(VOut in [[stage_in]],
                                 texture2d<float> source [[texture(0)]],
-                                sampler s [[sampler(0)]]) {
-    return float4(source.sample(s, in.uv).rgb, 1.0);
+                                sampler s [[sampler(0)]],
+                                constant float& brightness [[buffer(0)]]) {
+    return float4(source.sample(s, in.uv).rgb * brightness, 1.0);
 }
 
 // Pass 2: per-eye barrel pre-distortion into the drawable viewport (half for SBS).
