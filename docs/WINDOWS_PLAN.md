@@ -47,7 +47,7 @@ Driver IddCx (monitores virtuales)     instalado aparte, con firma
 
 | Fase | Estado |
 |---|---|
-| W0 | Preparada: hilo del IMU con MMCSS + temporizador de 1 ms en Windows; `scripts/windows/w0_check.ps1` comprueba el PC, compila y mide la IMU. **Falta ejecutarlo en el PC con las gafas** |
+| W0 | Validada en hardware (2026-10-14, Win 11 Enterprise, Intel Iris Xe): gafas como pantalla DP 1280x720, HID 3941:af50 visible, build MSVC 2022 OK, IMU a 457.19 Hz, missed 0, irregular 0, ACK sí. Pendiente: comprobar pose en vivo y `imu_probe --calibrate` |
 | W1 | Hecha en parte: `core/presets`, `core/panel_dimmer`, `core/frame_skip` con tests; macOS los usa; plantillas y perfiles expuestos en `rayneo_layouts.h` (C ABI). Pendiente: modelo de opciones en JSON común y ampliar el C ABI para la app de Windows |
 
 ## Fases

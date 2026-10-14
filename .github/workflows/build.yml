@@ -74,6 +74,15 @@ jobs:
           file build/imu_probe | grep arm64
           test -d build/Nimbo.app || echo "Nimbo.app not built on this branch"
 
+      - name: Upload Windows binaries
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-win-x64
+          path: |
+            build/Release/nimbo_win.exe
+            build/Release/imu_probe.exe
+
       - name: Core-only build (no hidapi)
         run: |
           cmake -S . -B build-core ${{ matrix.generator }} -DCMAKE_BUILD_TYPE=Release -DRAYNEO_BUILD_HAL=OFF
