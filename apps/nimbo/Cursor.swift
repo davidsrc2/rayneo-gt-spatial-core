@@ -12,6 +12,7 @@ enum HardwareCursor {
     private typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
 
     private static var hidden = false
+    static var isHidden: Bool { hidden }
 
     static func hide() -> Bool {
         guard !hidden else { return true }

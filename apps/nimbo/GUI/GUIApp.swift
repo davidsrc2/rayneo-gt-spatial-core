@@ -89,7 +89,9 @@ final class GUIApp: NSObject {
         }
         x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
         panel.setFrame(NSRect(x: x, y: visible.maxY - size.height - 6, width: size.width, height: size.height), display: true)
-        NSApp.activate(ignoringOtherApps: true)
+        // Key without activating the app: Nimbo hides the hardware cursor, and as the active
+        // app that hiding also took the cursor out of the captured panels until another app
+        // was clicked.
         panel.makeKeyAndOrderFront(nil)
     }
 

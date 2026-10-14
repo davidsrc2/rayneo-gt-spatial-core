@@ -62,6 +62,13 @@ Hechos del PC de prueba (Windows 11 Enterprise de Logista, Intel Iris Xe, monito
 - winget falla en consolas de administrador (fuente sin inicializar / alias sin registrar): usar consola normal o instalación manual.
 - El build local está en `build-win` (`cmake --build build-win --config Release`).
 
+Abierto en macOS tras las pruebas del usuario con las gafas (2026-10-15, MacBook Pro 14" M4 con notch):
+- **Hecho y validado por el usuario:** firma local estable (los permisos ya no se pierden), panel de la barra de menús visible bajo el notch.
+- **Hecho, sin validar:** atenuado desactivado por defecto (parecía un recorte junto al borde de las gafas), cursor que sigue a la mirada más conservador (0,8 s mirando otro panel; nunca tras un clic, una tecla o un movimiento del ratón), panel sin activar la app (sospecha: Nimbo activo + cursor físico oculto = cursor fuera de los paneles hasta un clic derecho).
+- **Cursor que se pierde al hacer clic en «el panel de arriba»** (¿panel de Nimbo o barra de menús de su app?): con un clic derecho vuelve. Diagnóstico nuevo en `~/Library/Application Support/Nimbo/nimbo.log`: cada salto del cursor con su motivo y los cambios de app en primer plano. Pedir ese log.
+- **«Pinned mode» de las gafas: el monitor izquierdo entero, el derecho cortado.** Sin aclarar si es un modo del firmware de las RayNeo (que se sumaría al de Nimbo) o el modo fijo de Nimbo. Preguntar al usuario antes de tocar nada.
+- **Vibración al subir y bajar la cabeza entre monitores; el usuario quiere cero vibración.** El log trae ahora `frame interval media±desv max` por segundo: si la desviación sube al mover la cabeza, es el ritmo de presentación (CAMetalDisplayLink 60–120 Hz, saltos de fotograma); si es estable, es la pose (seguimiento del `PoseStabilizer`, predicción). No ajustar a ciegas: medir primero con el log.
+
 Pendiente, en orden:
 1. **Probar W3 con virtual-display-rs** en el PC: `build-win\Release\nimbo_win.exe --windowed --sim --displays 2`. Riesgos sin verificar: el nombre que Windows da a sus monitores (se esperan «VirtuDisplay+»; si no, se detectan como pantallas nuevas), que acepte el JSON de `Notify` de la 0.4.0, que Windows admita las gafas tocando solo por una esquina (si no, van debajo del último panel) y el cambio de escala por monitor (llamada no documentada).
 2. **Probar W2/W3 con las gafas** (`--displays 0` y `--displays 2`): `target err` cerca de 0 a pantalla completa, panel fijo al girar, texto nítido.

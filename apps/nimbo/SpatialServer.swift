@@ -23,6 +23,10 @@ struct LatencyStats {
     var predSum = 0.0                           // horizon actually extrapolated (ms)
     var presentedN = 0
     var presentedSum = 0.0, presentedMax = 0.0  // sample -> actual presentedTime (ms)
+    // Frame pacing on the display (consecutive presented frames, idle gaps excluded): an uneven
+    // rhythm reads as vibration while the head moves.
+    var intervalN = 0
+    var intervalSum = 0.0, intervalSq = 0.0, intervalMax = 0.0  // ms
     var targetErrSum = 0.0                      // presentedTime - targetPresentationTimestamp (ms)
     var tracking = false
     var idle = 0                                // frames skipped: nothing changed
@@ -34,6 +38,13 @@ struct LatencyStats {
         photonSum += photon
         photonMax = max(photonMax, photon)
         predSum += prediction
+    }
+
+    mutating func addInterval(_ ms: Double) {
+        intervalN += 1
+        intervalSum += ms
+        intervalSq += ms * ms
+        intervalMax = max(intervalMax, ms)
     }
 
     mutating func addPresented(latency: Double, targetError: Double) {
@@ -80,6 +91,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private(set) var isTracking = false
 
     private let statsLock = NSLock()
+    private var lastPresentedTime = 0.0  // guarded by statsLock
     private var stats = LatencyStats()
     private var lastCaptureFrames: UInt64 = 0
     private var statsTimer: Timer?
@@ -379,11 +391,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // When the gaze moves to another panel, bring the cursor along, keeping its relative
     // position (the main display is invisible behind the glasses image otherwise).
     private func followGaze() {
+        logCursorState()
         // The glasses surface is head-locked: a cursor there would be a second, floating one.
         if let physical = physicalDisplay, let cursor = CGEvent(source: nil)?.location,
            CGDisplayBounds(physical).contains(cursor) {
             let gaze = pose.latest().map { renderer.panel(atGaze: $0.orientation) } ?? 0
             let b = CGDisplayBounds(panelDisplays[max(0, min(panelDisplays.count - 1, gaze))])
+            log("cursor: on the glasses surface at \(Int(cursor.x)),\(Int(cursor.y)) -> panel \(gaze + 1)")
             CGWarpMouseCursorPosition(CGPoint(x: b.midX, y: b.midY))
             CGAssociateMouseAndMouseCursorPosition(1)
             return
@@ -416,6 +430,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if let from = panelDisplays.map(CGDisplayBounds).first(where: { $0.contains(cursor) }) {
             rel = CGPoint(x: (cursor.x - from.minX) / from.width, y: (cursor.y - from.minY) / from.height)
         }
+        log("cursor: gaze moved to panel \(panel + 1) -> cursor follows from \(Int(cursor.x)),\(Int(cursor.y))")
         CGWarpMouseCursorPosition(CGPoint(x: target.minX + rel.x * target.width, y: target.minY + rel.y * target.height))
         CGAssociateMouseAndMouseCursorPosition(1)
     }
@@ -605,6 +620,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             self.statsLock.lock()
             self.stats.addPresented(latency: (d.presentedTime - sampleMedia) * 1e3,
                                     targetError: (d.presentedTime - target) * 1e3)
+            let gap = d.presentedTime - self.lastPresentedTime
+            if self.lastPresentedTime > 0, gap > 0, gap < 0.05 { self.stats.addInterval(gap * 1e3) }
+            self.lastPresentedTime = d.presentedTime
             self.statsLock.unlock()
         }
         let prediction = renderer.render(to: update.drawable, orientation: p.orientation,
@@ -640,9 +658,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         let n = Double(max(1, s.frames))
         let pn = Double(max(1, s.presentedN))
-        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms",
+        let inN = Double(max(1, s.intervalN))
+        let inMean = s.intervalSum / inN
+        let inStd = (max(0, s.intervalSq / inN - inMean * inMean)).squareRoot()
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms | frame interval %.1f±%.1f max %.1f ms",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
-                   s.presentedSum / pn, s.presentedMax, s.predSum / n))
+                   s.presentedSum / pn, s.presentedMax, s.predSum / n, inMean, inStd, s.intervalMax))
     }
 
     // MARK: util
@@ -651,8 +672,52 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         NSError(domain: "SpatialServer", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
     }
 
+    // stdout (CLI) and ~/Library/Application Support/Nimbo/nimbo.log (the app has no console).
     func log(_ s: String) {
         print(s)
         fflush(stdout)
+        Self.appendToFile(s)
+    }
+
+    private static let logURL: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Nimbo", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("nimbo.log")
+    }()
+
+    private static let logFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    private static func appendToFile(_ s: String) {
+        let line = "\(logFormatter.string(from: Date())) \(s)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: logURL.path),
+           (attrs[.size] as? Int ?? 0) > 5_000_000 {
+            try? FileManager.default.removeItem(at: logURL)  // keep it small
+        }
+        if let h = try? FileHandle(forWritingTo: logURL) {
+            h.seekToEndOfFile()
+            h.write(data)
+            try? h.close()
+        } else {
+            try? data.write(to: logURL)
+        }
+    }
+
+    // Diagnostics for cursor problems: every warp with its reason, and changes of the front
+    // app and of the hardware cursor's visibility.
+    private var lastCursorState = ""
+
+    private func logCursorState() {
+        let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+        let state = "front app \(front), hardware cursor \(HardwareCursor.isHidden ? "hidden by Nimbo" : "shown")"
+        if state != lastCursorState {
+            lastCursorState = state
+            log("cursor: " + state)
+        }
     }
 }
