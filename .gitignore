@@ -62,3 +62,6 @@ captures/
 # Release packaging
 /build-release/
 /dist/
+
+# W0 hardware check output (scripts/windows/w0_check.ps1)
+/w0_report.txt

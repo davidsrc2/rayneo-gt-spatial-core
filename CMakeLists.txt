@@ -255,6 +255,40 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     VERBATIM)
 endif()
 
+# ---------------------------------------------------------------------------
+# Windows spatial server: DXGI Desktop Duplication + Direct3D 11 (shaders compiled at
+# runtime with D3DCompile, embedded like the Metal ones).
+# ---------------------------------------------------------------------------
+if(WIN32 AND RAYNEO_BUILD_APPS)
+  set(RAYNEO_WIN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/windows)
+  file(READ ${RAYNEO_WIN_DIR}/renderer/Shaders.hlsl RAYNEO_HLSL_SOURCE)
+  configure_file(${RAYNEO_WIN_DIR}/renderer/rn_shaders_hlsl.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/rn_shaders_hlsl.h @ONLY)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${RAYNEO_WIN_DIR}/renderer/Shaders.hlsl)
+
+  add_library(rayneo_windows STATIC
+    ${RAYNEO_WIN_DIR}/displays.cpp
+    ${RAYNEO_WIN_DIR}/desktop_duplication.cpp
+    ${RAYNEO_WIN_DIR}/virtual_displays.cpp
+    ${RAYNEO_WIN_DIR}/window_gatherer.cpp
+    ${RAYNEO_WIN_DIR}/renderer/spatial_renderer.cpp)
+  target_include_directories(rayneo_windows
+    PUBLIC  ${RAYNEO_WIN_DIR} ${RAYNEO_WIN_DIR}/renderer
+    PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+  target_link_libraries(rayneo_windows PUBLIC rayneo::core d3d11 dxgi d3dcompiler dwmapi shell32 ole32)
+  rayneo_warnings(rayneo_windows)
+
+  add_executable(nimbo_win apps/nimbo_win/main.cpp)
+  target_link_libraries(nimbo_win PRIVATE rayneo::engine rayneo_windows winmm)
+  rayneo_warnings(nimbo_win)
+
+  if(RAYNEO_BUILD_TESTS)
+    add_executable(windows_render_test tests/windows_render_test.cpp)
+    target_link_libraries(windows_render_test PRIVATE rayneo_windows)
+    rayneo_warnings(windows_render_test)
+    add_test(NAME windows_render_test COMMAND windows_render_test)
+  endif()
+endif()
+
 if(RAYNEO_BUILD_APPS)
   add_executable(imu_probe apps/imu_probe/main.cpp)
   target_link_libraries(imu_probe PRIVATE rayneo::engine)
