@@ -3,6 +3,7 @@ import SwiftUI
 // One-click layouts drawn as what you get: monitors seen from above, around your head.
 struct LayoutCards: View {
     @ObservedObject var model: AppModel
+    var gaze: Int? = nil  // screen you are looking at, lit on the active card
     let onChange: () -> Void
 
     var body: some View {
@@ -14,8 +15,10 @@ struct LayoutCards: View {
                     onChange()
                 } label: {
                     VStack(spacing: 10) {
-                        LayoutGlyph(count: preset.cells.count, curvature: preset.curvature)
+                        LayoutGlyph(count: preset.cells.count, curvature: preset.curvature,
+                                    lit: selected ? gaze : nil)
                             .frame(height: 30)
+                            .animation(.easeInOut(duration: 0.25), value: gaze)
                         Text(preset.title)
                             .font(.system(size: 12, weight: selected ? .semibold : .regular))
                             .multilineTextAlignment(.center)
@@ -36,10 +39,12 @@ struct LayoutCards: View {
     }
 }
 
-// Top view: an arc of screens in front of a small head.
+// Top view: an arc of screens in front of a small head. `lit`: the screen you look at, with
+// a soft glow; the others dim a little so it reads at a glance.
 struct LayoutGlyph: View {
     let count: Int
     let curvature: Double
+    var lit: Int? = nil
 
     var body: some View {
         Canvas { ctx, size in
@@ -59,7 +64,16 @@ struct LayoutGlyph: View {
                     let pt = CGPoint(x: head.x + rr * sin(t), y: head.y - rr * cos(t))
                     s == 0 ? p.move(to: pt) : p.addLine(to: pt)
                 }
-                ctx.stroke(p, with: .color(.primary.opacity(0.85)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                if let lit, lit < count {
+                    if i == lit {
+                        ctx.stroke(p, with: .color(Theme.gaze.opacity(0.35)), style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        ctx.stroke(p, with: .color(Theme.gaze), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    } else {
+                        ctx.stroke(p, with: .color(.primary.opacity(0.45)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    }
+                } else {
+                    ctx.stroke(p, with: .color(.primary.opacity(0.85)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                }
             }
         }
     }

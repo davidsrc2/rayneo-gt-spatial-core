@@ -11,7 +11,7 @@ struct QuickPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            LayoutCards(model: model) { server.settingsChanged() }
+            LayoutCards(model: model, gaze: server.gazePanel) { server.settingsChanged() }
             recenter
             Tile {
                 VStack(spacing: 14) {

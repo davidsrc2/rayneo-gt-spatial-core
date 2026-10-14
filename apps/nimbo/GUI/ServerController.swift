@@ -11,10 +11,12 @@ final class ServerController: ObservableObject {
     @Published private(set) var state: State = .stopped
     @Published private(set) var glassesConnected = Displays.glassesScreen() != nil
     @Published var notice: String?  // transient, shown softly under the status line
+    @Published private(set) var gazePanel: Int?  // monitor you are looking at, for the panel
 
     private var server: SpatialServer?
     private var pending: (server: SpatialServer, task: Task<Void, Never>)?  // while starting
     private var poll: Timer?
+    private var gazePoll: Timer?
     private weak var model: AppModel?
     private var runningOptions: ServerOptions?
     private var autoStartChecked = false
@@ -32,6 +34,11 @@ final class ServerController: ObservableObject {
 
     init() {
         poll = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.refresh() }
+        gazePoll = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let g = self.server?.gazePanel()
+            if g != self.gazePanel { self.gazePanel = g }  // publish changes only
+        }
     }
 
     func bind(_ model: AppModel) { self.model = model }

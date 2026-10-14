@@ -14,6 +14,7 @@ enum Theme {
     static let card = Color(red: 0.36, green: 0.44, blue: 0.52)
     static let cardMain = Color(red: 0.42, green: 0.55, blue: 0.56)
     static let accent = Color(red: 0.50, green: 0.66, blue: 0.63)
+    static let gaze = Color(red: 0.55, green: 0.85, blue: 0.78)  // the monitor you look at
     static let text = Color(white: 0.88)
     static let secondary = Color(white: 0.60)
     static let line = Color(white: 1.0, opacity: 0.08)

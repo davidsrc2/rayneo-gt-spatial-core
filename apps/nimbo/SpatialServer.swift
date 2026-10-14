@@ -452,6 +452,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         log(String(format: "fov: %.1f° (saved)", ro.fovYDegrees))
     }
 
+    // Panel the head points at (left -> right), nil while calibrating or between panels.
+    func gazePanel() -> Int? {
+        guard let renderer, let p = pose?.latest(), p.tracking else { return nil }
+        let i = renderer.panel(atGaze: p.orientation)
+        return i >= 0 && i < panelDisplays.count ? i : nil
+    }
+
     func recenter() {
         pose.recenter()
         lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
