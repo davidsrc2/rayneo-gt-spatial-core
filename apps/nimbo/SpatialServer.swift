@@ -67,6 +67,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var statusMenu: StatusMenu?
     private var screenObserver: NSObjectProtocol?
     private var stopped = false
+    // Keeps macOS from napping or throttling the app while it runs: once another app is in
+    // front (a click on a virtual monitor), App Nap and timer coalescing would delay the IMU
+    // and render threads and the panels would tremble.
+    private var activity: NSObjectProtocol?
 
     // GUI hooks. Without them (CLI) a stop request quits the process.
     var onStopRequest: ((String) -> Void)?
@@ -93,6 +97,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     @MainActor
     func start() async throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw fail("no Metal device") }
+        activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .latencyCritical, .idleDisplaySleepDisabled],
+            reason: "Nimbo: head tracking and rendering on the glasses")
 
         // Output: the glasses, or a debug window on the Mac screen.
         let glasses = Displays.glassesScreen()
@@ -403,6 +410,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        if let activity { ProcessInfo.processInfo.endActivity(activity) }
+        activity = nil
         HardwareCursor.show()
         statsTimer?.invalidate()
         gazeTimer?.invalidate()

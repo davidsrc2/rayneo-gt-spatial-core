@@ -7,6 +7,10 @@
 #include <string>
 #include <thread>
 
+#if defined(__APPLE__)
+#include <pthread/qos.h>
+#endif
+
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/tick_monitor.h"
 #include "rayneo/hal/hid_transport.h"
@@ -44,6 +48,11 @@ struct rayneo_engine {
 namespace {
 
 void fusion_loop(rayneo_engine* e) {
+#if defined(__APPLE__)
+    // Same class as the reader: in a background app, timer coalescing would otherwise stretch
+    // the 0.5 ms polls below and deliver poses in bursts (panels tremble / slide).
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
     RawReport rr;
     uint64_t seq = 0;
     while (e->running.load(std::memory_order_acquire)) {
