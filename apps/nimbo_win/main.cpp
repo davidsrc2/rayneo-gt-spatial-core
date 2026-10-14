@@ -554,7 +554,7 @@ bool Server::create_window(const RECT& rect) {
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = wnd_proc;
     wc.hInstance = GetModuleHandleW(nullptr);
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));  // IDC_ARROW (narrow in non-UNICODE builds)
     wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
     wc.lpszClassName = L"NimboRender";
     RegisterClassExW(&wc);
