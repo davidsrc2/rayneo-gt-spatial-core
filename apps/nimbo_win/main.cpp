@@ -120,6 +120,19 @@ hotkeys: Ctrl+Alt+C recenter, Ctrl+Alt+Q quit,
          Ctrl+Alt+arrows look around (--sim)
 )";
 
+// "A<sep>B" with two integers, nothing else.
+bool parse_pair(const char* text, char sep, int* a, int* b) {
+    char* end = nullptr;
+    const long x = std::strtol(text, &end, 10);
+    if (end == text || *end != sep) return false;
+    const char* rest = end + 1;
+    const long y = std::strtol(rest, &end, 10);
+    if (end == rest || *end != '\0') return false;
+    *a = static_cast<int>(x);
+    *b = static_cast<int>(y);
+    return true;
+}
+
 std::optional<Options> parse(int argc, char** argv) {
     Options o;
     for (int i = 1; i < argc; ++i) {
@@ -142,7 +155,7 @@ std::optional<Options> parse(int argc, char** argv) {
             std::string cell;
             while (std::getline(ss, cell, ';')) {
                 core::GridCell c;
-                if (std::sscanf(cell.c_str(), "%d,%d", &c.col, &c.row) != 2) return std::nullopt;
+                if (!parse_pair(cell.c_str(), ',', &c.col, &c.row)) return std::nullopt;
                 o.layout.push_back(c);
             }
             if (o.layout.empty() || o.layout.size() > 8) return std::nullopt;
@@ -150,7 +163,7 @@ std::optional<Options> parse(int argc, char** argv) {
         }
         else if (a == "--vd-size") {
             const char* v = value();
-            if (v == nullptr || std::sscanf(v, "%dx%d", &o.vd_width, &o.vd_height) != 2 || o.vd_width < 640 ||
+            if (v == nullptr || !parse_pair(v, 'x', &o.vd_width, &o.vd_height) || o.vd_width < 640 ||
                 o.vd_height < 480) {
                 return std::nullopt;
             }
