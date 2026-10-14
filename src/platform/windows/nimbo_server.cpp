@@ -416,8 +416,23 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
 }
 
+// Windows 11 throttles processes that are not in front (EcoQoS: slower cores, coarse timers,
+// ignored timeBeginPeriod). Once another app is clicked the IMU and render threads would run
+// late and the panels tremble (the macOS App Nap problem): opt out while the server runs.
+void disable_power_throttling() {
+#ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+#define PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
+#endif
+    PROCESS_POWER_THROTTLING_STATE st{};
+    st.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    st.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+    st.StateMask = 0;  // controlled and off: full speed, timer resolution honoured
+    SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &st, sizeof(st));
+}
+
 bool Server::start() {
     set_state(NIMBO_STARTING);
+    disable_power_throttling();
     qpc_.init();
     outputs_ = win::enumerate_outputs();
     logln("displays:");

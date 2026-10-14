@@ -9,6 +9,8 @@
 
 #if defined(__APPLE__)
 #include <pthread/qos.h>
+#elif defined(_WIN32)
+#include <windows.h>
 #endif
 
 #include "rayneo/core/imu_pipeline.h"
@@ -52,6 +54,9 @@ void fusion_loop(rayneo_engine* e) {
     // Same class as the reader: in a background app, timer coalescing would otherwise stretch
     // the 0.5 ms polls below and deliver poses in bursts (panels tremble / slide).
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#elif defined(_WIN32)
+    // Windows: above the app's own threads so poses keep flowing while the CPU is busy.
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 #endif
     RawReport rr;
     uint64_t seq = 0;
