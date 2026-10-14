@@ -437,8 +437,13 @@ bool Server::start() {
     // Virtual monitors first: arranging displays resets temporary modes such as the glasses'
     // native mode below.
     if (opt_.displays > 0 && !win::VirtualDisplayDriver::available()) {
-        logln("virtual monitors: the Virtual Display Driver is not installed, showing an existing display instead"
-              " (install it to get --displays: see docs/WINDOWS_PLAN.md, W3)");
+        if (win::VirtualDisplayDriver::installed()) {
+            logln("virtual monitors: the Virtual Display Driver is installed but does not answer on its control pipe"
+                  " (update to 25.7.23 or newer, or restart Windows); showing an existing display instead");
+        } else {
+            logln("virtual monitors: the Virtual Display Driver is not installed, showing an existing display instead"
+                  " (install it to get --displays: see docs/WINDOWS_PLAN.md, W3)");
+        }
         opt_.displays = 0;
     }
     if (opt_.displays > 0 && !setup_virtual_displays()) return false;

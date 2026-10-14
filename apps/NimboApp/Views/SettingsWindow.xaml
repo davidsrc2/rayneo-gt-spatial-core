@@ -10,6 +10,24 @@
             <StackPanel Spacing="8">
                 <TextBlock Text="Calibración" FontSize="13" Opacity="0.7" />
                 <TextBlock x:Name="CalibrationText" TextWrapping="Wrap" />
+                <Button Content="Volver a calibrar" Click="Recalibrate_Click" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Disposición de los monitores" FontSize="13" Opacity="0.7" />
+                <Border CornerRadius="12" Padding="12" Background="#0DFFFFFF" HorizontalAlignment="Left">
+                    <Canvas x:Name="LayoutPreview" Width="260" Height="120" />
+                </Border>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button x:Name="AddMonitorButton" Content="Añadir monitor" Click="AddMonitor_Click" />
+                    <Button x:Name="RemoveMonitorButton" Content="Quitar monitor" Click="RemoveMonitor_Click" />
+                </StackPanel>
+                <TextBlock x:Name="LayoutText" FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Inicio" FontSize="13" Opacity="0.7" />
+                <ToggleSwitch x:Name="StartupToggle" Header="Abrir Nimbo al iniciar Windows" Toggled="Startup_Toggled" />
             </StackPanel>
 
             <StackPanel Spacing="8">

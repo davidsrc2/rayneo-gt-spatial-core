@@ -17,11 +17,14 @@ internal sealed class ServerController : IDisposable
     private bool _busy;
     private bool _autoStartArmed = true;  // auto-start once per connection
     private int _glassesCheck;
+    private bool _stoppedByUnplug;
 
     // Keeps the log callback alive while nimbo.dll holds it.
     private static readonly NimboNative.LogFn LogCallback = OnLog;
 
     public event Action? Changed;
+    // Glasses plugged in (true) or out (false), for the notices. `wasRunning`: unplugged mid-session.
+    public event Action<bool, bool>? GlassesChanged;
 
     public NimboNative.State State { get; private set; } = NimboNative.State.Stopped;
     public bool GlassesConnected { get; private set; }
@@ -144,11 +147,14 @@ internal sealed class ServerController : IDisposable
     {
         if (++_glassesCheck % 5 == 0)  // ~1 s: display enumeration is not free
         {
-            bool connected = NimboNative.nimbo_glasses_connected() != 0 || IsRunning;
+            // While running, display reconfigurations can hide the glasses for a moment.
+            bool connected = NimboNative.nimbo_glasses_connected() != 0 || IsRunning || _busy;
             if (connected != GlassesConnected)
             {
                 GlassesConnected = connected;
                 if (!connected) _autoStartArmed = true;
+                GlassesChanged?.Invoke(connected, _stoppedByUnplug);
+                _stoppedByUnplug = false;
             }
         }
         if (!_busy)
@@ -167,8 +173,8 @@ internal sealed class ServerController : IDisposable
             {
                 _running = null;
                 var why = NimboNative.MessageOf(st);
-                Say(why.Contains("disconnected") ? "Las gafas se han desconectado; todo ha vuelto a la normalidad"
-                                                 : Friendly(why));
+                _stoppedByUnplug = why.Contains("disconnected");
+                Say(_stoppedByUnplug ? "Las gafas se han desconectado; todo ha vuelto a la normalidad" : Friendly(why));
             }
             if (previous != State) Changed?.Invoke();
         }

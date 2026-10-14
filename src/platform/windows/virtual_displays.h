@@ -23,6 +23,8 @@ class VirtualDisplayDriver {
 public:
     // The driver answers on its control pipe.
     static bool available();
+    // Its installer left its traces (registry key or C:\VirtualDisplayDriver), answering or not.
+    static bool installed();
     // Number of virtual monitors (the driver keeps at least one). Reloads the adapter: the
     // monitors disappear and come back.
     static bool set_count(int count, std::string* error);

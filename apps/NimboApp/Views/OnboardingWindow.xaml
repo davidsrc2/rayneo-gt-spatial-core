@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- First run (OnboardingView.swift on macOS): virtual monitors driver, guided calibration, text size. -->
+<Window
+    x:Class="Nimbo.Views.OnboardingWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Padding="36,28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="StepCounter" FontSize="12" Opacity="0.6" />
+
+        <!-- 1. Welcome -->
+        <StackPanel x:Name="WelcomeStep" Grid.Row="1" Spacing="14" VerticalAlignment="Center">
+            <TextBlock Text="Bienvenido a Nimbo" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" FontSize="15" Opacity="0.85"
+                       Text="Tus RayNeo GT se convierten en varios monitores fijos en el espacio: giras la cabeza y cada pantalla sigue en su sitio. En tres pasos lo dejamos listo." />
+        </StackPanel>
+
+        <!-- 2. Virtual monitors driver -->
+        <StackPanel x:Name="DriverStep" Grid.Row="1" Spacing="14" VerticalAlignment="Center" Visibility="Collapsed">
+            <TextBlock Text="Monitores virtuales" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" FontSize="15" Opacity="0.85"
+                       Text="Para crear monitores nuevos dentro de las gafas, Windows necesita el driver gratuito Virtual Display Driver (código abierto, firmado). Se instala una vez y requiere permisos de administrador." />
+            <InfoBar x:Name="DriverInfo" IsOpen="True" IsClosable="False" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Content="Descargar el driver" Click="DownloadDriver_Click" />
+                <Button Content="Comprobar de nuevo" Click="CheckDriver_Click" />
+            </StackPanel>
+            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
+                       Text="Sin el driver, Nimbo muestra una de tus pantallas actuales en las gafas." />
+        </StackPanel>
+
+        <!-- 3. Guided calibration -->
+        <StackPanel x:Name="CalibrationStep" Grid.Row="1" Spacing="14" VerticalAlignment="Center" Visibility="Collapsed">
+            <TextBlock Text="Calibración" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock x:Name="CalibIntro" TextWrapping="Wrap" FontSize="15" Opacity="0.85"
+                       Text="Ajusta Nimbo a cómo se apoyan las gafas en tu cara, para que las pantallas no se inclinen al girar. Tarda un minuto." />
+            <ProgressBar x:Name="CalibProgress" Maximum="5" Value="0" />
+            <TextBlock x:Name="CalibPrompt" TextWrapping="Wrap" FontSize="18" FontWeight="Medium" />
+            <TextBlock x:Name="CalibHint" FontSize="13" Opacity="0.7" />
+            <InfoBar x:Name="CalibResult" IsClosable="False" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button x:Name="CalibStart" Content="Empezar la calibración" Style="{StaticResource AccentButtonStyle}"
+                        Click="CalibStart_Click" />
+                <Button x:Name="CalibCancel" Content="Cancelar" Visibility="Collapsed" Click="CalibCancel_Click" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- 4. Text size -->
+        <StackPanel x:Name="ScaleStep" Grid.Row="1" Spacing="14" VerticalAlignment="Center" Visibility="Collapsed">
+            <TextBlock Text="Tamaño del texto" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" FontSize="15" Opacity="0.85"
+                       Text="Las gafas tienen menos resolución que un monitor: un texto algo más grande se lee mejor. Puedes cambiarlo cuando quieras desde el panel." />
+            <RadioButtons x:Name="TextSizes" SelectionChanged="TextSizes_SelectionChanged" />
+        </StackPanel>
+
+        <Grid Grid.Row="2">
+            <Button x:Name="SkipButton" Content="Saltar" Click="Skip_Click" />
+            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                <Button x:Name="BackButton" Content="Atrás" Click="Back_Click" />
+                <Button x:Name="NextButton" Content="Continuar" Style="{StaticResource AccentButtonStyle}"
+                        Click="Next_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
