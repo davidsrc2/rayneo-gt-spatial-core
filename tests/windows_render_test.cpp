@@ -39,6 +39,7 @@ void check(bool ok, const char* what) {
 }  // namespace
 
 int main() {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);  // keep the output if it crashes
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> ctx;
     // Debug layer when installed (Graphics Tools): its messages explain a failing check.
