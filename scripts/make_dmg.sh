@@ -25,9 +25,9 @@ find "$STAGE/$APP_NAME.app/Contents/MacOS" -name "*.dSYM" -prune -exec rm -rf {}
 
 if [[ -n "${DEVELOPER_ID:-}" ]]; then
     codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" \
-             --identifier es.gestorae.nimbo "$STAGE/$APP_NAME.app"
+             --identifier io.github.davidsrc2.nimbo "$STAGE/$APP_NAME.app"
 else
-    codesign --force --sign - --identifier es.gestorae.nimbo "$STAGE/$APP_NAME.app"
+    codesign --force --sign - --identifier io.github.davidsrc2.nimbo "$STAGE/$APP_NAME.app"
 fi
 codesign --verify --strict "$STAGE/$APP_NAME.app"
 

@@ -108,7 +108,7 @@ Orden sugerido: 1 → 6 → 4 → 5; 2 y 3 con la cuenta de desarrollador.
   - Sin Developer ID, en otros Macs Gatekeeper pide confirmar la primera vez (clic derecho > Abrir).
   - Con Developer ID (Apple Developer Program, 99 €/año) y `xcrun notarytool store-credentials rayneo`, la app se firma con *hardened runtime*, se notariza y se graba el ticket: abre sin avisos en cualquier Mac.
   - La versión sale de `project(... VERSION x.y.z)` en `CMakeLists.txt`.
-- Nombre: **Nimbo** (propio; «RayNeo GT» solo se usa para nombrar las gafas compatibles). Identificador `es.gestorae.nimbo`. Al primer arranque se migran los ajustes y la calibración de la versión anterior («RayNeo Spatial»).
+- Nombre: **Nimbo** (propio; «RayNeo GT» solo se usa para nombrar las gafas compatibles). Identificador `io.github.davidsrc2.nimbo`. Al primer arranque se reutiliza la calibración de la versión anterior.
 
 ## Interfaz gráfica: requisitos (fase 5)
 

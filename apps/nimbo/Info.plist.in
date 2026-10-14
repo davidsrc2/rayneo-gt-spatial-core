@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key>
-  <string>es.gestorae.nimbo</string>
+  <string>io.github.davidsrc2.nimbo</string>
   <key>CFBundleName</key>
   <string>Nimbo</string>
   <key>CFBundleDisplayName</key>
@@ -13,7 +13,7 @@
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.productivity</string>
   <key>NSHumanReadableCopyright</key>
-  <string>© 2026 gestorae.es</string>
+  <string>© 2026 Nimbo</string>
   <key>CFBundleExecutable</key>
   <string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
   <key>CFBundlePackageType</key>

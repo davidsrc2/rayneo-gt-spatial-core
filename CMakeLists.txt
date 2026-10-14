@@ -240,7 +240,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${RAYNEO_APP_RESOURCES}
             $<TARGET_BUNDLE_CONTENT_DIR:nimbo>/Resources
     COMMAND find $<TARGET_BUNDLE_CONTENT_DIR:nimbo>/MacOS -name "*.d" -delete
-    COMMAND codesign --force --sign - --identifier es.gestorae.nimbo
+    COMMAND codesign --force --sign - --identifier io.github.davidsrc2.nimbo
             $<TARGET_BUNDLE_DIR:nimbo>
     COMMENT "Ad-hoc signing Nimbo.app"
     VERBATIM)
