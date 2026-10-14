@@ -363,6 +363,7 @@ private:
 
     // Virtual monitors (W3).
     bool virtual_ = false;
+    std::unique_ptr<win::VirtualDisplayBackend> backend_;
     win::DisplayArrangement arrangement_;
     std::vector<std::wstring> panel_names_;  // GDI name per panel, left -> right
     std::vector<RECT> panel_rects_;          // desktop rectangle per panel
@@ -436,8 +437,9 @@ bool Server::start() {
 
     // Virtual monitors first: arranging displays resets temporary modes such as the glasses'
     // native mode below.
-    if (opt_.displays > 0 && !win::VirtualDisplayDriver::available()) {
-        if (win::VirtualDisplayDriver::installed()) {
+    if (opt_.displays > 0) backend_ = win::find_virtual_display_backend();
+    if (opt_.displays > 0 && !backend_) {
+        if (win::virtual_display_driver_installed()) {
             logln("virtual monitors: the Virtual Display Driver is installed but does not answer on its control pipe"
                   " (update to 25.7.23 or newer, or restart Windows); showing an existing display instead");
         } else {
@@ -923,18 +925,22 @@ bool Server::setup_virtual_displays() {
         return false;
     }
     const int n = opt_.displays;
-    if (!win::VirtualDisplayDriver::set_count(n, &error)) {
+    std::vector<std::wstring> before;  // displays that are not Nimbo's
+    for (const auto& o : outputs_) before.push_back(o.gdi_name);
+    logln("virtual monitors: %s", backend_->name());
+    if (!backend_->set_monitors(n, opt_.vd_width, opt_.vd_height, &error)) {
         logln("virtual monitors: %s", error.c_str());
         return false;
     }
     virtual_ = true;  // from here on shutdown() restores the arrangement
     std::vector<const win::OutputInfo*> panels;
-    for (int waited = 0; waited < 15000; waited += 250) {  // the driver reloads its adapter
+    for (int waited = 0; waited < 15000; waited += 250) {  // the driver adds its monitors
         Sleep(250);
         outputs_ = win::enumerate_outputs();
         panels.clear();
         for (const auto& o : outputs_) {
-            if (win::is_virtual_panel(o)) panels.push_back(&o);
+            const bool is_new = std::find(before.begin(), before.end(), o.gdi_name) == before.end();
+            if (!o.glasses && (win::is_virtual_panel(o) || is_new)) panels.push_back(&o);
         }
         if (static_cast<int>(panels.size()) >= n) break;
     }
@@ -1095,7 +1101,7 @@ void Server::shutdown() {
         } else {
             logln("displays: %s (run nimbo_win --restore)", error.c_str());
         }
-        win::VirtualDisplayDriver::set_count(1, nullptr);  // the driver keeps one, detached
+        if (backend_) backend_->remove_monitors();  // VDD keeps one, detached above
     }
     std::lock_guard<std::mutex> lock(shared_mutex_);
     status_.state = NIMBO_STOPPED;
@@ -1170,7 +1176,7 @@ bool restore_from_backup() {
         logln("displays: %s", error.c_str());
         return false;
     }
-    win::VirtualDisplayDriver::set_count(1, nullptr);
+    if (auto backend = win::find_virtual_display_backend()) backend->remove_monitors();
     logln("displays: restored from the backup of a previous run");
     return true;
 }
@@ -1369,7 +1375,7 @@ bool nimbo_glasses_connected(void) {
     return win::find_glasses(win::enumerate_outputs()) != nullptr;
 }
 
-bool nimbo_virtual_driver_available(void) { return win::VirtualDisplayDriver::available(); }
+bool nimbo_virtual_driver_available(void) { return win::find_virtual_display_backend() != nullptr; }
 
 bool nimbo_restore_displays(void) {
     DpiScope dpi;
