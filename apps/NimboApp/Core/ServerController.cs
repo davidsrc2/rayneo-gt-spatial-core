@@ -6,7 +6,7 @@ namespace Nimbo.Core;
 
 // Runs the spatial server (nimbo.dll) for the app and turns its state into calm status text.
 // UI thread only; the blocking start / stop calls run on the thread pool.
-internal sealed unsafe class ServerController : IDisposable
+internal sealed class ServerController : IDisposable
 {
     private readonly AppModel _model;
     private readonly DispatcherQueue _ui;
@@ -81,11 +81,7 @@ internal sealed unsafe class ServerController : IDisposable
         State = NimboNative.State.Starting;
         Notice = null;
         Changed?.Invoke();
-        bool ok = await Task.Run(() =>
-        {
-            var o = options;  // a local of the lambda: captured variables cannot be pinned
-            return NimboNative.nimbo_start(_server, &o) != 0;
-        });
+        bool ok = await Task.Run(() => NimboNative.Start(_server, options));
         _busy = false;
         if (ok)
         {
@@ -93,10 +89,9 @@ internal sealed unsafe class ServerController : IDisposable
         }
         else
         {
-            NimboNative.Status st;
-            NimboNative.nimbo_get_status(_server, &st);
+            var st = NimboNative.GetStatus(_server);
             State = NimboNative.State.Stopped;
-            Say(Friendly(NimboNative.GetField(st.Message, 256)));
+            Say(Friendly(NimboNative.MessageOf(st)));
         }
         Refresh();
     }
@@ -133,7 +128,7 @@ internal sealed unsafe class ServerController : IDisposable
         }
         else
         {
-            NimboNative.nimbo_apply(_server, &next);
+            NimboNative.Apply(_server, next);
             _running = next;
         }
     }
@@ -158,8 +153,7 @@ internal sealed unsafe class ServerController : IDisposable
         }
         if (!_busy)
         {
-            NimboNative.Status st;
-            NimboNative.nimbo_get_status(_server, &st);
+            var st = NimboNative.GetStatus(_server);
             var previous = State;
             State = _running != null ? st.State : NimboNative.State.Stopped;
             GazePanel = st.GazePanel;
@@ -172,7 +166,7 @@ internal sealed unsafe class ServerController : IDisposable
             if (_running != null && st.State == NimboNative.State.Stopped)  // stopped on its own
             {
                 _running = null;
-                var why = NimboNative.GetField(st.Message, 256);
+                var why = NimboNative.MessageOf(st);
                 Say(why.Contains("disconnected") ? "Las gafas se han desconectado; todo ha vuelto a la normalidad"
                                                  : Friendly(why));
             }

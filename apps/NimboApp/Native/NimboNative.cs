@@ -150,6 +150,20 @@ internal static unsafe class NimboNative
 
     public static string FromPtr(IntPtr p) => p == IntPtr.Zero ? "" : Marshal.PtrToStringUTF8(p) ?? "";
 
+    // Safe wrappers for async callers (no pointers across awaits).
+    public static bool Start(IntPtr server, Options options) => nimbo_start(server, &options) != 0;
+
+    public static void Apply(IntPtr server, Options options) => nimbo_apply(server, &options);
+
+    public static Status GetStatus(IntPtr server)
+    {
+        Status st;
+        nimbo_get_status(server, &st);
+        return st;
+    }
+
+    public static string MessageOf(Status st) => GetField(st.Message, 256);
+
     public static bool LoadSettings(string path, out Settings settings)
     {
         var bytes = Encoding.UTF8.GetBytes(path + "\0");
