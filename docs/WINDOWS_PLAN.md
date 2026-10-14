@@ -50,6 +50,7 @@ Driver IddCx (monitores virtuales)     instalado aparte, con firma
 | W0 | **Hecha** (2026-10-14, Win 11 Enterprise, Intel Iris Xe): gafas como pantalla DP, HID 3941:af50, build MSVC 2022, IMU a 457.19 Hz, missed 0, irregular 0, ACK sí; pose en vivo sigue yaw/pitch/roll |
 | W2 | Probada en ventana (`--windowed --sim`) tras corregir el bloqueo entre captura y render. **Falta el log con las gafas**: `nimbo_win.exe` (captura DXGI con cursor, render D3D11 portado de Metal, swap chain flip a 120 Hz excluida de la captura, predicción hasta el scanout). CI compila sin warnings y renderiza un fotograma en WARP (`windows_render_test`) |
 | W3 | Implementada sobre *Virtual Display Driver* (MIT, IddCx, firmado), **falta probarla**: monitores virtuales en cuadrícula, superficie de las gafas apartada, escala por monitor, cursor que sigue la mirada, ventanas traídas al panel 1, restauración al salir y `--restore` tras un cuelgue |
+| W4 | **4A hecha, falta probarla**: `apps/NimboApp` (WinUI 3, .NET 8, sin empaquetar): icono en la bandeja, panel con luz de estado, interruptor, tarjetas de disposición, recentrar, deslizadores, perfiles, auto-inicio; ventana de ajustes; Ctrl+Alt+1/2/3; `settings.json` común con macOS. CI la publica como artefacto `nimbo-app-win-x64`. Pendiente 4B: asistente (driver, calibración guiada, escala), avisos al conectar y desconectar, inicio con Windows, editor de disposición |
 | W1 | **Hecha**: `core/presets`, `core/panel_dimmer`, `core/frame_skip`, `core/settings` (los ajustes de la app de macOS, mismas claves, en JSON) con tests. `nimbo.dll` con C ABI (`rayneo/platform/nimbo_win.h`): arrancar y parar en su propio hilo, ajustes en vivo, estado, log, ajustes ↔ opciones, gafas y driver presentes, restaurar pantallas, calibración guiada. `nimbo_win.exe` es un CLI sobre esa API; `nimbo_api_test` la prueba en CI. Pendiente: que la app de macOS lea y escriba `settings.json` en vez de UserDefaults |
 
 ## Fases
@@ -205,6 +206,16 @@ Variantes: `--layout "0,0;0,1"` (uno encima de otro), `--displays 3`, `--fit`, `
 **Hecho cuando:** 2–3 monitores virtuales con las gafas y vuelta limpia al estado original.
 
 ### W4 · App (M)
+
+#### Probar la app (4A)
+Descargar el artefacto `nimbo-app-win-x64` del último build de `main` en GitHub Actions, descomprimir y abrir `Nimbo.exe` (lleva su `nimbo.dll` y el Windows App SDK dentro). Para compilarla en el PC hace falta el SDK de .NET 8 o superior:
+```powershell
+cmake --build build-win --config Release
+dotnet publish apps\NimboApp\NimboApp.csproj -c Release -o build-win\NimboApp
+build-win\NimboApp\Nimbo.exe
+```
+Aparece un icono en la bandeja (junto al reloj): clic para el panel, clic derecho para el menú. Sin gafas: definir `NIMBO_SIM=1` antes de abrirla (ventana + cabeza simulada). Registro en `%LOCALAPPDATA%\Nimbo\nimbo.log`.
+
 1. Bandeja + panel WinUI 3: estado, interruptor, tarjetas 1/2/3, recentrar, deslizadores, perfiles, auto-inicio.
 2. Asistente: comprobación de driver, calibración guiada, escala.
 3. Atajos Ctrl+Alt+C / Q / 1 / 2 / 3, toasts al conectar y desconectar, arranque con Windows.
