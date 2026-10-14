@@ -14,6 +14,7 @@
 #include "rayneo/core/panel_dimmer.h"
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/presets.h"
+#include "rayneo/core/settings.h"
 #include "rayneo/core/render_math.h"
 #include "rayneo/core/tick_monitor.h"
 
@@ -912,6 +913,32 @@ void test_presets() {
     for (const auto& p : profiles()) CHECK(layout_preset(p.layout_id) != nullptr);
 }
 
+// Settings file: round trip, macOS key names, defaults for missing or broken values.
+void test_settings_json() {
+    Settings s;
+    s.cells = {{0, 0}, {0, 1}, {1, 0}};
+    s.text_size = 1;
+    s.distance_m = 1.5f;
+    s.stereo = true;
+    s.dim_others = false;
+    s.fov_y_deg = 23.5f;
+    const std::string json = settings_to_json(s);
+    CHECK(json.find("\"layoutCells\"") != std::string::npos && json.find("\"fovY\": 23.5") != std::string::npos);
+    const auto back = settings_from_json(json);
+    CHECK(back.has_value());
+    CHECK(back->cells.size() == 3 && back->cells[1].col == 0 && back->cells[1].row == 1);
+    CHECK(back->text_size == 1 && near(back->distance_m, 1.5f, 1e-6f) && back->stereo && !back->dim_others);
+    CHECK(near(back->fov_y_deg, 23.5f, 1e-6f) && back->gaze_cursor);
+
+    const auto partial = settings_from_json(R"({"distance": 3, "unknown": {"a": [1, {"b": "}"}]}, "stereo": true})");
+    CHECK(partial && near(partial->distance_m, 3.0f, 1e-6f) && partial->stereo && partial->cells.size() == 2);
+    const auto wrong_type = settings_from_json(R"({"distance": "far", "ipd": 60})");
+    CHECK(wrong_type && near(wrong_type->distance_m, 2.0f, 1e-6f) && near(wrong_type->ipd_mm, 60.0f, 1e-6f));
+    const auto bad_cells = settings_from_json(R"({"layoutCells": [], "gap": 2})");
+    CHECK(bad_cells && bad_cells->cells.size() == 2 && near(bad_cells->gap_deg, 2.0f, 1e-6f));
+    CHECK(!settings_from_json("not json").has_value());
+}
+
 // Dimmer: looked-at panel stays lit, others ease to dim in ~5 tau, last panel kept between panels.
 void test_panel_dimmer() {
     PanelDimmer d(0.15f);
@@ -967,6 +994,7 @@ int main() {
     test_pipeline_recenter();
     test_pipeline_recenter_glide();
     test_presets();
+    test_settings_json();
     test_panel_dimmer();
     test_frame_skipper();
     test_tick_monitor_reference_cadence();

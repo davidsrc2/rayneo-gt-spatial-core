@@ -67,6 +67,7 @@ add_library(rayneo_core STATIC
   src/core/presets.cpp
   src/core/panel_dimmer.cpp
   src/core/frame_skip.cpp
+  src/core/settings.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
 target_include_directories(rayneo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -277,8 +278,16 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
   target_link_libraries(rayneo_windows PUBLIC rayneo::core d3d11 dxgi d3dcompiler dwmapi shell32 ole32)
   rayneo_warnings(rayneo_windows)
 
+  # nimbo.dll: the server behind the C ABI of rayneo/platform/nimbo_win.h, for the Windows
+  # app (P/Invoke) and the CLI below.
+  add_library(nimbo SHARED ${RAYNEO_WIN_DIR}/nimbo_server.cpp)
+  target_compile_definitions(nimbo PRIVATE NIMBO_BUILD_DLL)
+  target_include_directories(nimbo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(nimbo PRIVATE rayneo::engine rayneo_windows winmm)
+  rayneo_warnings(nimbo)
+
   add_executable(nimbo_win apps/nimbo_win/main.cpp)
-  target_link_libraries(nimbo_win PRIVATE rayneo::engine rayneo_windows winmm)
+  target_link_libraries(nimbo_win PRIVATE nimbo)
   rayneo_warnings(nimbo_win)
 
   if(RAYNEO_BUILD_TESTS)
@@ -286,6 +295,10 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
     target_link_libraries(windows_render_test PRIVATE rayneo_windows)
     rayneo_warnings(windows_render_test)
     add_test(NAME windows_render_test COMMAND windows_render_test)
+    add_executable(nimbo_api_test tests/nimbo_api_test.cpp)
+    target_link_libraries(nimbo_api_test PRIVATE nimbo)
+    rayneo_warnings(nimbo_api_test)
+    add_test(NAME nimbo_api_test COMMAND nimbo_api_test)
   endif()
 endif()
 
