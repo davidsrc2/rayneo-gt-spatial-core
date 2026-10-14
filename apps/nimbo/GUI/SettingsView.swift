@@ -19,6 +19,11 @@ struct SettingsView: View {
                 Button("Volver a calibrar", action: onRecalibrate).buttonStyle(CalmButtonStyle())
             }
 
+            Section(title: "Pantallas") {
+                Toggle("Atenuar los monitores que no miras", isOn: $model.dimOthers)
+                    .font(Theme.body).foregroundStyle(Theme.text)
+            }
+
             DisclosureGroup(isExpanded: $advancedBox.value) {
                 VStack(alignment: .leading, spacing: 14) {
                     LabeledSlider(title: "Campo de visión", value: $model.fov, range: 15...35, step: 0.5,
@@ -50,7 +55,7 @@ struct SettingsView: View {
             }
         }
         .padding(28)
-        .frame(width: 640, height: advanced ? 720 : 360)
+        .frame(width: 640, height: advanced ? 800 : 440)
         .background(Theme.background)
         .preferredColorScheme(.dark)
         .animation(Theme.ease, value: advanced)
@@ -59,6 +64,7 @@ struct SettingsView: View {
         .onChange(of: model.deadZone) { server.settingsChanged() }
         .onChange(of: model.stereo) { server.settingsChanged() }
         .onChange(of: model.gazeCursor) { server.settingsChanged() }
+        .onChange(of: model.dimOthers) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }

@@ -214,7 +214,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
         let layer = view.metalLayer
         layer.device = device
-        layer.pixelFormat = .bgra8Unorm
+        layer.pixelFormat = .bgra8Unorm_srgb  // linear-light filtering (see RNSpatialRenderer.h)
         layer.framebufferOnly = true
         // Pixel size from the display's current mode: NSScreen.backingScaleFactor can still
         // describe the previous (HiDPI) mode right after the native-mode switch.
@@ -229,7 +229,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         layer.maximumDrawableCount = 2  // 3 measured identical; 2 holds less queued work
         layer.displaySyncEnabled = true  // without vsync the scanout time does not move, only the estimate
 
-        renderer = try RNSpatialRenderer(device: device, pixelFormat: .bgra8Unorm)
+        renderer = try RNSpatialRenderer(device: device, pixelFormat: .bgra8Unorm_srgb)
         let sbs = options.sideBySide ?? !options.windowed
         let ro = renderer.options
         ro.sideBySide = sbs
@@ -245,6 +245,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         ro.k1 = options.k1
         ro.k2 = options.k2
+        ro.dimOthers = options.dimOthers
         let panels = max(1, panelDisplays.count)
         renderer.panelCount = UInt(panels)
         if let layout = options.layout, layout.count == panels {
@@ -334,6 +335,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.sideBySide = o.sideBySide ?? !o.windowed
         ro.k1 = o.k1
         ro.k2 = o.k2
+        ro.dimOthers = o.dimOthers
         if let arc = o.arcDeg { ro.arcDegrees = arc }
         options.distanceM = o.distanceM
         options.gapDeg = o.gapDeg
@@ -346,6 +348,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.k1 = o.k1
         options.k2 = o.k2
         options.gazeCursor = o.gazeCursor
+        options.dimOthers = o.dimOthers
         requestRedraw()
     }
 
@@ -366,7 +369,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             lastDrawnOrientation = p.orientation
             lastDrawnCaptureFrames = capFrames
         }
-        guard !forced, p.tracking, let last = lastDrawnOrientation, capFrames == lastDrawnCaptureFrames,
+        guard !forced, !renderer.animating, p.tracking, let last = lastDrawnOrientation, capFrames == lastDrawnCaptureFrames,
               simd_length(p.angularVelocity) < 1e-4 else { return false }
         return simd_distance(last.vector, p.orientation.vector) < 1e-5  // < ~0.001°
     }

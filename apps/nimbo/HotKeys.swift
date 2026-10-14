@@ -5,6 +5,7 @@ final class HotKeys {
     private var refs: [EventHotKeyRef?] = []
     private var handlers: [UInt32: () -> Void] = [:]
     private var eventHandler: EventHandlerRef?
+    private static var nextID: UInt32 = 1  // unique across instances (server and app both register)
 
     init() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -14,7 +15,9 @@ final class HotKeys {
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                               nil, MemoryLayout<EventHotKeyID>.size, nil, &hk)
             let me = Unmanaged<HotKeys>.fromOpaque(user).takeUnretainedValue()
-            me.handlers[hk.id]?()
+            // Not ours (another instance's hotkey): let the next handler in the chain run it.
+            guard let action = me.handlers[hk.id] else { return OSStatus(eventNotHandledErr) }
+            action()
             return noErr
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
     }
@@ -27,7 +30,8 @@ final class HotKeys {
     // keyCode: kVK_ANSI_*; modifiers: cmdKey | optionKey ...
     @discardableResult
     func register(keyCode: Int, modifiers: Int, _ action: @escaping () -> Void) -> Bool {
-        let id = UInt32(handlers.count + 1)
+        let id = HotKeys.nextID
+        HotKeys.nextID += 1
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers),
                                          EventHotKeyID(signature: OSType(0x524E_4743), id: id),  // 'RNGC'

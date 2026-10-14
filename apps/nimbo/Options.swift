@@ -31,6 +31,7 @@ struct ServerOptions {
     var includeMain = false       // --keep-main: glasses display stays main, shown as a panel
     var gatherWindows = true      // move windows off the glasses display (Accessibility)
     var gazeCursor = true         // cursor jumps to the panel you look at
+    var dimOthers: Float = 1      // brightness of the panels you are not looking at (1 = off)
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
     var calibrationPath = "calibration.json"
@@ -62,6 +63,7 @@ struct ServerOptions {
                            panel (two cursors: macOS draws one on the glasses surface)
       --no-gather          do not move windows from the glasses display to panel 1
       --no-gaze-cursor     keep the cursor where it is when you look at another panel
+      --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
     optics
       --mono / --sbs       single view (glasses 2D) / half side-by-side (glasses 3D)
       --ipd MM             interpupillary distance (63)
@@ -120,6 +122,7 @@ struct ServerOptions {
             case "--no-gather": o.gatherWindows = false
             case "--fit": o.fit = true
             case "--no-gaze-cursor": o.gazeCursor = false
+            case "--dim": guard let v = float() else { return nil }; o.dimOthers = max(0, min(1, v))
             case "--mono": o.sideBySide = false
             case "--sbs": o.sideBySide = true
             case "--ipd": guard let v = float() else { return nil }; o.ipdMM = v

@@ -3,6 +3,7 @@
 #include <os/lock.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -53,6 +54,7 @@ struct Panel {
     NSUInteger index_count = 0;
     float mesh_aspect = 0, mesh_distance = 0, mesh_arc = 0, mesh_center = 0, mesh_pitch = 0;
     float mesh_curvature = -1.0f;
+    float brightness = 1.0f;  // render thread: eased towards 1 (looked at) or dimOthers
 };
 
 }  // namespace
@@ -72,6 +74,7 @@ struct Panel {
         _k1 = 0.0f;
         _k2 = 0.0f;
         _maxPredictionMs = 50.0f;
+        _dimOthers = 1.0f;
     }
     return self;
 }
@@ -91,7 +94,13 @@ struct Panel {
 
     id<MTLTexture> _placeholder;
     id<MTLTexture> _eyeTextures[2];
+
+    NSInteger _gazePanel;     // render thread: last panel looked at (kept between panels)
+    uint64_t _lastFrameNs;    // render thread: for frame-rate independent fades
+    BOOL _animating;
 }
+
+@synthesize animating = _animating;
 
 - (nullable instancetype)initWithDevice:(id<MTLDevice>)device
                             pixelFormat:(MTLPixelFormat)pixelFormat
@@ -102,6 +111,7 @@ struct Panel {
     _queue = [device newCommandQueue];
     _sourceLock = OS_UNFAIR_LOCK_INIT;
     _panelCount = 1;
+    _gazePanel = -1;
 
     id<MTLLibrary> lib = [device newLibraryWithSource:@(kRNShaderSource) options:nil error:error];
     if (lib == nil) return nil;
@@ -127,7 +137,7 @@ struct Panel {
     s.maxAnisotropy = 16;
     _sampler = [device newSamplerStateWithDescriptor:s];
 
-    MTLTextureDescriptor* pd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+    MTLTextureDescriptor* pd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB
                                                                                   width:1
                                                                                  height:1
                                                                               mipmapped:NO];
@@ -216,7 +226,7 @@ struct Panel {
     const size_t h = CVPixelBufferGetHeight(pb);
     CVMetalTextureRef tex = nullptr;
     if (CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, _textureCache, pb, nil,
-                                                  MTLPixelFormatBGRA8Unorm, w, h, 0, &tex) != kCVReturnSuccess) {
+                                                  MTLPixelFormatBGRA8Unorm_sRGB, w, h, 0, &tex) != kCVReturnSuccess) {
         return;
     }
     os_unfair_lock_lock(&_sourceLock);
@@ -259,6 +269,38 @@ static float effective_curvature(RNRenderOptions* o) {
     p.mesh_center = center;
     p.mesh_pitch = pl.pitch_rad;
     p.mesh_curvature = k;
+}
+
+// Panels you are not looking at fade to dimOthers (~150 ms); between panels the last one
+// stays lit. Converged values snap so `animating` turns off and idle frames can be skipped.
+- (void)updateBrightness:(NSUInteger)count
+                    head:(const core::Quat&)head
+                  aspect:(float)aspect
+              placements:(const std::vector<core::PanelPlacement>&)placements
+                   nowNs:(uint64_t)nowNs {
+    RNRenderOptions* o = _options;
+    const float dim = count > 1 ? std::clamp(o.dimOthers, 0.0f, 1.0f) : 1.0f;
+    if (dim < 1.0f) {
+        const float arc = o.arcDegrees * kDegToRad;
+        const int g = core::panel_at_gaze(head, placements, arc, core::panel_vertical_arc(arc, aspect, true),
+                                          o.gapDegrees * kDegToRad);
+        if (g >= 0) _gazePanel = g;
+    }
+    const float dt = _lastFrameNs > 0 && nowNs > _lastFrameNs ? std::min(0.1f, (nowNs - _lastFrameNs) * 1e-9f) : 0.0f;
+    _lastFrameNs = nowNs;
+    const float k = 1.0f - std::exp(-dt / 0.15f);
+    BOOL animating = NO;
+    for (NSUInteger i = 0; i < count; ++i) {
+        const float target = (dim >= 1.0f || _gazePanel < 0 || static_cast<NSInteger>(i) == _gazePanel) ? 1.0f : dim;
+        float& b = _panels[i].brightness;
+        b += (target - b) * k;
+        if (std::abs(target - b) < 0.004f) {
+            b = target;
+        } else {
+            animating = YES;
+        }
+    }
+    _animating = animating;
 }
 
 - (void)ensureEyeTextures:(MTLPixelFormat)format width:(NSUInteger)w height:(NSUInteger)h {
@@ -312,6 +354,8 @@ static float effective_curvature(RNRenderOptions* o) {
     const auto placements = [self placements:count aspect:aspects[0]];
     for (NSUInteger i = 0; i < count; ++i) [self rebuildMesh:_panels[i] aspect:aspects[i] placement:placements[i]];
 
+    [self updateBrightness:count head:head aspect:aspects[0] placements:placements nowNs:targetHostNs];
+
     id<MTLTexture> target = drawable.texture;
     [self ensureEyeTextures:target.pixelFormat width:target.width height:target.height];
 
@@ -359,6 +403,7 @@ static float effective_curvature(RNRenderOptions* o) {
         for (NSUInteger i = 0; i < count; ++i) {
             const Panel& p = _panels[i];
             [enc setVertexBuffer:p.vertices offset:0 atIndex:0];
+            [enc setFragmentBytes:&p.brightness length:sizeof(float) atIndex:0];
             [enc setFragmentTexture:_panels[i].mipmapped != nil ? _panels[i].mipmapped : _placeholder
                             atIndex:0];
             [enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle

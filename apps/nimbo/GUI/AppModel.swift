@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     @Published var stereo: Bool { didSet { d.set(stereo, forKey: "stereo") } }
     @Published var deadZone: Double { didSet { d.set(deadZone, forKey: "deadZone") } }
     @Published var gazeCursor: Bool { didSet { d.set(gazeCursor, forKey: "gazeCursor") } }
+    @Published var dimOthers: Bool { didSet { d.set(dimOthers, forKey: "dimOthers") } }
     @Published var gatherWindows: Bool { didSet { d.set(gatherWindows, forKey: "gatherWindows") } }
     @Published var k1: Double { didSet { d.set(k1, forKey: "k1") } }
     @Published var k2: Double { didSet { d.set(k2, forKey: "k2") } }
@@ -59,6 +60,7 @@ final class AppModel: ObservableObject {
         stereo = d.bool(forKey: "stereo")
         deadZone = d.object(forKey: "deadZone") as? Double ?? 1.0
         gazeCursor = d.object(forKey: "gazeCursor") as? Bool ?? true
+        dimOthers = d.object(forKey: "dimOthers") as? Bool ?? true
         gatherWindows = d.object(forKey: "gatherWindows") as? Bool ?? true
         k1 = d.object(forKey: "k1") as? Double ?? 0
         k2 = d.object(forKey: "k2") as? Double ?? 0
@@ -230,6 +232,7 @@ final class AppModel: ObservableObject {
         o.sideBySide = stereo
         o.deadZoneDeg = Float(deadZone)
         o.gazeCursor = gazeCursor
+        o.dimOthers = dimOthers ? 0.55 : 1  // linear light: ~80 % perceived brightness
         o.gatherWindows = gatherWindows
         o.k1 = Float(k1)
         o.k2 = Float(k2)
