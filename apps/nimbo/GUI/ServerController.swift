@@ -20,6 +20,8 @@ final class ServerController: ObservableObject {
     private weak var model: AppModel?
     private var runningOptions: ServerOptions?
     private var autoStartChecked = false
+    private let notifier = Notifier()
+    private var glassesPresent = Displays.glassesScreen() != nil  // the display itself, for notices
 
     var isRunning: Bool { state != .stopped }
 
@@ -107,7 +109,22 @@ final class ServerController: ObservableObject {
         }
     }
 
+    // Layout switched by shortcut: no panel on screen, so tell it with a notice.
+    func announce(_ layout: String) {
+        notifier.post(layout, isRunning ? "Preparando los monitores…" : "Se aplicará al empezar")
+    }
+
     private func refresh() {
+        // While running or starting, display reconfigurations can hide the glasses briefly.
+        let present = Displays.glassesScreen() != nil || server != nil || pending != nil
+        if present != glassesPresent {
+            glassesPresent = present
+            if present {
+                notifier.post("Gafas conectadas", model?.autoStart == true ? "Empezando…" : "Abre Nimbo para empezar")
+            } else {
+                notifier.post("Gafas desconectadas", "Tus pantallas han vuelto a la normalidad")
+            }
+        }
         let was = glassesConnected
         glassesConnected = Displays.glassesScreen() != nil || server != nil
         // Plug and forget: start when the glasses appear (or are already there at launch).

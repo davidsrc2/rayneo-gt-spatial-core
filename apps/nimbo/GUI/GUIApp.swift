@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 // The app when opened normally (no command-line flags): one calm window plus "◎" in the
@@ -10,12 +11,14 @@ final class GUIApp: NSObject {
     private var window: NSWindow?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
+    private let hotKeys = HotKeys()
 
     func launch() {
         NSApp.setActivationPolicy(.accessory)  // a menu bar app: no Dock icon
         NSApp.appearance = NSAppearance(named: .darkAqua)
         server.bind(model)
         buildStatusItem()
+        registerLayoutHotKeys()
         if ProcessInfo.processInfo.environment["RAYNEO_PANEL_PREVIEW"] != nil {
             showPanelPreviewWindow()  // development: the panel as a plain window, for screenshots
             return
@@ -28,6 +31,19 @@ final class GUIApp: NSObject {
     }
 
     func shutdown() { server.stop() }
+
+    // ⌘⌥1 / ⌘⌥2 / ⌘⌥3: the one-click layouts without opening the panel.
+    private func registerLayoutHotKeys() {
+        let keys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3]
+        for (key, preset) in zip(keys, AppModel.layouts) {
+            hotKeys.register(keyCode: key, modifiers: cmdKey | optionKey) { [weak self] in
+                guard let self, self.model.activeLayout != preset.id else { return }
+                self.model.apply(preset)
+                self.server.settingsChanged()
+                self.server.announce(preset.title)
+            }
+        }
+    }
 
     // Compact glass panel under the ◎ icon.
     @objc func togglePanel() {
