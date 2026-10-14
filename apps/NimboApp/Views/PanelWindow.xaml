@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The whole app for everyday use, under the tray icon. Reading order = priority:
+     1 is it working (light + switch), 2 how many screens, 3 recentre, 4 fine-tune, 5 set-and-forget. -->
+<Window
+    x:Class="Nimbo.Views.PanelWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid x:Name="Root" Width="380" VerticalAlignment="Top" Padding="18">
+        <StackPanel Spacing="16">
+            <Grid>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Nimbo" FontSize="17" FontWeight="SemiBold" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse x:Name="Light" Width="9" Height="9" VerticalAlignment="Center"
+                                 Fill="{StaticResource NimboGrey}" />
+                        <TextBlock x:Name="StatusLine" FontSize="13" Opacity="0.7" />
+                    </StackPanel>
+                </StackPanel>
+                <ToggleSwitch x:Name="Power" HorizontalAlignment="Right" VerticalAlignment="Center"
+                              OnContent="" OffContent="" MinWidth="0" Toggled="Power_Toggled" />
+            </Grid>
+
+            <Grid x:Name="Cards" ColumnSpacing="10" />
+
+            <Button x:Name="RecenterButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                    Padding="16,12" CornerRadius="14" Click="Recenter_Click">
+                <Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <FontIcon Glyph="&#xE7B7;" FontSize="16" />
+                        <TextBlock Text="Recentrar vista" FontSize="15" FontWeight="Medium" />
+                    </StackPanel>
+                    <Border HorizontalAlignment="Right" CornerRadius="10" Padding="8,2"
+                            Background="#1AFFFFFF">
+                        <TextBlock Text="Ctrl+Alt+C" FontSize="12" Opacity="0.7" />
+                    </Border>
+                </Grid>
+            </Button>
+
+            <Border CornerRadius="14" Padding="16,12" Background="#0DFFFFFF" BorderBrush="#14FFFFFF"
+                    BorderThickness="1">
+                <StackPanel Spacing="6">
+                    <Grid>
+                        <TextBlock Text="Distancia" FontSize="13" />
+                        <TextBlock x:Name="DistanceValue" HorizontalAlignment="Right" FontSize="13" Opacity="0.7" />
+                    </Grid>
+                    <Slider x:Name="DistanceSlider" Minimum="1.2" Maximum="3" StepFrequency="0.1"
+                            ValueChanged="Slider_ValueChanged" />
+                    <Grid>
+                        <TextBlock Text="Curvatura" FontSize="13" />
+                        <TextBlock x:Name="CurvatureValue" HorizontalAlignment="Right" FontSize="13" Opacity="0.7" />
+                    </Grid>
+                    <Slider x:Name="CurvatureSlider" Minimum="0" Maximum="1" StepFrequency="0.05"
+                            ValueChanged="Slider_ValueChanged" />
+                    <Grid>
+                        <TextBlock Text="Tamaño" FontSize="13" />
+                        <TextBlock x:Name="SizeValue" HorizontalAlignment="Right" FontSize="13" Opacity="0.7" />
+                    </Grid>
+                    <Slider x:Name="SizeSlider" Minimum="28" Maximum="60" StepFrequency="1"
+                            ValueChanged="Slider_ValueChanged" />
+                    <Grid>
+                        <TextBlock Text="Texto" FontSize="13" />
+                        <TextBlock x:Name="TextValue" HorizontalAlignment="Right" FontSize="13" Opacity="0.7" />
+                    </Grid>
+                    <Slider x:Name="TextSlider" Minimum="0" Maximum="4" StepFrequency="1" SnapsTo="StepValues"
+                            ValueChanged="Slider_ValueChanged" />
+                </StackPanel>
+            </Border>
+
+            <StackPanel x:Name="Profiles" Orientation="Horizontal" Spacing="8" />
+
+            <ToggleSwitch x:Name="AutoStart" OnContent="Auto-iniciar al conectar las RayNeo GT"
+                          OffContent="Auto-iniciar al conectar las RayNeo GT" Toggled="AutoStart_Toggled" />
+
+            <Grid>
+                <TextBlock x:Name="NoticeText" FontSize="12" Opacity="0.7" TextWrapping="Wrap" MaxWidth="230"
+                           HorizontalAlignment="Left" VerticalAlignment="Center" />
+                <HyperlinkButton Content="Más opciones…" HorizontalAlignment="Right" FontSize="12"
+                                 Click="More_Click" />
+            </Grid>
+        </StackPanel>
+    </Grid>
+</Window>

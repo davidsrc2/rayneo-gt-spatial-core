@@ -1424,6 +1424,40 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     *out = o;
 }
 
+int nimbo_layout_count(void) { return static_cast<int>(core::layout_presets().size()); }
+
+bool nimbo_layout_at(int index, nimbo_layout* out) {
+    const auto& all = core::layout_presets();
+    if (index < 0 || index >= static_cast<int>(all.size())) return false;
+    const auto& p = all[static_cast<size_t>(index)];
+    *out = nimbo_layout{};
+    out->id = p.id.data();  // string literal: NUL-terminated, static
+    out->cell_count = static_cast<int>(std::min<size_t>(p.cells.size(), NIMBO_MAX_PANELS));
+    for (int i = 0; i < out->cell_count; ++i) {
+        out->cols[i] = p.cells[static_cast<size_t>(i)].col;
+        out->rows[i] = p.cells[static_cast<size_t>(i)].row;
+    }
+    out->curvature = p.curvature;
+    out->size_deg = p.arc_deg;
+    out->gap_deg = p.gap_deg;
+    return true;
+}
+
+int nimbo_profile_count(void) { return static_cast<int>(core::profiles().size()); }
+
+bool nimbo_profile_at(int index, nimbo_profile* out) {
+    const auto& all = core::profiles();
+    if (index < 0 || index >= static_cast<int>(all.size())) return false;
+    const auto& p = all[static_cast<size_t>(index)];
+    out->id = p.id.data();
+    out->layout_id = p.layout_id.data();
+    out->distance_m = p.distance_m;
+    out->text_size = p.text_size;
+    out->curvature = p.curvature;
+    out->size_deg = p.arc_deg;
+    return true;
+}
+
 nimbo_calibration* nimbo_calibration_create(void) { return new nimbo_calibration(); }
 
 void nimbo_calibration_destroy(nimbo_calibration* c) { delete c; }
