@@ -7,6 +7,9 @@
 #include <pthread/qos.h>
 #elif defined(_WIN32)
 #include <windows.h>
+// After windows.h:
+#include <avrt.h>
+#include <timeapi.h>
 #endif
 
 #include "rayneo/core/gt_protocol.h"
@@ -28,9 +31,23 @@ void raise_thread_priority() {
 #if defined(__APPLE__)
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 #elif defined(_WIN32)
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    // MMCSS "Pro Audio": the scheduler service keeps this thread on time under load (a plain
+    // TIME_CRITICAL priority alone still gets preempted by DPC-heavy drivers).
+    DWORD task = 0;
+    if (AvSetMmThreadCharacteristicsW(L"Pro Audio", &task) == nullptr) {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    }
 #endif
 }
+
+// 1 ms system timer while streaming: the default 15.6 ms tick would batch the ~2.2 ms
+// reports. No-op elsewhere.
+struct TimerResolution {
+#if defined(_WIN32)
+    TimerResolution() { timeBeginPeriod(1); }
+    ~TimerResolution() { timeEndPeriod(1); }
+#endif
+};
 
 }  // namespace
 
@@ -101,6 +118,7 @@ void ImuStreamReader::stop() {
 
 void ImuStreamReader::run() {
     raise_thread_priority();
+    [[maybe_unused]] const TimerResolution timer;
     RawReport rr{};
     while (running_.load(std::memory_order_acquire)) {
         const int n = transport_->read(rr.data, sizeof(rr.data), kReadTimeoutMs);

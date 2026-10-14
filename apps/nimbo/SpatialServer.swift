@@ -81,10 +81,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // Idle skip (render thread): with the head still and no monitor changing, the last
     // frame is still correct, so nothing is drawn. Settings changes force one redraw.
-    private var lastDrawnOrientation: simd_quatf?
-    private var lastDrawnCaptureFrames: UInt64 = 0
     private var redrawRequested = true  // guarded by statsLock
-    private var captureFrames: UInt64 = 0  // guarded by statsLock (captures is main-thread only)
 
     init(options: ServerOptions) {
         self.options = options
@@ -358,20 +355,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statsLock.unlock()
     }
 
-    // True when the frame about to be drawn would equal the one on screen.
+    // True when the frame about to be drawn would equal the one on screen (core::FrameSkipper).
     private func nothingChanged(_ p: PoseSample) -> Bool {
         statsLock.lock()
         let forced = redrawRequested
         redrawRequested = false
-        let capFrames = captureFrames
         statsLock.unlock()
-        defer {
-            lastDrawnOrientation = p.orientation
-            lastDrawnCaptureFrames = capFrames
-        }
-        guard !forced, !renderer.animating, p.tracking, let last = lastDrawnOrientation, capFrames == lastDrawnCaptureFrames,
-              simd_length(p.angularVelocity) < 1e-4 else { return false }
-        return simd_distance(last.vector, p.orientation.vector) < 1e-5  // < ~0.001°
+        return renderer.canSkipFrame(withOrientation: p.orientation, angularVelocity: p.angularVelocity,
+                                     tracking: p.tracking, forced: forced)
     }
 
     // MARK: gaze cursor
@@ -505,13 +496,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let hiDPI = options.hiDPI
         for (id, panel, exclude) in plan {
             let isVirtual = virtualIDs.contains(id)
-            let cap = ScreenCapture { [weak self] pb in
-                guard let self else { return }
-                self.renderer.setSourcePixelBuffer(pb, forPanel: UInt(panel))
-                self.statsLock.lock()
-                self.captureFrames &+= 1
-                self.statsLock.unlock()
-            }
+            let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: UInt(panel)) }
             captures.append(cap)
             let renderWindow = CGWindowID(window.windowNumber)
             let (w, h) = try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude,
@@ -576,7 +561,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let targetHost = Int64(nowHost) + Int64((update.targetPresentationTimestamp - nowMedia) * 1e9)
 
         guard let p = pose.latest() else {
-            lastDrawnOrientation = nil
+            renderer.invalidateSkippedFrame()
             _ = renderer.render(to: update.drawable, orientation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
                                 angularVelocity: .zero, sampleHostNs: 0, targetHostNs: 0)
             return

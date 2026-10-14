@@ -64,6 +64,9 @@ add_library(rayneo_core STATIC
   src/core/head_calibration.cpp
   src/core/pose_stabilizer.cpp
   src/core/render_math.cpp
+  src/core/presets.cpp
+  src/core/panel_dimmer.cpp
+  src/core/frame_skip.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
 target_include_directories(rayneo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -134,6 +137,9 @@ target_link_libraries(rayneo_hal
   PUBLIC  rayneo::core Threads::Threads
   PRIVATE ${RAYNEO_HIDAPI_TARGET})
 rayneo_warnings(rayneo_hal)
+if(WIN32)
+  target_link_libraries(rayneo_hal PRIVATE avrt winmm)  # MMCSS + 1 ms timer for the reader thread
+endif()
 
 if(APPLE)
   # hidapi's darwin backend sits on IOHIDManager; link explicitly for static builds.
@@ -145,7 +151,8 @@ endif()
 # ---------------------------------------------------------------------------
 # Platform: C ABI engine (portable) + macOS Objective-C++ facade.
 # ---------------------------------------------------------------------------
-add_library(rayneo_engine STATIC src/platform/rayneo_engine.cpp src/platform/guided_calibration.cpp)
+add_library(rayneo_engine STATIC src/platform/rayneo_engine.cpp src/platform/guided_calibration.cpp
+  src/platform/rayneo_layouts.cpp)
 add_library(rayneo::engine ALIAS rayneo_engine)
 target_link_libraries(rayneo_engine PUBLIC rayneo::hal)
 rayneo_warnings(rayneo_engine)
@@ -220,6 +227,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     "SHELL:-Xcc -I${CMAKE_CURRENT_SOURCE_DIR}/src/platform/macos"
     "SHELL:-Xcc -I${RAYNEO_RENDERER_DIR}"
     "SHELL:-Xcc -I${RAYNEO_VD_DIR}"
+    "SHELL:-Xcc -I${CMAKE_CURRENT_SOURCE_DIR}/include"
     -swift-version 5 -warnings-as-errors)
   target_link_libraries(nimbo PRIVATE rayneo_macos rayneo_macos_renderer
     "-framework AppKit" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework Carbon" "-framework ApplicationServices")
