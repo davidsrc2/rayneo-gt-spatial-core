@@ -1,4 +1,5 @@
 module RayNeoEngine {
     header "../../../include/rayneo/platform/rayneo_engine.h"
+    header "../../../include/rayneo/platform/rayneo_layouts.h"
     export *
 }

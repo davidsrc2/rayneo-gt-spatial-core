@@ -5,12 +5,15 @@
 #include <cstring>
 #include <vector>
 
+#include "rayneo/core/frame_skip.h"
 #include "rayneo/core/gt_protocol.h"
 #include "rayneo/core/gyro_bias_estimator.h"
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/madgwick.h"
+#include "rayneo/core/panel_dimmer.h"
 #include "rayneo/core/pose_stabilizer.h"
+#include "rayneo/core/presets.h"
 #include "rayneo/core/render_math.h"
 #include "rayneo/core/tick_monitor.h"
 
@@ -895,6 +898,63 @@ void test_pipeline_stabilized_recenter() {
 
 }  // namespace
 
+
+// Shared presets: ids unique, cells normalized, lookup tolerant to offsets.
+void test_presets() {
+    const auto& l = layout_presets();
+    CHECK(l.size() == 3);
+    CHECK(layout_preset("dual") != nullptr && layout_preset("dual")->cells.size() == 2);
+    CHECK(layout_preset("nope") == nullptr);
+    const std::vector<GridCell> shifted = {{3, 2}, {4, 2}, {5, 2}};
+    const LayoutPreset* t = find_layout_preset(shifted);
+    CHECK(t != nullptr && t->id == "triple");
+    CHECK(find_layout_preset({{0, 0}, {0, 1}}) == nullptr);  // stacked: no preset
+    for (const auto& p : profiles()) CHECK(layout_preset(p.layout_id) != nullptr);
+}
+
+// Dimmer: looked-at panel stays lit, others ease to dim in ~5 tau, last panel kept between panels.
+void test_panel_dimmer() {
+    PanelDimmer d(0.15f);
+    d.update(3, 1, 0.5f, 0.0f);
+    CHECK(d.brightness(0) == 1.0f && d.animating());
+    for (int i = 0; i < 120; ++i) d.update(3, 1, 0.5f, 1.0f / 120.0f);  // 1 s
+    CHECK(d.brightness(1) == 1.0f && d.brightness(0) == 0.5f && d.brightness(2) == 0.5f);
+    CHECK(!d.animating());
+    d.update(3, -1, 0.5f, 1.0f / 120.0f);  // between panels: unchanged
+    CHECK(d.lit_panel() == 1 && !d.animating());
+    d.update(3, 2, 0.5f, 1.0f / 120.0f);
+    CHECK(d.animating() && d.brightness(2) > 0.5f && d.brightness(1) < 1.0f);
+    PanelDimmer one;
+    one.update(1, -1, 0.3f, 0.1f);  // a single panel is never dimmed
+    CHECK(one.brightness(0) == 1.0f && !one.animating());
+}
+
+// Skipper: skips only when nothing that affects the image changed.
+void test_frame_skipper() {
+    FrameSkipper s;
+    FrameSkipper::Input in;
+    in.tracking = true;
+    CHECK(!s.skip(in));  // first frame is always drawn
+    CHECK(s.skip(in));
+    in.source_generation = 1;
+    CHECK(!s.skip(in));
+    CHECK(s.skip(in));
+    in.orientation = Quat::from_axis_angle({0, 0, 1}, 0.001f);
+    CHECK(!s.skip(in));
+    in.angular_speed_rads = 0.5f;
+    CHECK(!s.skip(in));
+    in.angular_speed_rads = 0.0f;
+    in.animating = true;
+    CHECK(!s.skip(in));
+    in.animating = false;
+    in.forced = true;
+    CHECK(!s.skip(in));
+    in.forced = false;
+    CHECK(s.skip(in));
+    s.invalidate();
+    CHECK(!s.skip(in));
+}
+
 int main() {
     test_build_command();
     test_decode_imu();
@@ -906,6 +966,9 @@ int main() {
     test_pipeline_bias_removed();
     test_pipeline_recenter();
     test_pipeline_recenter_glide();
+    test_presets();
+    test_panel_dimmer();
+    test_frame_skipper();
     test_tick_monitor_reference_cadence();
     test_tick_monitor_gaps();
     test_bias_rejects_transient_step();

@@ -7,6 +7,8 @@
 #include <cstring>
 #include <vector>
 
+#include "rayneo/core/frame_skip.h"
+#include "rayneo/core/panel_dimmer.h"
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/render_math.h"
 #include "rn_shaders.h"  // generated: kRNShaderSource
@@ -95,12 +97,15 @@ struct Panel {
     id<MTLTexture> _placeholder;
     id<MTLTexture> _eyeTextures[2];
 
-    NSInteger _gazePanel;     // render thread: last panel looked at (kept between panels)
-    uint64_t _lastFrameNs;    // render thread: for frame-rate independent fades
-    BOOL _animating;
+    core::PanelDimmer _dimmer;     // render thread
+    core::FrameSkipper _skipper;   // render thread
+    uint64_t _lastFrameNs;         // render thread: for frame-rate independent fades
+    uint64_t _sourceGeneration;    // guarded by _sourceLock: bumps on every new frame
 }
 
-@synthesize animating = _animating;
+- (BOOL)animating {
+    return _dimmer.animating();
+}
 
 - (nullable instancetype)initWithDevice:(id<MTLDevice>)device
                             pixelFormat:(MTLPixelFormat)pixelFormat
@@ -111,7 +116,6 @@ struct Panel {
     _queue = [device newCommandQueue];
     _sourceLock = OS_UNFAIR_LOCK_INIT;
     _panelCount = 1;
-    _gazePanel = -1;
 
     id<MTLLibrary> lib = [device newLibraryWithSource:@(kRNShaderSource) options:nil error:error];
     if (lib == nil) return nil;
@@ -234,6 +238,7 @@ struct Panel {
     CVMetalTextureRef old = p.texture;
     p.texture = tex;
     p.dirty = true;
+    ++_sourceGeneration;
     p.aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 16.0f / 9.0f;
     os_unfair_lock_unlock(&_sourceLock);
     if (old != nullptr) CFRelease(old);
@@ -271,36 +276,44 @@ static float effective_curvature(RNRenderOptions* o) {
     p.mesh_curvature = k;
 }
 
-// Panels you are not looking at fade to dimOthers (~150 ms); between panels the last one
-// stays lit. Converged values snap so `animating` turns off and idle frames can be skipped.
+// Panels you are not looking at fade to dimOthers (core::PanelDimmer, shared with Windows).
 - (void)updateBrightness:(NSUInteger)count
                     head:(const core::Quat&)head
                   aspect:(float)aspect
               placements:(const std::vector<core::PanelPlacement>&)placements
                    nowNs:(uint64_t)nowNs {
     RNRenderOptions* o = _options;
-    const float dim = count > 1 ? std::clamp(o.dimOthers, 0.0f, 1.0f) : 1.0f;
-    if (dim < 1.0f) {
+    int gaze = -1;
+    if (count > 1 && o.dimOthers < 1.0f) {
         const float arc = o.arcDegrees * kDegToRad;
-        const int g = core::panel_at_gaze(head, placements, arc, core::panel_vertical_arc(arc, aspect, true),
-                                          o.gapDegrees * kDegToRad);
-        if (g >= 0) _gazePanel = g;
+        gaze = core::panel_at_gaze(head, placements, arc, core::panel_vertical_arc(arc, aspect, true),
+                                   o.gapDegrees * kDegToRad);
     }
     const float dt = _lastFrameNs > 0 && nowNs > _lastFrameNs ? std::min(0.1f, (nowNs - _lastFrameNs) * 1e-9f) : 0.0f;
     _lastFrameNs = nowNs;
-    const float k = 1.0f - std::exp(-dt / 0.15f);
-    BOOL animating = NO;
-    for (NSUInteger i = 0; i < count; ++i) {
-        const float target = (dim >= 1.0f || _gazePanel < 0 || static_cast<NSInteger>(i) == _gazePanel) ? 1.0f : dim;
-        float& b = _panels[i].brightness;
-        b += (target - b) * k;
-        if (std::abs(target - b) < 0.004f) {
-            b = target;
-        } else {
-            animating = YES;
-        }
-    }
-    _animating = animating;
+    _dimmer.update(count, gaze, o.dimOthers, dt);
+    for (NSUInteger i = 0; i < count; ++i) _panels[i].brightness = _dimmer.brightness(i);
+}
+
+- (BOOL)canSkipFrameWithOrientation:(simd_quatf)orientation
+                    angularVelocity:(simd_float3)angularVelocity
+                           tracking:(BOOL)tracking
+                             forced:(BOOL)forced {
+    os_unfair_lock_lock(&_sourceLock);
+    const uint64_t generation = _sourceGeneration;
+    os_unfair_lock_unlock(&_sourceLock);
+    core::FrameSkipper::Input in;
+    in.orientation = from_simd(orientation);
+    in.angular_speed_rads = simd_length(angularVelocity);
+    in.source_generation = generation;
+    in.tracking = tracking;
+    in.animating = _dimmer.animating();
+    in.forced = forced;
+    return _skipper.skip(in);
+}
+
+- (void)invalidateSkippedFrame {
+    _skipper.invalidate();
 }
 
 - (void)ensureEyeTextures:(MTLPixelFormat)format width:(NSUInteger)w height:(NSUInteger)h {

@@ -119,14 +119,20 @@ final class AppModel: ObservableObject {
         let gap: Double
     }
 
-    static let layouts = [
-        Preset(id: "curve", title: "1 Pantalla Curva", cells: [GridPos(col: 0, row: 0)], curvature: 0.7, size: 46, gap: 1),
-        Preset(id: "dual", title: "Doble Monitor", cells: [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0)],
-               curvature: 0, size: 38, gap: 1),
-        Preset(id: "triple", title: "Triple Ultrawide",
-               cells: [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0), GridPos(col: 2, row: 0)],
-               curvature: 0.35, size: 36, gap: 0),
-    ]
+    // Values come from the shared core (core/presets.h, same as Windows); titles are ours.
+    private static let layoutTitles = ["curve": "1 Pantalla Curva", "dual": "Doble Monitor", "triple": "Triple Ultrawide"]
+
+    static let layouts: [Preset] = (0..<rayneo_layout_preset_count()).compactMap { i in
+        var p = rayneo_layout_preset()
+        guard rayneo_layout_preset_at(i, &p), let raw = p.id else { return nil }
+        let id = String(cString: raw)
+        let n = Int(p.cell_count)
+        let cols = withUnsafeBytes(of: p.cols) { Array($0.bindMemory(to: Int32.self).prefix(n)) }
+        let rows = withUnsafeBytes(of: p.rows) { Array($0.bindMemory(to: Int32.self).prefix(n)) }
+        return Preset(id: id, title: layoutTitles[id] ?? id,
+                      cells: zip(cols, rows).map { GridPos(col: Int($0), row: Int($1)) },
+                      curvature: Double(p.curvature), size: Double(p.arc_deg), gap: Double(p.gap_deg))
+    }
 
     var activeLayout: String? {
         Self.layouts.first { $0.cells == normalizedCells }?.id
@@ -146,13 +152,23 @@ final class AppModel: ObservableObject {
         let layout: String
         let distance: Double
         let textSize: Int
+        let curvature: Double?  // nil: keep the layout's
+        let size: Double?
     }
 
-    static let profiles = [
-        Profile(id: "code", title: "Código", symbol: "chevron.left.forwardslash.chevron.right",
-                layout: "dual", distance: 1.6, textSize: 2),
-        Profile(id: "cinema", title: "Cine", symbol: "film", layout: "curve", distance: 2.6, textSize: 0),
-    ]
+    private static let profileLooks = ["code": ("Código", "chevron.left.forwardslash.chevron.right"),
+                                       "cinema": ("Cine", "film")]
+
+    static let profiles: [Profile] = (0..<rayneo_profile_count()).compactMap { i in
+        var p = rayneo_profile()
+        guard rayneo_profile_at(i, &p), let rawID = p.id, let rawLayout = p.layout_id else { return nil }
+        let id = String(cString: rawID)
+        let look = profileLooks[id] ?? (id, "square")
+        return Profile(id: id, title: look.0, symbol: look.1, layout: String(cString: rawLayout),
+                       distance: Double(p.distance_m), textSize: Int(p.text_size),
+                       curvature: p.curvature >= 0 ? Double(p.curvature) : nil,
+                       size: p.arc_deg >= 0 ? Double(p.arc_deg) : nil)
+    }
 
     var activeProfile: String? {
         Self.profiles.first { p in
@@ -162,10 +178,8 @@ final class AppModel: ObservableObject {
 
     func apply(_ p: Profile) {
         if let l = Self.layouts.first(where: { $0.id == p.layout }) { apply(l) }
-        if p.id == "cinema" {
-            curvature = 0.6
-            size = 52
-        }
+        if let c = p.curvature { curvature = c }
+        if let s = p.size { size = s }
         distance = p.distance
         textSize = p.textSize
     }

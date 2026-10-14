@@ -43,11 +43,24 @@ Driver IddCx (monitores virtuales)     instalado aparte, con firma
 - **Núcleo nativo en C++:** captura y render necesitan latencia mínima y comparten los tipos de `core/render_math.h`.
 - **Lógica compartida al core:** antes de duplicarla en C#, mover a C++ lo que hoy vive en Swift/Obj-C++ y no depende del SO: plantillas de disposición, mirada → panel, atenuado con fundido, decisión de saltar fotogramas, modelo de opciones (JSON común).
 
+## Estado
+
+| Fase | Estado |
+|---|---|
+| W0 | Preparada: hilo del IMU con MMCSS + temporizador de 1 ms en Windows; `scripts/windows/w0_check.ps1` comprueba el PC, compila y mide la IMU. **Falta ejecutarlo en el PC con las gafas** |
+| W1 | Hecha en parte: `core/presets`, `core/panel_dimmer`, `core/frame_skip` con tests; macOS los usa; plantillas y perfiles expuestos en `rayneo_layouts.h` (C ABI). Pendiente: modelo de opciones en JSON común y ampliar el C ABI para la app de Windows |
+
 ## Fases
 
 Tamaños: S = días, M = 1–2 semanas, L = 3+ semanas.
 
 ### W0 · Preparación y prueba de hardware (S) — empezar ya
+Ejecutar en el PC, desde la raíz del repo y con las gafas conectadas:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows\w0_check.ps1
+```
+Deja el resultado en `w0_report.txt`.
+
 1. **Comprobar el PC:** USB-C con **DisplayPort Alt Mode** (las gafas son una pantalla DP; sin eso no hay imagen) y GPU con D3D11.1. Revisar el mini PC.
 2. Compilar con Visual Studio 2022 / CMake: `cmake -S . -B build -G "Visual Studio 17 2022"`.
 3. `imu_probe --list`, `--raw` y medir cadencia: confirmar **457 Hz**, sin pérdidas, ACK. Puntos a vigilar en Windows: prefijo de report ID 0 de hidapi en escritura, prioridad del hilo lector (MMCSS «Pro Audio»), `timeBeginPeriod(1)`.

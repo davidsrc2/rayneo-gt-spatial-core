@@ -55,6 +55,15 @@ NS_ASSUME_NONNULL_BEGIN
 // unchanged sources. Render thread only.
 @property(nonatomic, readonly) BOOL animating;
 
+// True when the frame about to be drawn equals the one on screen (head still, no new
+// capture, no fade, not forced): skip it. Otherwise remembers it as drawn. Render thread only.
+- (BOOL)canSkipFrameWithOrientation:(simd_quatf)orientation
+                    angularVelocity:(simd_float3)angularVelocity
+                           tracking:(BOOL)tracking
+                             forced:(BOOL)forced;
+// The screen shows something else (placeholder frame without a pose): never skip next.
+- (void)invalidateSkippedFrame;
+
 // The pixel format must be an sRGB one (MTLPixelFormatBGRA8Unorm_sRGB): filtering and
 // dimming happen in linear light, which keeps text edges from darkening.
 // Predicts the pose to targetHostNs, renders both eyes and presents. Render thread only.
