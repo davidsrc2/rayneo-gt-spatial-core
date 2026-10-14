@@ -40,6 +40,12 @@ constexpr NSUInteger kMaxPanels = 8;
 struct Panel {
     CVMetalTextureRef texture = nullptr;  // guarded by _sourceLock
     float aspect = 16.0f / 9.0f;          // guarded by _sourceLock
+    bool dirty = false;                   // guarded by _sourceLock: new frame not yet mipmapped
+
+    // Render thread only. The capture is copied here once per new frame and mipmapped:
+    // the panels are drawn at a fraction of the capture's size, and sampling the full-size
+    // frame directly aliases (text shimmers and looks jagged at the slightest head motion).
+    id<MTLTexture> mipmapped;
 
     // Render thread only.
     id<MTLBuffer> vertices;
@@ -117,7 +123,8 @@ struct Panel {
     s.magFilter = MTLSamplerMinMagFilterLinear;
     s.sAddressMode = MTLSamplerAddressModeClampToZero;
     s.tAddressMode = MTLSamplerAddressModeClampToZero;
-    s.maxAnisotropy = 8;
+    s.mipFilter = MTLSamplerMipFilterLinear;  // trilinear + anisotropic: crisp, stable text
+    s.maxAnisotropy = 16;
     _sampler = [device newSamplerStateWithDescriptor:s];
 
     MTLTextureDescriptor* pd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
@@ -216,6 +223,7 @@ struct Panel {
     Panel& p = _panels[panel];
     CVMetalTextureRef old = p.texture;
     p.texture = tex;
+    p.dirty = true;
     p.aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 16.0f / 9.0f;
     os_unfair_lock_unlock(&_sourceLock);
     if (old != nullptr) CFRelease(old);
@@ -288,12 +296,15 @@ static float effective_curvature(RNRenderOptions* o) {
     // Snapshot the panels' latest frames; each stays retained until the GPU is done.
     CVMetalTextureRef textures[kMaxPanels] = {};
     float aspects[kMaxPanels];
+    bool fresh[kMaxPanels] = {};
     os_unfair_lock_lock(&_sourceLock);
     const NSUInteger count = _panelCount;
     for (NSUInteger i = 0; i < count; ++i) {
         textures[i] = _panels[i].texture;
         if (textures[i] != nullptr) CFRetain(textures[i]);
         aspects[i] = _panels[i].aspect;
+        fresh[i] = _panels[i].dirty;
+        _panels[i].dirty = false;
     }
     os_unfair_lock_unlock(&_sourceLock);
 
@@ -305,6 +316,29 @@ static float effective_curvature(RNRenderOptions* o) {
     [self ensureEyeTextures:target.pixelFormat width:target.width height:target.height];
 
     id<MTLCommandBuffer> cb = [_queue commandBuffer];
+
+    // New frames -> mipmapped copies (only panels whose content changed).
+    id<MTLBlitCommandEncoder> blit = nil;
+    for (NSUInteger i = 0; i < count; ++i) {
+        if (!fresh[i] || textures[i] == nullptr) continue;
+        id<MTLTexture> src = CVMetalTextureGetTexture(textures[i]);
+        Panel& p = _panels[i];
+        if (p.mipmapped == nil || p.mipmapped.width != src.width || p.mipmapped.height != src.height) {
+            MTLTextureDescriptor* md = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:src.pixelFormat
+                                                                                          width:src.width
+                                                                                         height:src.height
+                                                                                      mipmapped:YES];
+            md.usage = MTLTextureUsageShaderRead;
+            md.storageMode = MTLStorageModePrivate;
+            p.mipmapped = [_device newTextureWithDescriptor:md];
+        }
+        if (blit == nil) blit = [cb blitCommandEncoder];
+        [blit copyFromTexture:src sourceSlice:0 sourceLevel:0 toTexture:p.mipmapped destinationSlice:0
+             destinationLevel:0 sliceCount:1 levelCount:1];
+        [blit generateMipmapsForTexture:p.mipmapped];
+    }
+    [blit endEncoding];
+
     const int eyes = o.sideBySide ? 2 : 1;
     const core::Mat4 proj =
         core::perspective_lh(o.fovYDegrees * kDegToRad, o.eyeAspect, 0.05f, 100.0f);
@@ -325,7 +359,7 @@ static float effective_curvature(RNRenderOptions* o) {
         for (NSUInteger i = 0; i < count; ++i) {
             const Panel& p = _panels[i];
             [enc setVertexBuffer:p.vertices offset:0 atIndex:0];
-            [enc setFragmentTexture:textures[i] != nullptr ? CVMetalTextureGetTexture(textures[i]) : _placeholder
+            [enc setFragmentTexture:_panels[i].mipmapped != nil ? _panels[i].mipmapped : _placeholder
                             atIndex:0];
             [enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                             indexCount:p.index_count
