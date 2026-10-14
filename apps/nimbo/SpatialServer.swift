@@ -59,6 +59,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var panelDisplays: [CGDirectDisplayID] = []  // left -> right
     private var gazeTimer: Timer?
     private var lastGazePanel = -2
+    private var gazeCandidate = -2          // panel looked at, not yet followed
+    private var gazeCandidateSince = Date()
     private var physicalDisplay: CGDirectDisplayID?  // glasses surface when it is not a panel
     private var glassesID: CGDirectDisplayID?        // render target (nil in --windowed)
     private var lastPoseNs: UInt64 = 0
@@ -388,12 +390,24 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         guard options.gazeCursor, let p = pose.latest(), p.tracking else { return }
         let panel = renderer.panel(atGaze: p.orientation)
-        guard panel != lastGazePanel else { return }
-        // The mouse wins: while it is in use, looking elsewhere must not yank the cursor.
-        let mouseIdle = [CGEventType.mouseMoved, .leftMouseDragged, .rightMouseDragged, .scrollWheel].map {
-            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0)
-        }.min() ?? .infinity
-        if mouseIdle < 1.5 { return }  // re-evaluated next tick, once the mouse rests
+        guard panel != lastGazePanel else {
+            gazeCandidate = panel
+            return
+        }
+        // A glance or the edge between two panels is not a decision: the new panel must hold
+        // the gaze for a moment.
+        if panel != gazeCandidate {
+            gazeCandidate = panel
+            gazeCandidateSince = Date()
+            return
+        }
+        if Date().timeIntervalSince(gazeCandidateSince) < 0.8 { return }
+        // The mouse and the keyboard win: right after a click, while typing or moving the mouse,
+        // the cursor stays where the user is working.
+        let since = { (t: CGEventType) in CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: t) }
+        let mouseIdle = [CGEventType.mouseMoved, .leftMouseDragged, .rightMouseDragged, .scrollWheel].map(since).min() ?? .infinity
+        let clickIdle = [CGEventType.leftMouseDown, .rightMouseDown].map(since).min() ?? .infinity
+        if mouseIdle < 2.0 || clickIdle < 5.0 || since(.keyDown) < 3.0 { return }  // re-evaluated next tick
         lastGazePanel = panel
         guard panel >= 0, panel < panelDisplays.count, let cursor = CGEvent(source: nil)?.location else { return }
         let target = CGDisplayBounds(panelDisplays[panel])

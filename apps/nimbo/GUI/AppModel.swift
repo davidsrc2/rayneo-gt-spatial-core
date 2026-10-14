@@ -60,7 +60,7 @@ final class AppModel: ObservableObject {
         stereo = d.bool(forKey: "stereo")
         deadZone = d.object(forKey: "deadZone") as? Double ?? 1.0
         gazeCursor = d.object(forKey: "gazeCursor") as? Bool ?? true
-        dimOthers = d.object(forKey: "dimOthers") as? Bool ?? true
+        dimOthers = d.object(forKey: "dimOthers") as? Bool ?? false  // optical see-through: dimmed reads as cut off
         gatherWindows = d.object(forKey: "gatherWindows") as? Bool ?? true
         k1 = d.object(forKey: "k1") as? Double ?? 0
         k2 = d.object(forKey: "k2") as? Double ?? 0

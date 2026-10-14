@@ -25,7 +25,7 @@ struct Settings {
     bool stereo = false;         // "stereo": half-SBS (glasses in 3D mode)
     float dead_zone_deg = 1.0f;  // "deadZone"
     bool gaze_cursor = true;     // "gazeCursor"
-    bool dim_others = true;      // "dimOthers"
+    bool dim_others = false;     // "dimOthers" (off: on see-through optics a dimmed panel looks cut off)
     bool gather_windows = true;  // "gatherWindows"
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"

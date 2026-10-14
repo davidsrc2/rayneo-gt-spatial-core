@@ -370,7 +370,11 @@ private:
     RECT glasses_rect_{};
     POINT last_cursor_{};
     uint64_t last_cursor_move_ns_ = 0, next_gaze_ns_ = 0;
+    uint64_t last_other_input_ns_ = 0;     // clicks and keys (input that did not move the cursor)
+    DWORD last_input_tick_ = 0;
     int last_gaze_panel_ = -2;
+    int gaze_candidate_ = -2;              // panel looked at, not yet followed
+    uint64_t gaze_candidate_ns_ = 0;
     bool redraw_ = true;
     bool display_changed_ = false;
 
@@ -986,9 +990,15 @@ void Server::follow_gaze(uint64_t now) {
     if (!virtual_ || opt_.windowed || panel_rects_.empty()) return;
     POINT cur{};
     if (!GetCursorPos(&cur)) return;
-    if (cur.x != last_cursor_.x || cur.y != last_cursor_.y) {
+    const bool moved = cur.x != last_cursor_.x || cur.y != last_cursor_.y;
+    if (moved) {
         last_cursor_ = cur;
         last_cursor_move_ns_ = now;
+    }
+    LASTINPUTINFO li{sizeof(li), 0};
+    if (GetLastInputInfo(&li) && li.dwTime != last_input_tick_) {
+        last_input_tick_ = li.dwTime;
+        if (!moved) last_other_input_ns_ = now;  // a click or a key: the user is working here
     }
     const auto p = pose_->latest();
     const int gaze = p && p->tracking ? renderer_.panel_at_gaze(p->orientation) : -1;
@@ -1004,8 +1014,20 @@ void Server::follow_gaze(uint64_t now) {
         return;
     }
     if (!opt_.gaze_cursor || panel_rects_.size() < 2 || !p || !p->tracking) return;
-    if (gaze == last_gaze_panel_) return;
-    if (now - last_cursor_move_ns_ < 1500000000ull) return;  // re-evaluated once the mouse rests
+    if (gaze == last_gaze_panel_) {
+        gaze_candidate_ = gaze;
+        return;
+    }
+    // A glance or the edge between two panels is not a decision: the new panel must hold the
+    // gaze for a moment. The mouse and the keyboard win: right after a click, while typing or
+    // moving the mouse, the cursor stays where the user is working.
+    if (gaze != gaze_candidate_) {
+        gaze_candidate_ = gaze;
+        gaze_candidate_ns_ = now;
+        return;
+    }
+    if (now - gaze_candidate_ns_ < 800000000ull) return;
+    if (now - last_cursor_move_ns_ < 2000000000ull || now - last_other_input_ns_ < 4000000000ull) return;
     last_gaze_panel_ = gaze;
     if (gaze < 0 || gaze >= static_cast<int>(panel_rects_.size())) return;
     const RECT& to = panel_rects_[static_cast<size_t>(gaze)];
