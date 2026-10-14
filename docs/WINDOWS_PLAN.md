@@ -47,7 +47,8 @@ Driver IddCx (monitores virtuales)     instalado aparte, con firma
 
 | Fase | Estado |
 |---|---|
-| W0 | Validada en hardware (2026-10-14, Win 11 Enterprise, Intel Iris Xe): gafas como pantalla DP 1280x720, HID 3941:af50 visible, build MSVC 2022 OK, IMU a 457.19 Hz, missed 0, irregular 0, ACK sí. Pendiente: comprobar pose en vivo y `imu_probe --calibrate` |
+| W0 | **Hecha** (2026-10-14, Win 11 Enterprise, Intel Iris Xe): gafas como pantalla DP, HID 3941:af50, build MSVC 2022, IMU a 457.19 Hz, missed 0, irregular 0, ACK sí; pose en vivo sigue yaw/pitch/roll |
+| W2 | Implementada, **falta probarla con las gafas**: `nimbo_win.exe` (captura DXGI con cursor, render D3D11 portado de Metal, swap chain flip a 120 Hz excluida de la captura, predicción hasta el scanout). CI compila sin warnings y renderiza un fotograma en WARP (`windows_render_test`) |
 | W1 | Hecha en parte: `core/presets`, `core/panel_dimmer`, `core/frame_skip` con tests; macOS los usa; plantillas y perfiles expuestos en `rayneo_layouts.h` (C ABI). Pendiente: modelo de opciones en JSON común y ampliar el C ABI para la app de Windows |
 
 ## Fases
@@ -112,6 +113,43 @@ Tarda unos minutos la primera vez (compila). Todo queda en `w0_report.txt`.
 
 ### W2 · Render espacial con una pantalla real (L)
 Equivale a la fase 3 de macOS (`--displays 0`).
+
+#### Guía de prueba (en el PC con Windows)
+
+**1. Actualizar y compilar** (desde la carpeta del repo):
+```powershell
+git pull
+cmake --build build-win --config Release
+```
+
+**2. Sin las gafas puestas, en una ventana** (comprueba captura y render):
+```powershell
+build-win\Release\nimbo_win.exe --windowed --sim --sim-sweep 20
+```
+Debe abrirse una ventana con tu pantalla principal como un panel que se mueve a izquierda y derecha. El cursor debe verse dentro del panel. Ctrl+Alt+Q para salir.
+
+**3. Con las gafas** (en modo 3D/SBS de las gafas, como en el Mac):
+```powershell
+build-win\Release\nimbo_win.exe
+```
+Deja las gafas quietas sobre la mesa ~6 s hasta que el log pase de `CALIB` a `TRACK`, póntelas y pulsa Ctrl+Alt+C para recentrar.
+
+**4. Qué mirar:**
+
+| Línea / prueba | Bien |
+|---|---|
+| `glasses mode:` | 1920x1080 @120 Hz (o el modo nativo que ofrezcan) |
+| `render NNN fps` | ~120 moviendo la cabeza; con la cabeza quieta baja (`idle`): es normal |
+| `sample->scanout` | Latencia desde la muestra de la IMU hasta el scanout; anotar media/máx |
+| `target err` | Cerca de 0: la predicción apunta al vblank correcto. Si sale ~+8 ms, hay un fotograma de composición extra |
+| Girar la cabeza | El panel se queda fijo. Si se mueve **con** la cabeza: Ctrl+Alt+-; si va **en contra**: Ctrl+Alt+= (se guarda) |
+| Texto | Nítido, sin parpadeo al mover la cabeza un poco |
+
+**5. Mandar el log** de la consola (unos 10 s en `TRACK`) y cómo se ve.
+
+Opciones útiles: `--source N` elige qué pantalla mostrar (índice de la lista `displays:` del log), `--mono` si las gafas están en 2D, `--arc 40` panel más pequeño, `--60hz`, `--help`.
+
+#### Tareas
 1. `nimbo_win.exe` en CLI con `--windowed --sim`: D3D11, shaders HLSL portados de `Shaders.metal`, mipmaps (`GenerateMips`), vistas sRGB, half-SBS.
 2. Captura DXGI Desktop Duplication de una pantalla existente y copia a textura propia.
 3. Ventana sin bordes a pantalla completa en la salida de las gafas, flip model a 120 Hz, excluida de la captura.
@@ -121,7 +159,7 @@ Equivale a la fase 3 de macOS (`--displays 0`).
 **Hecho cuando:** con las gafas, una pantalla fija en el espacio a 120 Hz, texto nítido y latencia medida.
 
 ### W3 · Monitores virtuales (L) — el mayor riesgo
-1. Evaluar un driver IddCx de código abierto (p. ej. *Virtual Display Driver*, licencia MIT) frente a escribir uno propio con el ejemplo IddCx de Microsoft.
+1. Evaluar un driver IddCx de código abierto (p. ej. *Virtual Display Driver*, licencia MIT) frente a escribir uno propio con el ejemplo IddCx de Microsoft. Nota: el PC de prueba ya tiene un adaptador «Virtual Display» (driver 0.4.0.0); identificar cuál es antes de instalar otro.
 2. Crear y quitar monitores desde `nimbo_win.dll` (control del driver), resolución HiDPI y disposición en fila o cuadrícula.
 3. Multi-panel, mirada → cursor, traer ventanas al panel 1 (`SetWindowPos`), restaurar todo al salir o al desconectar.
 
