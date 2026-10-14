@@ -19,8 +19,9 @@ namespace {
 int failures = 0;
 ComPtr<ID3D11InfoQueue> info;
 
-void dump_messages() {
-    if (!info) return;
+int dump_messages() {
+    if (!info) return 0;
+    const int n = static_cast<int>(info->GetNumStoredMessages());
     for (UINT64 i = 0; i < info->GetNumStoredMessages(); ++i) {
         SIZE_T len = 0;
         info->GetMessage(i, nullptr, &len);
@@ -29,6 +30,7 @@ void dump_messages() {
         if (SUCCEEDED(info->GetMessage(i, msg, &len))) std::printf("  d3d: %.*s\n", static_cast<int>(msg->DescriptionByteLength), msg->pDescription);
     }
     info->ClearStoredMessages();
+    return n;
 }
 
 void check(bool ok, const char* what) {
@@ -124,7 +126,7 @@ int main() {
         for (int x = 0; x < w; ++x) lit += pixel(x, y) != 0;
     }
     std::printf("centre 0x%06x, %d of %d pixels lit\n", pixel(w / 4, h / 2), lit, w * h);
-    dump_messages();
+    check(dump_messages() == 0, "no debug layer messages");
     ctx->Unmap(staging.Get(), 0);
 
     // A head turned 90 degrees away leaves the panel out of view.
