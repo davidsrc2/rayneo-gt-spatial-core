@@ -47,9 +47,14 @@ Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para
 
 ## Usar la app (fase 5)
 
+Instalar como cualquier app de Mac:
+
 ```sh
-open ~/rayneo-gt-spatial-core/build/mac_spatial_server.app      # o doble clic en Finder
+cd ~/rayneo-gt-spatial-core && git pull && scripts/make_dmg.sh   # -> dist/RayNeoSpatial-<versión>.dmg
+open dist/RayNeoSpatial-*.dmg                                     # arrastrar «RayNeo Spatial» a Aplicaciones
 ```
+
+Después se abre desde Launchpad / Spotlight («RayNeo Spatial»). Para desarrollo también vale `open build/mac_spatial_server.app`.
 
 - Sin argumentos se abre como **app de barra de menús**: clic en **◎** abre el panel compacto (cristal nativo, oscuro). Clic derecho: menú rápido.
   - Arriba, el estado tipo semáforo (verde «Sensores estabilizados», ámbar «Calibrando (deja las gafas en la mesa 5 s)», gris apagado) y el interruptor de encendido.
@@ -66,6 +71,31 @@ open ~/rayneo-gt-spatial-core/build/mac_spatial_server.app      # o doble clic e
 - Ajustes y calibración en `~/Library/Application Support/RayNeo/` y en las preferencias de la app.
 - La firma es ad-hoc: tras recompilar, macOS puede volver a pedir los permisos.
 - SwiftUI sin la macro `@State` (su plugin solo viene con Xcode; el build usa las Command Line Tools).
+
+## Hoja de ruta macOS (recomendaciones)
+
+**Imprescindible antes de publicar la v1.0**
+1. Cerrar lo pendiente con las gafas: FOV definitivo como valor por defecto, monitores apilados, asistente; fusionar la PR #8.
+2. Firma Developer ID + notarización (sin avisos de Gatekeeper).
+3. Actualizaciones automáticas (Sparkle) para la distribución por DMG.
+4. Abrir al iniciar sesión (`SMAppService`): junto con el auto-inicio, «conectar y olvidar» completo.
+5. «Exportar diagnóstico»: zip con registros, frecuencia de la IMU, latencia, calibración y versión de macOS.
+6. Grabar y reproducir sesiones de la IMU en los tests, para validar estabilizador y deriva sin hardware (acelera también Windows).
+
+**Mejoran la experiencia**
+7. Recordar dónde va cada app (editor en el monitor 1, navegador en el 2…).
+8. Modo «seguir» para caminar o levantarse: los monitores acompañan despacio.
+9. Capturar a pocos fps los monitores fuera de la vista (batería y temperatura).
+10. Corrección de deriva opcional con el magnetómetro, con filtro de interferencias.
+11. Recentrar con un gesto (doble asentimiento).
+12. Calibración de lente con patrón de rejilla (k1/k2).
+
+**Más adelante**
+13. 3D real (SBS) en Modo Cine.
+14. Inglés y VoiceOver.
+15. Atajos configurables.
+
+Orden sugerido: 1 → 6 → 4 → 5; 2 y 3 con la cuenta de desarrollador.
 
 ## Icono y distribución (DMG)
 
