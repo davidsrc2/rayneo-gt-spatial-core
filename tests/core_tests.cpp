@@ -159,6 +159,31 @@ void test_pipeline_recenter() {
     CHECK(near(after.euler.yaw, 0.0f, 0.05f));
 }
 
+// User recenter glides: no jump on the first frame, monotonic, settled after the glide time.
+void test_pipeline_recenter_glide() {
+    ImuPipeline p;
+    uint32_t tick = 0;
+    auto feed = [&](Vec3 g) {
+        tick += 21;
+        const auto r = make_imu_report({0, 0, 9.81f}, g, tick);
+        return *p.process_report(r.data(), r.size());
+    };
+    for (int i = 0; i < 476 * 6; ++i) feed({0, 0, 0});
+    Pose turned;
+    for (int i = 0; i < 476; ++i) turned = feed({0, 0, 45.0f});
+    p.recenter(true);
+    float prev = feed({0, 0, 0}).euler.yaw;
+    CHECK(near(prev, turned.euler.yaw, 1.0f));
+    bool monotonic = true;
+    for (int i = 0; i < 476 * 3 / 10; ++i) {  // 0.3 s
+        const float y = feed({0, 0, 0}).euler.yaw;
+        monotonic = monotonic && y <= prev + 1e-3f;
+        prev = y;
+    }
+    CHECK(monotonic);
+    CHECK(near(feed({0, 0, 0}).euler.yaw, 0.0f, 0.05f));
+}
+
 // Reference-unit cadence: 7 deltas of 22 ticks, then one of 21 (21.875 avg, ~457.14 Hz).
 uint32_t reference_delta(int i) { return i % 8 == 7 ? 21u : 22u; }
 
@@ -880,6 +905,7 @@ int main() {
     test_madgwick_yaw_integration();
     test_pipeline_bias_removed();
     test_pipeline_recenter();
+    test_pipeline_recenter_glide();
     test_tick_monitor_reference_cadence();
     test_tick_monitor_gaps();
     test_bias_rejects_transient_step();

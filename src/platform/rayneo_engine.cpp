@@ -57,7 +57,7 @@ void fusion_loop(rayneo_engine* e) {
                     e->calib_pending = false;
                 }
             }
-            if (e->recenter.exchange(false)) e->pipeline->recenter();
+            if (e->recenter.exchange(false)) e->pipeline->recenter(true);
             const auto pose = e->pipeline->process_report(rr.data, rr.length);
             if (!pose) {
                 std::lock_guard<std::mutex> lock(e->pose_mutex);

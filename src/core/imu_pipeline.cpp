@@ -1,5 +1,6 @@
 #include "rayneo/core/imu_pipeline.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "rayneo/core/gt_protocol.h"
@@ -27,6 +28,9 @@ void ImuPipeline::reset() {
     have_prev_tick_ = false;
     attitude_init_ = false;
     recenter_pending_ = true;
+    glide_requested_ = false;
+    glide_t_ = 1.0f;
+    last_relative_ = Quat{};
     reference_ = Quat{};
     heading_ref_ = Quat{};
     stabilizer_.reset();
@@ -76,7 +80,12 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
         const Vec3 fwd_sensor = sensor_to_head_.conjugate().rotate({1.0f, 0.0f, 0.0f});
         heading_ref_ = heading_of(p.absolute.rotate(fwd_sensor));
         recenter_pending_ = false;
-        stabilizer_.reset();  // snap to identity, do not glide there
+        stabilizer_.reset();  // the stabilizer snaps; the glide below hides the jump
+        if (glide_requested_ && cfg_.recenter_glide_s > 0.0f) {
+            glide_from_ = last_relative_;  // relative is ~identity now: offset = previous output
+            glide_t_ = 0.0f;
+        }
+        glide_requested_ = false;
     }
     // Earth-frame delta (q_ref^-1 * q would leak yaw into pitch/roll when recentered with a
     // tilted head), conjugated by a pure yaw so its axes read as head forward/left/up.
@@ -89,8 +98,13 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     if (cfg_.stabilize && p.tracking) {
         p.relative = stabilizer_.update(p.relative, p.angular_velocity_rads, dt);
         p.angular_velocity_rads = stabilizer_.omega();
-        p.euler = to_euler_deg(p.relative);
     }
+    if (glide_t_ < 1.0f && p.tracking) {
+        glide_t_ = std::min(1.0f, glide_t_ + dt / cfg_.recenter_glide_s);
+        const float k = 1.0f - (1.0f - glide_t_) * (1.0f - glide_t_) * (1.0f - glide_t_);  // ease-out
+        p.relative = (slerp(glide_from_, Quat{}, k) * p.relative).normalized();
+    }
+    last_relative_ = p.relative;
     p.euler = to_euler_deg(p.relative);
     return p;
 }
