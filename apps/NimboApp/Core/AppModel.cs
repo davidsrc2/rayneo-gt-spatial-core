@@ -119,6 +119,61 @@ internal sealed unsafe class AppModel
         TextSize = p.TextSize;
     }
 
+    // --- layout editor (LayoutEditor.swift) ---------------------------------------------------
+
+    public const int MaxMonitors = 6;
+
+    // Adds a monitor touching the arrangement: right of a row first, then below a column,
+    // keeping the whole layout within 4 columns x 3 rows.
+    public bool AddMonitor()
+    {
+        var cells = Cells.ToList();
+        if (cells.Count >= MaxMonitors) return false;
+        var candidates = new List<(int Col, int Row)>();
+        foreach (var r in cells.Select(c => c.Row).Distinct().OrderBy(r => r))
+            candidates.Add((cells.Where(c => c.Row == r).Max(c => c.Col) + 1, r));
+        foreach (var c in cells.Select(c => c.Col).Distinct().OrderBy(c => c))
+            candidates.Add((c, cells.Where(x => x.Col == c).Max(x => x.Row) + 1));
+        foreach (var p in candidates)
+        {
+            if (cells.Contains(p)) continue;
+            var all = cells.Append(p).ToList();
+            if (all.Max(c => c.Col) - all.Min(c => c.Col) + 1 > 4 || all.Max(c => c.Row) - all.Min(c => c.Row) + 1 > 3) continue;
+            Cells = all.ToArray();
+            return true;
+        }
+        return false;
+    }
+
+    public bool RemoveMonitor()
+    {
+        var cells = Cells;
+        if (cells.Length <= 1) return false;
+        var next = cells.Take(cells.Length - 1).ToArray();
+        if (!IsConnected(next)) return false;
+        Cells = next;
+        return true;
+    }
+
+    // Monitors must touch edge to edge, as Windows requires for an arrangement.
+    public static bool IsConnected((int Col, int Row)[] cells)
+    {
+        if (cells.Length == 0) return true;
+        var all = cells.ToHashSet();
+        var seen = new HashSet<(int, int)> { cells[0] };
+        var stack = new Stack<(int Col, int Row)>();
+        stack.Push(cells[0]);
+        while (stack.Count > 0)
+        {
+            var c = stack.Pop();
+            foreach (var n in new[] { (c.Col + 1, c.Row), (c.Col - 1, c.Row), (c.Col, c.Row + 1), (c.Col, c.Row - 1) })
+            {
+                if (all.Contains(n) && seen.Add(n)) stack.Push(n);
+            }
+        }
+        return seen.Count == all.Count && all.Count == cells.Length;
+    }
+
     // --- server options -------------------------------------------------------------------
 
     public NimboNative.Options ToOptions()

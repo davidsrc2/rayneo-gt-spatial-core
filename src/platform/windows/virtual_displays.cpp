@@ -121,6 +121,16 @@ bool VirtualDisplayDriver::available() {
     return true;
 }
 
+bool VirtualDisplayDriver::installed() {
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\MikeTheTech\\VirtualDisplayDriver", 0, KEY_READ, &key) ==
+        ERROR_SUCCESS) {
+        RegCloseKey(key);
+        return true;
+    }
+    return GetFileAttributesW(L"C:\\VirtualDisplayDriver\\vdd_settings.xml") != INVALID_FILE_ATTRIBUTES;
+}
+
 bool VirtualDisplayDriver::set_count(int count, std::string* error) {
     HANDLE h = open_pipe();
     if (h == INVALID_HANDLE_VALUE) {

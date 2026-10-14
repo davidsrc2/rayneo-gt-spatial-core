@@ -16,6 +16,8 @@ public sealed partial class SettingsWindow : Window
     private bool _updating;
     private bool _destroying;
 
+    public event Action? RecalibrateRequested;
+
     internal SettingsWindow(AppModel model, ServerController server)
     {
         _model = model;
@@ -56,8 +58,9 @@ public sealed partial class SettingsWindow : Window
         _updating = true;
         CalibrationText.Text = _model.HasCalibration
             ? "Tus gafas están calibradas."
-            : "Aún no has calibrado tus gafas (se usa la orientación por defecto). La calibración guiada llega en la próxima versión; " +
-              "mientras, imu_probe --calibrate y copia calibration.json a " + AppModel.DataDirectory + ".";
+            : "Aún no has calibrado tus gafas (se usa la orientación por defecto).";
+        StartupToggle.IsOn = Startup.Enabled;
+        DrawLayout();
         DimToggle.IsOn = _model.DimOthers;
         FovSlider.Value = _model.Fov;
         IpdSlider.Value = _model.Ipd;
@@ -104,4 +107,61 @@ public sealed partial class SettingsWindow : Window
     }
 
     private void Done_Click(object sender, RoutedEventArgs e) => AppWindow.Hide();
+
+    private void Recalibrate_Click(object sender, RoutedEventArgs e) => RecalibrateRequested?.Invoke();
+
+    private void Startup_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_updating) Startup.Enabled = StartupToggle.IsOn;
+    }
+
+    // --- layout editor ----------------------------------------------------------------------------
+
+    private void AddMonitor_Click(object sender, RoutedEventArgs e)
+    {
+        if (_model.AddMonitor()) _server.SettingsChanged();
+        DrawLayout();
+    }
+
+    private void RemoveMonitor_Click(object sender, RoutedEventArgs e)
+    {
+        if (_model.RemoveMonitor()) _server.SettingsChanged();
+        DrawLayout();
+    }
+
+    // The grid of monitors as seen from the front, numbered in panel order.
+    private void DrawLayout()
+    {
+        LayoutPreview.Children.Clear();
+        var cells = _model.Cells;
+        if (cells.Length == 0) return;
+        int c0 = cells.Min(c => c.Col), r0 = cells.Min(c => c.Row);
+        int cols = cells.Max(c => c.Col) - c0 + 1, rows = cells.Max(c => c.Row) - r0 + 1;
+        double cw = Math.Min(LayoutPreview.Width / cols, LayoutPreview.Height / rows * 16 / 9);
+        double ch = cw * 9 / 16;
+        double ox = (LayoutPreview.Width - cw * cols) / 2, oy = (LayoutPreview.Height - ch * rows) / 2;
+        for (int i = 0; i < cells.Length; ++i)
+        {
+            var rect = new Microsoft.UI.Xaml.Shapes.Rectangle
+            {
+                Width = cw - 6,
+                Height = ch - 6,
+                RadiusX = 4,
+                RadiusY = 4,
+                Fill = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(140, 165, 205, 200)),
+            };
+            Microsoft.UI.Xaml.Controls.Canvas.SetLeft(rect, ox + (cells[i].Col - c0) * cw + 3);
+            Microsoft.UI.Xaml.Controls.Canvas.SetTop(rect, oy + (cells[i].Row - r0) * ch + 3);
+            LayoutPreview.Children.Add(rect);
+            var label = new Microsoft.UI.Xaml.Controls.TextBlock { Text = (i + 1).ToString(), FontSize = 13 };
+            Microsoft.UI.Xaml.Controls.Canvas.SetLeft(label, ox + (cells[i].Col - c0) * cw + cw / 2 - 4);
+            Microsoft.UI.Xaml.Controls.Canvas.SetTop(label, oy + (cells[i].Row - r0) * ch + ch / 2 - 10);
+            LayoutPreview.Children.Add(label);
+        }
+        AddMonitorButton.IsEnabled = cells.Length < AppModel.MaxMonitors;
+        RemoveMonitorButton.IsEnabled = cells.Length > 1;
+        var name = AppModel.Layouts.FirstOrDefault(l => l.Id == _model.ActiveLayout)?.Title;
+        LayoutText.Text = $"{cells.Length} monitor(es)" + (name != null ? $" · {name}" : "") +
+                          (_server.IsRunning ? " · se aplica al momento" : "");
+    }
 }

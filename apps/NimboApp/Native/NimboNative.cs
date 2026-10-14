@@ -107,6 +107,55 @@ internal static unsafe class NimboNative
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void LogFn(IntPtr ctx, IntPtr line);
 
+    public enum CalibStep
+    {
+        Bias = 0,
+        Center,
+        Up,
+        Down,
+        Left,
+        Right,
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CalibStatus
+    {
+        public CalibStep Step;
+        public byte Returning;
+        public IntPtr Hint;
+        public float RateDegs;
+        public float RotationDeg;
+        public byte BiasOk;
+        public float CapturedDeg;
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void CalibFn(IntPtr ctx, CalibStatus* status);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern IntPtr nimbo_calibration_create();
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_calibration_destroy(IntPtr c);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_calibration_cancel(IntPtr c);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nimbo_calibration_run(IntPtr c, byte* outPath, IntPtr fn, IntPtr ctx, byte* error, int errorSize);
+
+    // Blocking guided calibration; `onStatus` runs on the calling thread. Returns 0 ok, 1 stopped,
+    // 2 rejected, with the reason in `error`.
+    public static int RunCalibration(IntPtr c, string outPath, Action<CalibStatus> onStatus, out string error)
+    {
+        CalibFn fn = (_, st) => onStatus(*st);
+        var path = Encoding.UTF8.GetBytes(outPath + "\0");
+        var err = new byte[256];
+        int code;
+        fixed (byte* p = path)
+        fixed (byte* e = err)
+        {
+            code = nimbo_calibration_run(c, p, Marshal.GetFunctionPointerForDelegate(fn), IntPtr.Zero, e, err.Length);
+            error = GetField(e, err.Length);
+        }
+        GC.KeepAlive(fn);
+        return code;
+    }
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern Options nimbo_default_options();
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern IntPtr nimbo_create();
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_destroy(IntPtr s);
