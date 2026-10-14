@@ -1,6 +1,6 @@
 # Nimbo para Windows: plan de trabajo
 
-Última actualización: 2026-10-14. Objetivo: la misma experiencia que en macOS (monitores virtuales fijos en el espacio, panel compacto, conectar y olvidar) en Windows 11 x64.
+Última actualización: 2026-10-14 (tarde). Objetivo: la misma experiencia que en macOS (monitores virtuales fijos en el espacio, panel compacto, conectar y olvidar) en Windows 11 x64.
 
 ## Punto de partida
 
@@ -49,9 +49,27 @@ Driver IddCx (monitores virtuales)     instalado aparte, con firma
 |---|---|
 | W0 | **Hecha** (2026-10-14, Win 11 Enterprise, Intel Iris Xe): gafas como pantalla DP, HID 3941:af50, build MSVC 2022, IMU a 457.19 Hz, missed 0, irregular 0, ACK sí; pose en vivo sigue yaw/pitch/roll |
 | W2 | Probada en ventana (`--windowed --sim`) tras corregir el bloqueo entre captura y render. **Falta el log con las gafas**: `nimbo_win.exe` (captura DXGI con cursor, render D3D11 portado de Metal, swap chain flip a 120 Hz excluida de la captura, predicción hasta el scanout). CI compila sin warnings y renderiza un fotograma en WARP (`windows_render_test`) |
-| W3 | Implementada sobre *Virtual Display Driver* (MIT, IddCx, firmado), **falta probarla**: monitores virtuales en cuadrícula, superficie de las gafas apartada, escala por monitor, cursor que sigue la mirada, ventanas traídas al panel 1, restauración al salir y `--restore` tras un cuelgue |
+| W3 | Implementada, **falta probarla**. Dos drivers, el que responda: *Virtual Display Driver* (VDD: MIT, firmado, se controla con `SETDISPLAYCOUNT`) o *virtual-display-rs* (MIT, el que ya tiene el PC de prueba: pipe `\\.\pipe\virtualdisplaydriver`, JSON + EOT, resolución exacta, respeta los monitores del usuario con ids < 41000). Monitores en cuadrícula, superficie de las gafas apartada, escala por monitor, cursor que sigue la mirada, ventanas traídas al panel 1, restauración al salir y `--restore` tras un cuelgue |
 | W4 | **Hecha, falta probarla**: `apps/NimboApp` (WinUI 3, .NET 8, sin empaquetar). Bandeja + panel (luz de estado, interruptor, tarjetas de disposición, recentrar, deslizadores, perfiles, auto-inicio al conectar), ajustes (avanzado, editor de disposición, inicio con Windows, diagnóstico), asistente de primer uso (driver VDD, calibración guiada, tamaño del texto), avisos al conectar y desconectar, Ctrl+Alt+1/2/3, `settings.json` común con macOS. CI la publica como artefacto `nimbo-app-win-x64` |
 | W1 | **Hecha**: `core/presets`, `core/panel_dimmer`, `core/frame_skip`, `core/settings` (los ajustes de la app de macOS, mismas claves, en JSON) con tests. `nimbo.dll` con C ABI (`rayneo/platform/nimbo_win.h`): arrancar y parar en su propio hilo, ajustes en vivo, estado, log, ajustes ↔ opciones, gafas y driver presentes, restaurar pantallas, calibración guiada. `nimbo_win.exe` es un CLI sobre esa API; `nimbo_api_test` la prueba en CI. Pendiente: que la app de macOS lea y escriba `settings.json` en vez de UserDefaults |
+
+## Siguiente sesión (punto de continuación)
+
+Estado al cerrar el 2026-10-14: W0, W1, W2, W3 y W4 en `main`, todo compila en CI (5 entornos, sin warnings) con 3 tests en Windows (`core_tests`, `windows_render_test` en WARP, `nimbo_api_test`). En el PC de prueba solo se ha visto funcionar W0 (IMU) y W2 en ventana (`--windowed --sim`).
+
+Hechos del PC de prueba (Windows 11 Enterprise de Logista, Intel Iris Xe, monitores HP E24m G4 + HP E24 G5, gafas en `\\.\DISPLAY3`):
+- Ya tiene **virtual-display-rs 0.4.0** (adaptador «Virtual Display», proveedor «Cherry», `ROOT\DISPLAY\0000`) con su pipe activo. VDD **no** está instalado; winget confunde ambos por el nombre.
+- winget falla en consolas de administrador (fuente sin inicializar / alias sin registrar): usar consola normal o instalación manual.
+- El build local está en `build-win` (`cmake --build build-win --config Release`).
+
+Pendiente, en orden:
+1. **Probar W3 con virtual-display-rs** en el PC: `build-win\Release\nimbo_win.exe --windowed --sim --displays 2`. Riesgos sin verificar: el nombre que Windows da a sus monitores (se esperan «VirtuDisplay+»; si no, se detectan como pantallas nuevas), que acepte el JSON de `Notify` de la 0.4.0, que Windows admita las gafas tocando solo por una esquina (si no, van debajo del último panel) y el cambio de escala por monitor (llamada no documentada).
+2. **Probar W2/W3 con las gafas** (`--displays 0` y `--displays 2`): `target err` cerca de 0 a pantalla completa, panel fijo al girar, texto nítido.
+3. **Probar la app**: artefacto `nimbo-app-win-x64` del último build de `main` (o `dotnet publish`, ver W4). Asistente, calibración guiada, bandeja, Ctrl+Alt+1/2/3.
+4. **W5 · Distribución** (preguntar al usuario antes de empezar): instalador con el driver VDD, firma Authenticode (requiere comprar certificado), actualizaciones (Velopack), instalador en CI.
+5. Que la app de macOS use `settings.json` (`core/settings`) en vez de UserDefaults.
+
+Forma de trabajar acordada: ramas `feat/...`, PR, CI en verde, merge a `main`; presentar cada paso siguiente y preguntar antes de empezarlo; respuestas en español.
 
 ## Fases
 
