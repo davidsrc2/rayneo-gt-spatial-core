@@ -32,6 +32,8 @@
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/platform/rayneo_engine.h"
 #include "spatial_renderer.h"
+#include "virtual_displays.h"
+#include "window_gatherer.h"
 
 #ifndef WDA_EXCLUDEFROMCAPTURE
 #define WDA_EXCLUDEFROMCAPTURE 0x00000011
@@ -51,7 +53,7 @@ struct Options {
     std::optional<bool> side_by_side;  // nil: SBS on the glasses, mono in --windowed
     float ipd_mm = 63;
     float distance_m = 2.0f;
-    float arc_deg = 50;
+    std::optional<float> arc_deg;  // nil: 38 per virtual panel, 50 for single-display capture
     float gap_deg = 1;
     float curvature = 0;
     float fov_y_deg = 24.5f;
@@ -66,12 +68,34 @@ struct Options {
     bool sim = false;
     float sim_sweep_deg = 0;
     double duration_s = 0;
+
+    int displays = 2;                      // virtual monitors; 0 = show an existing display
+    std::vector<core::GridCell> layout;    // grid cell per monitor; empty = one row
+    int vd_width = 1920, vd_height = 1080;  // a mode the driver offers (vdd_settings.xml)
+    int vd_scale = 150;                    // Windows scaling of the virtual monitors, percent
+    bool fit = false;                      // size panels so all of them are visible at once
+    bool gather_windows = true;            // move windows off the glasses display into panel 1
+    bool gaze_cursor = true;               // cursor jumps to the panel you look at
+    float dim_others = 1;                  // brightness of the panels you are not looking at
+    bool restore_only = false;             // --restore: undo a crashed run's display changes
+
+    float panel_arc_deg() const { return arc_deg.value_or(displays > 0 ? 38.0f : 50.0f); }
 };
 
 const char* kUsage = R"(usage: nimbo_win [options]
 layout
-  --arc DEG            horizontal size of the panel (50)
-  --curved             curved panel (default: flat)
+  --displays N         virtual monitors around you (2; needs the Virtual Display Driver);
+                       0 = show an existing display
+  --layout C,R;C,R...  grid cell per monitor (row 0 = top), e.g. "0,0;0,1" = two stacked
+  --vd-size WxH        virtual monitor resolution, one the driver offers (1920x1080)
+  --vd-scale PCT       Windows scaling of the virtual monitors (150: large, sharp text)
+  --fit                all panels visible at once (each at a fraction of full resolution)
+  --arc DEG            horizontal size of each panel (38; 50 with --displays 0)
+  --gap DEG            space between panels (1)
+  --no-gather          do not move windows from the glasses display to panel 1
+  --no-gaze-cursor     keep the cursor where it is when you look at another panel
+  --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
+  --curved             curved panels (default: flat monitors angled towards you)
   --curvature K        0 flat .. 1 fully curved around you
   --distance M         panel distance in metres (2.0)
 optics
@@ -87,9 +111,10 @@ tracking
   --sim-sweep DEG      sim: automatic left/right sweep of +-DEG
 display
   --windowed           render in a window on the main screen instead of the glasses
-  --source S           display to show: auto | glasses | primary | <index from the list>
+  --source S           --displays 0 only: auto | glasses | primary | <index from the list>
   --60hz               keep the glasses' current refresh rate (default: 120 Hz)
   --duration S         exit after S seconds
+  --restore            undo the display changes of a run that crashed, then exit
 hotkeys: Ctrl+Alt+C recenter, Ctrl+Alt+Q quit,
          Ctrl+Alt+- / Ctrl+Alt+= field of view (tune until the panel stays put when turning),
          Ctrl+Alt+arrows look around (--sim)
@@ -108,7 +133,35 @@ std::optional<Options> parse(int argc, char** argv) {
             return end != v && *end == '\0';
         };
         float f = 0;
-        if (a == "--arc" && number(&f)) o.arc_deg = f;
+        if (a == "--displays" && number(&f) && f >= 0 && f <= 8) o.displays = static_cast<int>(f);
+        else if (a == "--layout") {
+            const char* v = value();
+            if (v == nullptr) return std::nullopt;
+            o.layout.clear();
+            std::stringstream ss(v);
+            std::string cell;
+            while (std::getline(ss, cell, ';')) {
+                core::GridCell c;
+                if (std::sscanf(cell.c_str(), "%d,%d", &c.col, &c.row) != 2) return std::nullopt;
+                o.layout.push_back(c);
+            }
+            if (o.layout.empty() || o.layout.size() > 8) return std::nullopt;
+            o.displays = static_cast<int>(o.layout.size());
+        }
+        else if (a == "--vd-size") {
+            const char* v = value();
+            if (v == nullptr || std::sscanf(v, "%dx%d", &o.vd_width, &o.vd_height) != 2 || o.vd_width < 640 ||
+                o.vd_height < 480) {
+                return std::nullopt;
+            }
+        }
+        else if (a == "--vd-scale" && number(&f)) o.vd_scale = static_cast<int>(f);
+        else if (a == "--fit") o.fit = true;
+        else if (a == "--no-gather") o.gather_windows = false;
+        else if (a == "--no-gaze-cursor") o.gaze_cursor = false;
+        else if (a == "--dim" && number(&f)) o.dim_others = std::fmax(0.0f, std::fmin(1.0f, f));
+        else if (a == "--restore") o.restore_only = true;
+        else if (a == "--arc" && number(&f)) o.arc_deg = f;
         else if (a == "--gap" && number(&f)) o.gap_deg = f;
         else if (a == "--curved") o.curvature = 1;
         else if (a == "--curvature" && number(&f) && f >= 0 && f <= 1) o.curvature = f;
@@ -322,6 +375,10 @@ private:
     void periodic();
     void handle_display_change();
     void adjust_fov(float delta);
+    bool setup_virtual_displays();
+    const win::OutputInfo* find_output(const std::wstring& gdi_name) const;
+    void refresh_rects();
+    void follow_gaze(uint64_t now);
     void shutdown();
 
     Options opt_;
@@ -341,8 +398,18 @@ private:
 
     std::unique_ptr<PoseSource> pose_;
     bool imu_ = false;
-    win::DesktopDuplication capture_;
+    std::vector<std::unique_ptr<win::DesktopDuplication>> captures_;
     win::SpatialRenderer renderer_;
+
+    // Virtual monitors (W3).
+    bool virtual_ = false;
+    win::DisplayArrangement arrangement_;
+    std::vector<std::wstring> panel_names_;  // GDI name per panel, left -> right
+    std::vector<RECT> panel_rects_;          // desktop rectangle per panel
+    RECT glasses_rect_{};
+    POINT last_cursor_{};
+    uint64_t last_cursor_move_ns_ = 0, next_gaze_ns_ = 0;
+    int last_gaze_panel_ = -2;
     bool redraw_ = true;
     bool display_changed_ = false;
 
@@ -407,6 +474,19 @@ bool Server::start() {
             return false;
         }
         glasses_gdi_ = glasses->gdi_name;
+    }
+
+    // Virtual monitors first: arranging displays resets temporary modes such as the glasses'
+    // native mode below.
+    if (opt_.displays > 0 && !win::VirtualDisplayDriver::available()) {
+        logln("virtual monitors: the Virtual Display Driver is not installed, showing an existing display instead"
+              " (install it to get --displays: see docs/WINDOWS_PLAN.md, W3)");
+        opt_.displays = 0;
+    }
+    if (opt_.displays > 0 && !setup_virtual_displays()) return false;
+
+    glasses = glasses_gdi_.empty() ? nullptr : find_output(glasses_gdi_);
+    if (glasses != nullptr) {
         if (glasses->mirrored()) {
             logln("glasses: duplicating another display. Use Extend (Win+P) for the native mode and your own desktop");
         } else if (const auto m = win::set_native_mode(glasses_gdi_, opt_.refresh120 ? 120 : 60)) {
@@ -414,7 +494,7 @@ bool Server::start() {
             mode_changed_ = true;
             Sleep(1000);  // let the reconfiguration settle
             outputs_ = win::enumerate_outputs();
-            glasses = win::find_glasses(outputs_);
+            glasses = find_output(glasses_gdi_);
             if (glasses == nullptr) {
                 logln("glasses display lost after the mode change");
                 return false;
@@ -427,46 +507,62 @@ bool Server::start() {
         refresh_hz_ = m->hz;  // primary display
     }
 
-    // Source: what the panel shows.
-    const win::OutputInfo* source = nullptr;
-    if (opt_.source == "glasses") {
-        source = glasses;
-    } else if (opt_.source == "primary") {
-        for (const auto& o : outputs_) {
-            if (o.primary) source = &o;
+    // Sources: the virtual monitors, or the one existing display that the panel shows.
+    std::vector<const win::OutputInfo*> sources;
+    if (virtual_) {
+        for (const auto& name : panel_names_) {
+            if (const auto* o = find_output(name)) sources.push_back(o);
         }
-    } else if (opt_.source == "auto") {
-        // Extended desktop: the primary display (or the first one that is not the glasses).
-        // Mirrored: the glasses output itself; the render window is excluded from capture,
-        // so the desktop behind it is what gets captured.
-        for (const auto& o : outputs_) {
-            if (!o.glasses && (source == nullptr || o.primary)) source = &o;
-        }
-        if (source == nullptr) source = glasses;
     } else {
-        char* end = nullptr;
-        const unsigned long i = std::strtoul(opt_.source.c_str(), &end, 10);
-        if (end != opt_.source.c_str() && *end == '\0' && i < outputs_.size()) source = &outputs_[i];
+        const win::OutputInfo* source = nullptr;
+        if (opt_.source == "glasses") {
+            source = glasses;
+        } else if (opt_.source == "primary") {
+            for (const auto& o : outputs_) {
+                if (o.primary) source = &o;
+            }
+        } else if (opt_.source == "auto") {
+            // Extended desktop: the primary display (or the first one that is not the glasses).
+            // Mirrored: the glasses output itself; the render window is excluded from capture,
+            // so the desktop behind it is what gets captured.
+            for (const auto& o : outputs_) {
+                if (!o.glasses && (source == nullptr || o.primary)) source = &o;
+            }
+            if (source == nullptr) source = glasses;
+        } else {
+            char* end = nullptr;
+            const unsigned long i = std::strtoul(opt_.source.c_str(), &end, 10);
+            if (end != opt_.source.c_str() && *end == '\0' && i < outputs_.size()) source = &outputs_[i];
+        }
+        if (source == nullptr) {
+            logln("bad --source %s", opt_.source.c_str());
+            return false;
+        }
+        sources.push_back(source);
+        panel_names_ = {source->gdi_name};
     }
-    if (source == nullptr) {
-        logln("bad --source %s", opt_.source.c_str());
+    if (sources.empty()) {
+        logln("no display to show");
         return false;
     }
 
-    // Render and present on the GPU that owns the captured output (the capture's own device
-    // must be there, and frames are shared between the two). A glasses output on another GPU
+    // Render and present on the GPU that owns the captured outputs (each capture's own device
+    // must be there, and frames are shared with this one). A glasses output on another GPU
     // costs a copy.
+    const win::OutputInfo* first = sources.front();
+    DXGI_ADAPTER_DESC1 first_desc{};
+    first->adapter->GetDesc1(&first_desc);
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1,
                                         D3D_FEATURE_LEVEL_10_0};
     D3D_FEATURE_LEVEL level{};
-    HRESULT hr = D3D11CreateDevice(source->adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr,
+    HRESULT hr = D3D11CreateDevice(first->adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr,
                                    D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, 4, D3D11_SDK_VERSION, &device_, &level,
                                    &ctx_);
     if (FAILED(hr)) {
         logln("D3D11CreateDevice failed (0x%08lx)", static_cast<unsigned long>(hr));
         return false;
     }
-    logln("gpu: %s (feature level %x)", win::narrow(source->adapter_name).c_str(), static_cast<unsigned>(level));
+    logln("gpu: %s (feature level %x)", win::narrow(first->adapter_name).c_str(), static_cast<unsigned>(level));
 
     // Pose first: the IMU needs ~6 s of rest, let it start while the rest comes up.
     if (opt_.sim) {
@@ -490,6 +586,17 @@ bool Server::start() {
         imu_ = true;
     }
 
+    // Windows left on the glasses surface would be invisible (it shows the render): bring
+    // them to panel 1, and the cursor with them.
+    if (virtual_ && glasses != nullptr) {
+        const RECT target = sources.front()->desktop;
+        if (opt_.gather_windows) {
+            logln("windows: moved %d window(s) from the glasses display to panel 1",
+                  win::gather_windows(glasses->desktop, target, nullptr));
+        }
+        SetCursorPos((target.left + target.right) / 2, (target.top + target.bottom) / 2);
+    }
+
     RECT rect{80, 80, 80 + 1280, 80 + 720};
     if (!opt_.windowed) rect = glasses->desktop;
     if (!create_window(rect) || !create_swap_chain()) return false;
@@ -499,11 +606,12 @@ bool Server::start() {
         logln("renderer: %s", error.c_str());
         return false;
     }
+    const int panels = static_cast<int>(sources.size());
     auto& ro = renderer_.options;
     ro.side_by_side = opt_.side_by_side.value_or(!opt_.windowed);
     ro.ipd_m = opt_.ipd_mm / 1000.0f;
     ro.distance_m = opt_.distance_m;
-    ro.arc_deg = opt_.arc_deg;
+    ro.arc_deg = opt_.panel_arc_deg();
     ro.gap_deg = opt_.gap_deg;
     ro.curvature = opt_.curvature;
     ro.fov_y_deg = opt_.fov_y_deg;
@@ -512,17 +620,44 @@ bool Server::start() {
     }
     ro.k1 = opt_.k1;
     ro.k2 = opt_.k2;
-    renderer_.set_panel_count(1);
-    renderer_.set_source(0, &capture_);
-    logln("render: %s, %s panel of %.1f deg at %.1f m, ipd %.0f mm, fov %.1f deg, k1 %.3f k2 %.3f",
-        ro.side_by_side ? "half-SBS" : "mono", ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.distance_m,
-        opt_.ipd_mm, ro.fov_y_deg, ro.k1, ro.k2);
-
-    if (!capture_.start(source->adapter.Get(), source->output.Get(), device_.Get(), &error)) {
-        logln("capture: %s", error.c_str());
-        return false;
+    ro.dim_others = opt_.dim_others;
+    renderer_.set_panel_count(panels);
+    if (static_cast<int>(opt_.layout.size()) == panels) renderer_.set_grid(opt_.layout);
+    if (opt_.fit && !opt_.arc_deg) {
+        int columns = panels;
+        if (!opt_.layout.empty()) {
+            std::vector<int> cols;
+            for (const auto& c : opt_.layout) {
+                if (std::find(cols.begin(), cols.end(), c.col) == cols.end()) cols.push_back(c.col);
+            }
+            columns = static_cast<int>(cols.size());
+        }
+        ro.arc_deg = renderer_.fit_arc_deg(columns);
     }
-    logln("capture: panel 1 <- %s %dx%d", win::narrow(source->gdi_name).c_str(), source->width(), source->height());
+    logln("render: %s, %d %s panel(s) of %.1f deg gap %.1f deg at %.1f m, ipd %.0f mm, fov %.1f deg, k1 %.3f k2 %.3f",
+          ro.side_by_side ? "half-SBS" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
+          ro.distance_m, opt_.ipd_mm, ro.fov_y_deg, ro.k1, ro.k2);
+
+    for (int i = 0; i < panels; ++i) {
+        const win::OutputInfo* src = sources[static_cast<size_t>(i)];
+        DXGI_ADAPTER_DESC1 desc{};
+        src->adapter->GetDesc1(&desc);
+        if (desc.AdapterLuid.LowPart != first_desc.AdapterLuid.LowPart ||
+            desc.AdapterLuid.HighPart != first_desc.AdapterLuid.HighPart) {
+            logln("capture: %s is on another GPU (%s): not supported yet", win::narrow(src->gdi_name).c_str(),
+                  win::narrow(src->adapter_name).c_str());
+            return false;
+        }
+        auto cap = std::make_unique<win::DesktopDuplication>();
+        if (!cap->start(src->adapter.Get(), src->output.Get(), device_.Get(), &error)) {
+            logln("capture: %s", error.c_str());
+            return false;
+        }
+        renderer_.set_source(i, cap.get());
+        captures_.push_back(std::move(cap));
+        logln("capture: panel %d <- %s %dx%d", i + 1, win::narrow(src->gdi_name).c_str(), src->width(), src->height());
+    }
+    refresh_rects();
 
     const UINT mods = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT;
     struct Key {
@@ -708,6 +843,10 @@ void Server::periodic() {
     if (display_changed_) handle_display_change();
     const uint64_t now = steady_ns();
     if (opt_.duration_s > 0 && static_cast<double>(now - start_ns_) * 1e-9 >= opt_.duration_s) g_quit = true;
+    if (now >= next_gaze_ns_) {
+        next_gaze_ns_ = now + 33000000ull;  // ~30 Hz
+        follow_gaze(now);
+    }
     if (now < next_stats_ns_) return;
     next_stats_ns_ += 1000000000ull;
     if (next_stats_ns_ < now) next_stats_ns_ = now + 1000000000ull;
@@ -727,7 +866,8 @@ void Server::periodic() {
     const LatencyStats s = stats_;
     stats_ = LatencyStats{};
     stats_.tracking = s.tracking;
-    const uint64_t cap = capture_.frames();
+    uint64_t cap = 0;
+    for (const auto& c : captures_) cap += c->frames();
     const uint64_t cap_fps = cap - last_capture_frames_;
     last_capture_frames_ = cap;
     if (!s.tracking && imu_ && ++calib_s_ % 3 == 1) {
@@ -736,10 +876,10 @@ void Server::periodic() {
     }
     const double n = std::max(1, s.frames);
     const double pn = std::max(1, s.presented_n);
-    logln("%s render %3d fps%s | capture %3llu fps | pose age %.1f/%.1f ms | sample->scanout %.1f/%.1f ms"
+    logln("%s render %3d fps%s | capture %3llu fps (%zu src) | pose age %.1f/%.1f ms | sample->scanout %.1f/%.1f ms"
         " (target err %+.1f) | predicted %.1f ms",
         s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? (" (" + std::to_string(s.idle) + " idle)").c_str() : "",
-        static_cast<unsigned long long>(cap_fps), s.pose_age_sum / n, s.pose_age_max, s.presented_sum / pn,
+        static_cast<unsigned long long>(cap_fps), captures_.size(), s.pose_age_sum / n, s.pose_age_max, s.presented_sum / pn,
         s.presented_max, s.target_err_sum / pn, s.pred_sum / n);
 }
 
@@ -772,7 +912,125 @@ void Server::handle_display_change() {
     }
     vblank_output_.Reset();
     swap_chain_->GetContainingOutput(&vblank_output_);
+    refresh_rects();
     redraw_ = true;
+}
+
+const win::OutputInfo* Server::find_output(const std::wstring& gdi_name) const {
+    for (const auto& o : outputs_) {
+        if (o.gdi_name == gdi_name) return &o;
+    }
+    return nullptr;
+}
+
+void Server::refresh_rects() {
+    panel_rects_.clear();
+    for (const auto& name : panel_names_) {
+        const auto* o = find_output(name);
+        panel_rects_.push_back(o != nullptr ? o->desktop : RECT{});
+    }
+    const auto* g = glasses_gdi_.empty() ? nullptr : find_output(glasses_gdi_);
+    glasses_rect_ = g != nullptr ? g->desktop : RECT{};
+}
+
+// Creates the virtual monitors and arranges them: a grid to the right of your displays,
+// the glasses surface tucked off its bottom-right corner. Undone in shutdown().
+bool Server::setup_virtual_displays() {
+    std::string error;
+    if (!arrangement_.save(outputs_, &error)) {
+        logln("virtual monitors: %s", error.c_str());
+        return false;
+    }
+    const int n = opt_.displays;
+    if (!win::VirtualDisplayDriver::set_count(n, &error)) {
+        logln("virtual monitors: %s", error.c_str());
+        return false;
+    }
+    virtual_ = true;  // from here on shutdown() restores the arrangement
+    std::vector<const win::OutputInfo*> panels;
+    for (int waited = 0; waited < 15000; waited += 250) {  // the driver reloads its adapter
+        Sleep(250);
+        outputs_ = win::enumerate_outputs();
+        panels.clear();
+        for (const auto& o : outputs_) {
+            if (win::is_virtual_panel(o)) panels.push_back(&o);
+        }
+        if (static_cast<int>(panels.size()) >= n) break;
+    }
+    if (static_cast<int>(panels.size()) < n) {
+        logln("virtual monitors: %zu of %d appeared (are they off in Settings > Display?)", panels.size(), n);
+        if (panels.empty()) return false;
+    }
+    std::sort(panels.begin(), panels.end(),
+              [](const win::OutputInfo* a, const win::OutputInfo* b) { return a->gdi_name < b->gdi_name; });
+    panels.resize(std::min<size_t>(panels.size(), static_cast<size_t>(n)));
+    panel_names_.clear();
+    for (const auto* p : panels) panel_names_.push_back(p->gdi_name);
+
+    const win::OutputInfo* glasses = glasses_gdi_.empty() ? nullptr : find_output(glasses_gdi_);
+    if (!arrangement_.arrange(panels, opt_.layout, opt_.windowed ? nullptr : glasses, outputs_, opt_.vd_width,
+                              opt_.vd_height, &error)) {
+        logln("virtual monitors: %s (is %dx%d in the driver's vdd_settings.xml?)", error.c_str(), opt_.vd_width,
+              opt_.vd_height);
+        return false;
+    }
+    Sleep(1000);  // let the arrangement settle
+    outputs_ = win::enumerate_outputs();
+    std::string line;
+    for (const auto& name : panel_names_) {
+        if (!win::set_display_scale(name, opt_.vd_scale, &error)) {
+            logln("virtual monitors: scale %d%% on %s: %s", opt_.vd_scale, win::narrow(name).c_str(), error.c_str());
+        }
+        if (const auto* o = find_output(name)) {
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "  %s@%ld,%ld %dx%d", win::narrow(name).c_str(), o->desktop.left,
+                          o->desktop.top, o->width(), o->height());
+            line += buf;
+        }
+    }
+    logln("virtual monitors:%s, scale %d%% (removed on exit)", line.c_str(), opt_.vd_scale);
+    return true;
+}
+
+// The cursor follows the panel you look at, keeping its relative position, once the mouse
+// has rested for a moment (the mouse wins). On the glasses surface it would be a second,
+// head-locked cursor: send it to the panel in view.
+void Server::follow_gaze(uint64_t now) {
+    if (!virtual_ || opt_.windowed || panel_rects_.empty()) return;
+    POINT cur{};
+    if (!GetCursorPos(&cur)) return;
+    if (cur.x != last_cursor_.x || cur.y != last_cursor_.y) {
+        last_cursor_ = cur;
+        last_cursor_move_ns_ = now;
+    }
+    const auto p = pose_->latest();
+    const int gaze = p && p->tracking ? renderer_.panel_at_gaze(p->orientation) : -1;
+    auto warp = [&](const RECT& to, float rx, float ry) {
+        const POINT target{to.left + static_cast<LONG>(rx * static_cast<float>(to.right - to.left)),
+                           to.top + static_cast<LONG>(ry * static_cast<float>(to.bottom - to.top))};
+        SetCursorPos(target.x, target.y);
+        last_cursor_ = target;
+    };
+    if (PtInRect(&glasses_rect_, cur)) {
+        const int i = gaze >= 0 && gaze < static_cast<int>(panel_rects_.size()) ? gaze : 0;
+        warp(panel_rects_[static_cast<size_t>(i)], 0.5f, 0.5f);
+        return;
+    }
+    if (!opt_.gaze_cursor || panel_rects_.size() < 2 || !p || !p->tracking) return;
+    if (gaze == last_gaze_panel_) return;
+    if (now - last_cursor_move_ns_ < 1500000000ull) return;  // re-evaluated once the mouse rests
+    last_gaze_panel_ = gaze;
+    if (gaze < 0 || gaze >= static_cast<int>(panel_rects_.size())) return;
+    const RECT& to = panel_rects_[static_cast<size_t>(gaze)];
+    if (PtInRect(&to, cur)) return;
+    float rx = 0.5f, ry = 0.5f;
+    for (const RECT& from : panel_rects_) {
+        if (PtInRect(&from, cur)) {
+            rx = static_cast<float>(cur.x - from.left) / static_cast<float>(std::max(1L, from.right - from.left));
+            ry = static_cast<float>(cur.y - from.top) / static_cast<float>(std::max(1L, from.bottom - from.top));
+        }
+    }
+    warp(to, rx, ry);
 }
 
 void Server::adjust_fov(float delta) {
@@ -788,6 +1046,7 @@ void Server::on_hotkey(int id) {
     switch (id) {
     case kRecenter:
         pose_->recenter();
+        last_gaze_panel_ = -2;  // re-evaluate: the cursor follows to the panel in front
         logln("recenter");
         break;
     case kQuit:
@@ -832,7 +1091,8 @@ void Server::run() {
 void Server::shutdown() {
     if (shut_) return;
     shut_ = true;
-    capture_.stop();
+    for (auto& c : captures_) c->stop();
+    captures_.clear();
     pose_.reset();  // stream-off
     if (g_hwnd != nullptr) {
         DestroyWindow(g_hwnd);
@@ -842,6 +1102,29 @@ void Server::shutdown() {
         win::restore_mode(glasses_gdi_);
         logln("glasses mode: restored");
     }
+    if (virtual_) {
+        std::string error;
+        if (arrangement_.restore(win::enumerate_outputs(), &error)) {
+            logln("displays: restored, virtual monitors off");
+        } else {
+            logln("displays: %s (run nimbo_win --restore)", error.c_str());
+        }
+        win::VirtualDisplayDriver::set_count(1, nullptr);  // the driver keeps one, detached
+    }
+}
+
+// Undoes the display changes of a run that did not exit cleanly (crash, power loss).
+bool restore_from_backup() {
+    win::DisplayArrangement a;
+    if (!a.load_backup()) return false;
+    std::string error;
+    if (!a.restore(win::enumerate_outputs(), &error)) {
+        logln("displays: %s", error.c_str());
+        return false;
+    }
+    win::VirtualDisplayDriver::set_count(1, nullptr);
+    logln("displays: restored from the backup of a previous run");
+    return true;
 }
 
 }  // namespace
@@ -870,6 +1153,16 @@ int main(int argc, char** argv) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     timeBeginPeriod(1);
     SetConsoleCtrlHandler(console_handler, TRUE);
+
+    if (options->restore_only) {
+        if (!restore_from_backup()) std::printf("nothing to restore\n");
+        timeEndPeriod(1);
+        return 0;
+    }
+    if (win::DisplayArrangement::backup_exists()) {
+        logln("previous run did not exit cleanly");
+        restore_from_backup();
+    }
 
     int code = 0;
     {

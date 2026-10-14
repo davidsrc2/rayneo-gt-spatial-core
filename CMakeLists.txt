@@ -268,11 +268,13 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
   add_library(rayneo_windows STATIC
     ${RAYNEO_WIN_DIR}/displays.cpp
     ${RAYNEO_WIN_DIR}/desktop_duplication.cpp
+    ${RAYNEO_WIN_DIR}/virtual_displays.cpp
+    ${RAYNEO_WIN_DIR}/window_gatherer.cpp
     ${RAYNEO_WIN_DIR}/renderer/spatial_renderer.cpp)
   target_include_directories(rayneo_windows
     PUBLIC  ${RAYNEO_WIN_DIR} ${RAYNEO_WIN_DIR}/renderer
     PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
-  target_link_libraries(rayneo_windows PUBLIC rayneo::core d3d11 dxgi d3dcompiler)
+  target_link_libraries(rayneo_windows PUBLIC rayneo::core d3d11 dxgi d3dcompiler dwmapi shell32 ole32)
   rayneo_warnings(rayneo_windows)
 
   add_executable(nimbo_win apps/nimbo_win/main.cpp)
