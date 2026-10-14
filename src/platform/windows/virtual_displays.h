@@ -1,13 +1,17 @@
 #pragma once
 
-// Virtual monitors on Windows through the Virtual Display Driver (github.com/VirtualDrivers/
-// Virtual-Display-Driver: MIT, IddCx, signed), the counterpart of CGVirtualDisplay on macOS.
-// The driver is controlled through its named pipe; its monitors announce themselves as
-// "VDD by MTT". Display arrangement uses ChangeDisplaySettingsEx batches, and the layout
-// before Nimbo is backed up to a file so a crash can be undone with `nimbo_win --restore`.
+// Virtual monitors on Windows, the counterpart of CGVirtualDisplay on macOS, through an IddCx
+// driver controlled over its named pipe:
+//   - Virtual Display Driver (github.com/VirtualDrivers/Virtual-Display-Driver: MIT, signed):
+//     monitors "VDD by MTT", count only, resolutions from its vdd_settings.xml.
+//   - virtual-display-rs (github.com/MolotovCherry/virtual-display-rs: MIT): monitors
+//     "VirtuDisplay+", any resolution; Nimbo adds its own and leaves the user's alone.
+// Display arrangement uses ChangeDisplaySettingsEx batches, and the layout before Nimbo is
+// backed up to a file so a crash can be undone with `nimbo_win --restore`.
 
 #include <windows.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -16,8 +20,24 @@
 
 namespace rayneo::win {
 
-// Monitor of the Virtual Display Driver (EDID name "VDD by MTT").
+// Monitor of a virtual display driver (EDID name "VDD by MTT" or "VirtuDisplay+").
 bool is_virtual_panel(const OutputInfo& o);
+
+// A driver that creates virtual monitors.
+class VirtualDisplayBackend {
+public:
+    virtual ~VirtualDisplayBackend() = default;
+    virtual const char* name() const = 0;
+    // Nimbo's monitors: `count` of them at width x height (VDD: its configured modes only).
+    virtual bool set_monitors(int count, int width, int height, std::string* error) = 0;
+    // Removes Nimbo's monitors (VDD keeps one, which DisplayArrangement::restore detaches).
+    virtual void remove_monitors() = 0;
+};
+
+// The first driver that answers: Virtual Display Driver, then virtual-display-rs. nullptr if none.
+std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend();
+// A driver is installed, answering or not (for the message when none answers).
+bool virtual_display_driver_installed();
 
 class VirtualDisplayDriver {
 public:

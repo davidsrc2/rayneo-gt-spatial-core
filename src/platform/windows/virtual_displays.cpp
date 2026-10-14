@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <sstream>
 
 #include "rayneo/core/presets.h"
@@ -110,9 +111,159 @@ constexpr int kScaleSteps[] = {100, 125, 150, 175, 200, 225, 250, 300, 350, 400,
 }  // namespace
 
 bool is_virtual_panel(const OutputInfo& o) {
-    return std::any_of(o.monitors.begin(), o.monitors.end(),
-                       [](const std::wstring& m) { return m.rfind(L"VDD by MTT", 0) == 0; });
+    return std::any_of(o.monitors.begin(), o.monitors.end(), [](const std::wstring& m) {
+        return m.rfind(L"VDD by MTT", 0) == 0 || m.rfind(L"VirtuDisplay", 0) == 0;
+    });
 }
+
+namespace {
+
+// --- Virtual Display Driver ---------------------------------------------------------------
+
+class VddBackend final : public VirtualDisplayBackend {
+public:
+    const char* name() const override { return "Virtual Display Driver"; }
+    bool set_monitors(int count, int, int, std::string* error) override {
+        return VirtualDisplayDriver::set_count(count, error);
+    }
+    void remove_monitors() override { VirtualDisplayDriver::set_count(1, nullptr); }
+};
+
+// --- virtual-display-rs ---------------------------------------------------------------------
+// JSON messages ended by EOT (0x04): {"Notify":[monitor...]} sets the whole monitor list,
+// "State" is answered with {"State":[monitor...]}; monitor = {"id","name","enabled","modes":
+// [{"width","height","refresh_rates":[...]}]}.
+
+constexpr const wchar_t* kVdrsPipe = L"\\\\.\\pipe\\virtualdisplaydriver";
+constexpr unsigned kFirstNimboId = 41000;  // Nimbo's monitors: 41000 + i; anything else is the user's
+constexpr char kEot = '\x04';
+
+HANDLE open_vdrs() {
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        HANDLE h = CreateFileW(kVdrsPipe, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (h != INVALID_HANDLE_VALUE) return h;
+        if (GetLastError() != ERROR_PIPE_BUSY || !WaitNamedPipeW(kVdrsPipe, 1000)) break;
+    }
+    return INVALID_HANDLE_VALUE;
+}
+
+bool vdrs_send(HANDLE h, const std::string& json) {
+    const std::string msg = json + kEot;
+    DWORD written = 0;
+    return WriteFile(h, msg.data(), static_cast<DWORD>(msg.size()), &written, nullptr) && written == msg.size();
+}
+
+// The driver's reply to "State", or empty after 2 s.
+std::string vdrs_state(HANDLE h) {
+    if (!vdrs_send(h, "\"State\"")) return {};
+    std::string reply;
+    for (int waited = 0; waited < 2000; waited += 10) {
+        DWORD avail = 0;
+        if (!PeekNamedPipe(h, nullptr, 0, nullptr, &avail, nullptr)) return {};
+        if (avail == 0) {
+            Sleep(10);
+            continue;
+        }
+        std::string chunk(avail, '\0');
+        DWORD got = 0;
+        if (!ReadFile(h, chunk.data(), avail, &got, nullptr)) return {};
+        reply.append(chunk.data(), got);
+        const size_t end = reply.find(kEot);
+        if (end != std::string::npos) return reply.substr(0, end);
+    }
+    return {};
+}
+
+// Top-level objects of the first JSON array in `json`, as raw text.
+std::vector<std::string> array_objects(const std::string& json) {
+    std::vector<std::string> out;
+    const size_t open = json.find('[');
+    if (open == std::string::npos) return out;
+    int depth = 0;
+    bool in_string = false;
+    size_t start = 0;
+    for (size_t i = open; i < json.size(); ++i) {
+        const char c = json[i];
+        if (in_string) {
+            if (c == '\\') ++i;
+            else if (c == '"') in_string = false;
+            continue;
+        }
+        if (c == '"') in_string = true;
+        else if (c == '[' || c == '{') {
+            if (++depth == 2 && c == '{') start = i;
+        } else if (c == ']' || c == '}') {
+            if (depth == 2 && c == '}') out.push_back(json.substr(start, i - start + 1));
+            if (--depth == 0) break;
+        }
+    }
+    return out;
+}
+
+long object_id(const std::string& obj) {
+    const size_t k = obj.find("\"id\"");
+    if (k == std::string::npos) return -1;
+    const size_t colon = obj.find(':', k);
+    return colon == std::string::npos ? -1 : std::strtol(obj.c_str() + colon + 1, nullptr, 10);
+}
+
+class VdrsBackend final : public VirtualDisplayBackend {
+public:
+    const char* name() const override { return "virtual-display-rs"; }
+
+    bool set_monitors(int count, int width, int height, std::string* error) override {
+        std::string ours;
+        for (int i = 0; i < count; ++i) {
+            char buf[200];
+            std::snprintf(buf, sizeof(buf),
+                          "%s{\"id\":%u,\"name\":\"Nimbo %d\",\"enabled\":true,\"modes\":[{\"width\":%d,"
+                          "\"height\":%d,\"refresh_rates\":[60]}]}",
+                          i > 0 ? "," : "", kFirstNimboId + static_cast<unsigned>(i), i + 1, width, height);
+            ours += buf;
+        }
+        return notify(ours, error);
+    }
+
+    void remove_monitors() override { notify("", nullptr); }
+
+private:
+    // Replaces Nimbo's monitors with `ours` (JSON objects, comma separated), keeping the user's.
+    static bool notify(const std::string& ours, std::string* error) {
+        HANDLE h = open_vdrs();
+        if (h == INVALID_HANDLE_VALUE) {
+            if (error != nullptr) *error = "virtual-display-rs is not running";
+            return false;
+        }
+        std::string list;
+        for (const auto& obj : array_objects(vdrs_state(h))) {
+            const long id = object_id(obj);
+            if (id >= static_cast<long>(kFirstNimboId) && id < static_cast<long>(kFirstNimboId) + 16) continue;
+            list += (list.empty() ? "" : ",") + obj;
+        }
+        if (!ours.empty()) list += (list.empty() ? "" : ",") + ours;
+        const bool ok = vdrs_send(h, "{\"Notify\":[" + list + "]}");
+        CloseHandle(h);
+        if (!ok && error != nullptr) *error = code_text("virtual-display-rs pipe write failed", static_cast<long>(GetLastError()));
+        return ok;
+    }
+};
+
+bool vdrs_available() {
+    HANDLE h = open_vdrs();
+    if (h == INVALID_HANDLE_VALUE) return false;
+    CloseHandle(h);
+    return true;
+}
+
+}  // namespace
+
+std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend() {
+    if (VirtualDisplayDriver::available()) return std::make_unique<VddBackend>();
+    if (vdrs_available()) return std::make_unique<VdrsBackend>();
+    return nullptr;
+}
+
+bool virtual_display_driver_installed() { return VirtualDisplayDriver::installed(); }
 
 bool VirtualDisplayDriver::available() {
     HANDLE h = open_pipe();
@@ -206,6 +357,9 @@ bool DisplayArrangement::arrange(const std::vector<const OutputInfo*>& panels, c
     const OutputInfo* anchor = nullptr;
     for (const auto& o : outputs) {
         if (is_virtual_panel(o) || (glasses != nullptr && o.gdi_name == glasses->gdi_name)) continue;
+        if (std::any_of(panels.begin(), panels.end(), [&](const OutputInfo* p) { return p->gdi_name == o.gdi_name; })) {
+            continue;
+        }
         if (anchor == nullptr || o.desktop.right > anchor->desktop.right) anchor = &o;
     }
     // Glasses as the only physical display: it stays the primary at the origin.
