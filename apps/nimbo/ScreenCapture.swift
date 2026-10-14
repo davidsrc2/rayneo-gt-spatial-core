@@ -48,6 +48,14 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         let scale = max(CGFloat(filter.pointPixelScale), minScale)
         cfg.width = Int(filter.contentRect.width * scale)
         cfg.height = Int(filter.contentRect.height * scale)
+        // The display's real backing size when it is larger (a HiDPI mode settled after the
+        // shareable content was read), and scale to fit instead of cropping: a frame smaller
+        // than the display would otherwise show only its top-left part.
+        if let mode = CGDisplayCopyDisplayMode(displayID), mode.pixelWidth > cfg.width {
+            cfg.width = mode.pixelWidth
+            cfg.height = mode.pixelHeight
+        }
+        cfg.scalesToFit = true
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
         cfg.queueDepth = 4
