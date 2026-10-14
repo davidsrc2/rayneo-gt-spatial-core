@@ -89,8 +89,8 @@ struct MainView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("RayNeo").font(.system(size: 28, weight: .light)).foregroundStyle(Theme.text)
-                Text("Monitores virtuales fijos a tu alrededor").font(Theme.label).foregroundStyle(Theme.secondary)
+                Text("Nimbo").font(.system(size: 28, weight: .light)).foregroundStyle(Theme.text)
+                Text("Monitores virtuales a tu alrededor, para tus RayNeo GT").font(Theme.label).foregroundStyle(Theme.secondary)
             }
             Spacer()
             Button { showSettings.value = true } label: { Label("Ajustes", systemImage: "slider.horizontal.3") }

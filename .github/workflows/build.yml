@@ -72,7 +72,7 @@ jobs:
             echo "core references Apple framework symbols"; exit 1
           fi
           file build/imu_probe | grep arm64
-          test -d build/mac_spatial_server.app || echo "mac_spatial_server.app not built on this branch"
+          test -d build/Nimbo.app || echo "Nimbo.app not built on this branch"
 
       - name: Core-only build (no hidapi)
         run: |

@@ -7,13 +7,13 @@ enum Displays {
     }
 
     // The RayNeo GT enumerates as "SmartGlasses" (vendor 0x506c on the reference unit).
-    // Our own virtual monitors ("RayNeo Panel N", vendor 'RN') are never the glasses.
+    // Our own virtual monitors ("Nimbo N", vendor 'RN') are never the glasses.
     static func glassesScreen() -> NSScreen? {
         NSScreen.screens.first { s in
             let id = id(of: s)
             if CGDisplayVendorNumber(id) == 0x524E { return false }
             let name = s.localizedName.lowercased()
-            if name.hasPrefix("rayneo panel") { return false }
+            if name.hasPrefix("nimbo") || name.hasPrefix("rayneo panel") { return false }
             return name.contains("smartglasses") || name.contains("rayneo") || CGDisplayVendorNumber(id) == 0x506c
         }
     }

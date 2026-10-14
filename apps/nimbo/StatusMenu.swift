@@ -8,7 +8,7 @@ final class StatusMenu: NSObject {
     init(onRecenter: @escaping () -> Void) {
         self.onRecenter = onRecenter
         super.init()
-        item.button?.title = "◎ RayNeo"
+        item.button?.title = "◎ Nimbo"
         let menu = NSMenu()
         let recenter = NSMenuItem(title: "Recentrar (⌘⌥C)", action: #selector(recenterAction), keyEquivalent: "")
         recenter.target = self

@@ -11,23 +11,23 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="RayNeo Spatial"
+APP_NAME="Nimbo"
 VERSION=$(sed -nE 's/^project\(rayneo_gt_spatial_core VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
-DMG="dist/RayNeoSpatial-${VERSION}.dmg"
+DMG="dist/Nimbo-${VERSION}.dmg"
 
 cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
-cmake --build build-release --target mac_spatial_server
+cmake --build build-release --target nimbo
 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
-cp -R build-release/mac_spatial_server.app "$STAGE/$APP_NAME.app"
+cp -R build-release/Nimbo.app "$STAGE/$APP_NAME.app"
 find "$STAGE/$APP_NAME.app/Contents/MacOS" -name "*.dSYM" -prune -exec rm -rf {} +
 
 if [[ -n "${DEVELOPER_ID:-}" ]]; then
     codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" \
-             --identifier es.gestorae.rayneo.spatialserver "$STAGE/$APP_NAME.app"
+             --identifier es.gestorae.nimbo "$STAGE/$APP_NAME.app"
 else
-    codesign --force --sign - --identifier es.gestorae.rayneo.spatialserver "$STAGE/$APP_NAME.app"
+    codesign --force --sign - --identifier es.gestorae.nimbo "$STAGE/$APP_NAME.app"
 fi
 codesign --verify --strict "$STAGE/$APP_NAME.app"
 

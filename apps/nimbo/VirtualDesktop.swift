@@ -13,7 +13,7 @@ final class VirtualDesktop {
         // 1920x1080 cannot override a 1280x720 HiDPI request.
         let geometry = UInt32(truncatingIfNeeded: (width / 16) << 16 | (height / 16) << 4) | (hiDPI ? 1 : 0) << 3
         for i in 0..<count {
-            let d = try RNVirtualDisplay(name: "RayNeo Panel \(i + 1)", width: UInt(width), height: UInt(height),
+            let d = try RNVirtualDisplay(name: "Nimbo \(i + 1)", width: UInt(width), height: UInt(height),
                                          refreshRate: refresh, hiDPI: hiDPI, serial: geometry | UInt32(i & 7))
             displays.append(d)
         }

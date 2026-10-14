@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key>
-  <string>es.gestorae.rayneo.spatialserver</string>
+  <string>es.gestorae.nimbo</string>
   <key>CFBundleName</key>
-  <string>RayNeo Spatial</string>
+  <string>Nimbo</string>
   <key>CFBundleDisplayName</key>
-  <string>RayNeo Spatial</string>
+  <string>Nimbo</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>LSApplicationCategoryType</key>
@@ -15,7 +15,7 @@
   <key>NSHumanReadableCopyright</key>
   <string>© 2026 gestorae.es</string>
   <key>CFBundleExecutable</key>
-  <string>mac_spatial_server</string>
+  <string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

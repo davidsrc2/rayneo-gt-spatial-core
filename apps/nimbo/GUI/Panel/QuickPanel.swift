@@ -44,7 +44,7 @@ struct QuickPanel: View {
     private var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("RayNeo GT").font(.system(size: 17, weight: .semibold))
+                Text("Nimbo").font(.system(size: 17, weight: .semibold))
                 StatusLight(server: server)
             }
             Spacer()

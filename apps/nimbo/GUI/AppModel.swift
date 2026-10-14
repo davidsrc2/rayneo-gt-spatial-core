@@ -46,6 +46,7 @@ final class AppModel: ObservableObject {
     @Published var onboardingDone: Bool { didSet { d.set(onboardingDone, forKey: "onboardingDone") } }
 
     init() {
+        Self.migrateLegacyDefaults()
         cells = Self.load([GridPos].self, "layoutCells", from: UserDefaults.standard)
             ?? [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0)]
         textSize = d.object(forKey: "textSize") as? Int ?? 3
@@ -69,10 +70,29 @@ final class AppModel: ObservableObject {
     // MARK: calibration file
 
     static var supportDirectory: URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("RayNeo", isDirectory: true)
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("Nimbo", isDirectory: true)
+        // Before the rename the app kept its files in "RayNeo".
+        let legacy = base.appendingPathComponent("RayNeo", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path), FileManager.default.fileExists(atPath: legacy.path) {
+            try? FileManager.default.copyItem(at: legacy, to: dir)
+        }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    // Settings saved under the previous bundle identifier carry over once.
+    static func migrateLegacyDefaults() {
+        let d = UserDefaults.standard
+        guard !d.bool(forKey: "migratedFromRayNeoSpatial"),
+              let old = UserDefaults(suiteName: "es.gestorae.rayneo.spatialserver")?.dictionaryRepresentation()
+        else { return }
+        let keys = ["layoutCells", "textSize", "distance", "gap", "curved", "curvature", "size", "autoStart", "fovY",
+                    "ipd", "stereo", "deadZone", "gazeCursor", "gatherWindows", "k1", "k2", "onboardingDone"]
+        for k in keys where d.object(forKey: k) == nil {
+            if let v = old[k] { d.set(v, forKey: k) }
+        }
+        d.set(true, forKey: "migratedFromRayNeoSpatial")
     }
 
     static var calibrationURL: URL { supportDirectory.appendingPathComponent("calibration.json") }

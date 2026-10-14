@@ -1,4 +1,4 @@
-# rayneo-gt-spatial-core
+# Nimbo · rayneo-gt-spatial-core
 
 Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para un gestor de ventanas espaciales en macOS (Apple Silicon); el núcleo es portable a Windows.
 
@@ -50,11 +50,11 @@ Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para
 Instalar como cualquier app de Mac:
 
 ```sh
-cd ~/rayneo-gt-spatial-core && git pull && scripts/make_dmg.sh   # -> dist/RayNeoSpatial-<versión>.dmg
-open dist/RayNeoSpatial-*.dmg                                     # arrastrar «RayNeo Spatial» a Aplicaciones
+cd ~/rayneo-gt-spatial-core && git pull && scripts/make_dmg.sh   # -> dist/Nimbo-<versión>.dmg
+open dist/Nimbo-*.dmg                                     # arrastrar «Nimbo» a Aplicaciones
 ```
 
-Después se abre desde Launchpad / Spotlight («RayNeo Spatial»). Para desarrollo también vale `open build/mac_spatial_server.app`.
+Después se abre desde Launchpad / Spotlight («Nimbo»). Para desarrollo también vale `open build/Nimbo.app`.
 
 - Sin argumentos se abre como **app de barra de menús**: clic en **◎** abre el panel compacto (cristal nativo, oscuro). Clic derecho: menú rápido.
   - Arriba, el estado tipo semáforo (verde «Sensores estabilizados», ámbar «Calibrando (deja las gafas en la mesa 5 s)», gris apagado) y el interruptor de encendido.
@@ -102,13 +102,13 @@ Orden sugerido: 1 → 6 → 4 → 5; 2 y 3 con la cuenta de desarrollador.
 - Icono propio (no el logo de RayNeo/TCL): tres pantallas en arco sobre unas gafas, paleta de la app. Generado por código: `swift scripts/make_icons.swift assets/icon && iconutil -c icns assets/icon/AppIcon.iconset -o assets/icon/AppIcon.icns`. Incluye el icono de barra de menús (*template*, se adapta a claro/oscuro).
 - DMG para instalar arrastrando a Aplicaciones:
   ```sh
-  scripts/make_dmg.sh                       # -> dist/RayNeoSpatial-<versión>.dmg (firma ad-hoc)
+  scripts/make_dmg.sh                       # -> dist/Nimbo-<versión>.dmg (firma ad-hoc)
   DEVELOPER_ID="Developer ID Application: … (TEAMID)" NOTARY_PROFILE=rayneo scripts/make_dmg.sh
   ```
   - Sin Developer ID, en otros Macs Gatekeeper pide confirmar la primera vez (clic derecho > Abrir).
   - Con Developer ID (Apple Developer Program, 99 €/año) y `xcrun notarytool store-credentials rayneo`, la app se firma con *hardened runtime*, se notariza y se graba el ticket: abre sin avisos en cualquier Mac.
   - La versión sale de `project(... VERSION x.y.z)` en `CMakeLists.txt`.
-- Nombre: «RayNeo Spatial». Antes de publicarlo conviene un nombre propio (RayNeo es marca de TCL) y usar «para RayNeo GT» como descripción.
+- Nombre: **Nimbo** (propio; «RayNeo GT» solo se usa para nombrar las gafas compatibles). Identificador `es.gestorae.nimbo`. Al primer arranque se migran los ajustes y la calibración de la versión anterior («RayNeo Spatial»).
 
 ## Interfaz gráfica: requisitos (fase 5)
 
@@ -150,7 +150,7 @@ Hoy todo se controla con flags en Terminal. La fase 5 sustituye eso por una app 
 - Al desconectar las gafas, parar y restaurar las pantallas, con un aviso discreto.
 
 **Técnica (para quien implemente)**
-- SwiftUI sobre el servidor actual (`apps/mac_spatial_server`): las opciones de `Options.swift` son el modelo, y la UI las edita y relanza el servidor (o las aplica en caliente cuando sea posible: FOV, distancia, separación, plano/curvo).
+- SwiftUI sobre el servidor actual (`apps/nimbo`): las opciones de `Options.swift` son el modelo, y la UI las edita y relanza el servidor (o las aplica en caliente cuando sea posible: FOV, distancia, separación, plano/curvo).
 - La disposición vertical requiere ampliar `core::panel_centers` a una cuadrícula (yaw + pitch), mallas inclinadas en pitch y `VirtualDesktop` colocando los monitores en filas y columnas, para que el ratón pase entre ellos como en la realidad.
 
 ## Capas
@@ -167,7 +167,7 @@ src/platform/macos/
   renderer/               RNSpatialRenderer (Metal) + Shaders.metal (compilado en runtime).
   virtual_display/        RNVirtualDisplay (monitores virtuales, API privada).
 apps/imu_probe/           CLI: lista, volcado raw, calibración guiada, pose a 10 Hz.
-apps/mac_spatial_server/  App Swift: captura, render espacial, hotkeys, cabeza simulada.
+apps/nimbo/               App Swift (Nimbo): captura, render espacial, hotkeys, cabeza simulada.
 config/                   calibration.example.json
 tests/                    Tests del núcleo (sin hardware).
 ```
@@ -198,7 +198,7 @@ ctest --test-dir build
 
 Solo núcleo (cualquier host, sin hidapi): `cmake -S . -B build -DRAYNEO_BUILD_HAL=OFF`.
 
-## Escritorio espacial macOS (`mac_spatial_server.app`)
+## Escritorio espacial macOS (`Nimbo.app`)
 
 Crea N monitores virtuales en macOS (por defecto 3), los captura con ScreenCaptureKit y los dibuja como monitores planos fijos en el espacio, orientados hacia ti y contiguos como en una mesa con varios monitores (`--curved` para paneles curvos). Mueves la cabeza para mirar de uno a otro; el ratón y las ventanas pasan entre ellos como entre monitores físicos.
 
@@ -219,7 +219,7 @@ Atajos globales: `Cmd+Opt+C` recentrar · `Cmd+Opt+Q` salir · `Cmd+Opt+flechas`
 ### Prueba sin gafas
 
 ```sh
-./build/mac_spatial_server.app/Contents/MacOS/mac_spatial_server --windowed --sim --test-pattern
+./build/Nimbo.app/Contents/MacOS/Nimbo --windowed --sim --test-pattern
 ```
 
 Ventana de vista previa en la pantalla del Mac con los 3 paneles (patrón de color con etiqueta y reloj). `Cmd+Opt+flechas` para girar la "cabeza", `--sim-sweep 50` para un barrido automático.
@@ -254,7 +254,7 @@ Ventana de vista previa en la pantalla del Mac con los 3 paneles (patrón de col
 
 4. Lanzar el escritorio espacial (desde la carpeta del repo, para que cargue `calibration.json`)
    ```sh
-   ./build/mac_spatial_server.app/Contents/MacOS/mac_spatial_server --test-pattern
+   ./build/Nimbo.app/Contents/MacOS/Nimbo --test-pattern
    ```
    - Gafas en la mesa hasta que el log diga `TRACK` (~6 s), ponérselas.
    - Mirar al frente y pulsar `Cmd+Opt+C` (recentrar): el panel 2 (verde) queda delante, el 1 (azul) a la izquierda y el 3 (marrón) a la derecha.

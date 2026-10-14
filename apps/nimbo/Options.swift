@@ -45,7 +45,7 @@ struct ServerOptions {
     var panelArcDeg: Float { arcDeg ?? (displays > 0 ? 38 : 50) }  // 38: a whole panel fits the ~42° horizontal FOV
 
     static let usage = """
-    usage: mac_spatial_server [options]
+    usage: Nimbo [options]
     layout
       --displays N         virtual monitors in a row around you (2); 0 = capture an existing display
       --layout C,R;C,R...  grid cell per monitor (row 0 = top), e.g. "0,0;0,1" = two stacked
@@ -79,7 +79,7 @@ struct ServerOptions {
       --unmirror           extend instead of mirror while running (reverted on exit)
       --60hz               keep the glasses' current refresh rate (default: 120 Hz)
       --duration S         exit after S seconds
-    menu bar: "◎ RayNeo" -> Recentrar / Salir
+    menu bar: "◎ Nimbo" -> Recentrar / Salir
     hotkeys: Cmd+Opt+C recenter (and bring the cursor to the panel in front), Cmd+Opt+Q quit,
              Cmd+Opt+- / Cmd+Opt+= field of view (tune until the panels stay put when turning),
              Cmd+Opt+arrows look around (--sim)

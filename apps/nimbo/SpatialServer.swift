@@ -93,7 +93,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         } else if let glasses {
             screen = glasses
         } else {
-            throw fail("RayNeo display (SmartGlasses) not found. Without the glasses: --windowed --sim")
+            throw fail("RayNeo GT display (SmartGlasses) not found. Without the glasses: --windowed --sim")
         }
         let screenID = Displays.id(of: screen)
         if options.unmirror && !options.windowed {
@@ -184,7 +184,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let rect = options.windowed ? NSRect(x: 80, y: 80, width: 1280, height: 720) : screen.frame
         window = NSWindow(contentRect: rect, styleMask: options.windowed ? [.titled, .miniaturizable] : [.borderless],
                           backing: .buffered, defer: false, screen: screen)
-        window.title = "RayNeo spatial server (preview)"
+        window.title = "Nimbo (vista previa)"
         window.backgroundColor = .black
         window.isOpaque = true
         window.isReleasedWhenClosed = false

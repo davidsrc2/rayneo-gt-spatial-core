@@ -1,4 +1,4 @@
-// mac_spatial_server: captures the desktop with ScreenCaptureKit and renders it on a
+// Nimbo: captures the desktop with ScreenCaptureKit and renders it on a
 // curved virtual screen anchored in space, half-SBS on the RayNeo GT display.
 
 import AppKit
@@ -17,10 +17,10 @@ guard #available(macOS 14.0, *) else {
 
 // One server at a time: two would fight over the display arrangement, and the first to quit
 // would revert the other's (app-scoped) configuration.
-let lockPath = NSTemporaryDirectory() + "rayneo-spatial-server.lock"
+let lockPath = NSTemporaryDirectory() + "nimbo.lock"
 let lockFD = open(lockPath, O_CREAT | O_RDWR, 0o644)
 if lockFD < 0 || flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
-    print("another mac_spatial_server is already running: quit it first (Cmd+Opt+Q)")
+    print("Nimbo is already running: quit it first (Cmd+Opt+Q or the menu bar icon)")
     exit(1)
 }
 
