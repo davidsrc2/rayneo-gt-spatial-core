@@ -50,14 +50,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let s = SpatialServer(options: options)
         server = s
-        do {
-            try s.start()
-        } catch {
-            FileHandle.standardError.write("start failed: \(error.localizedDescription)\n".data(using: .utf8)!)
-            exit(1)
-        }
-        if options.durationS > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + options.durationS) { NSApp.terminate(nil) }
+        let duration = options.durationS
+        Task { @MainActor in
+            do {
+                try await s.start()
+            } catch {
+                FileHandle.standardError.write("start failed: \(error.localizedDescription)\n".data(using: .utf8)!)
+                exit(1)
+            }
+            if duration > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + duration) { NSApp.terminate(nil) }
+            }
         }
     }
 

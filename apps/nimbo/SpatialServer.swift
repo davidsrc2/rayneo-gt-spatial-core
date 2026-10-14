@@ -82,7 +82,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         self.options = options
     }
 
-    func start() throws {
+    // Async so the app stays responsive while displays reconfigure and monitors appear: the
+    // waits below yield to the main actor instead of spinning a nested run loop. Cancelling
+    // the task aborts at the next wait; stop() then tears down whatever was built.
+    @MainActor
+    func start() async throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw fail("no Metal device") }
 
         // Output: the glasses, or a debug window on the Mac screen.
@@ -98,14 +102,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let screenID = Displays.id(of: screen)
         if options.unmirror && !options.windowed {
             log(Displays.unmirror(glasses: screenID) ? "mirroring: off (app-only)" : "mirroring: could not disable")
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.5))  // let the reconfiguration settle
+            try await settle(1.5)  // let the reconfiguration settle
         }
         log("output: \(screen.localizedName) id=\(screenID) \(Int(screen.frame.width))x\(Int(screen.frame.height))"
             + (Displays.isMirrored(screenID) ? " [mirrored]" : "") + (options.windowed ? " [window]" : ""))
         if !options.windowed {
             if let m = Displays.setNative(screenID, hz: options.refresh120 ? 120 : 60) {
                 log("glasses mode: \(m.pixelWidth)x\(m.pixelHeight) native @\(Int(m.refreshRate)) Hz (your setting is restored on exit)")
-                RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))
+                try await settle(1.0)
                 if let s = NSScreen.screens.first(where: { Displays.id(of: $0) == screenID }) { screen = s }
             } else {
                 log("glasses mode: unchanged")
@@ -133,7 +137,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let vd = try VirtualDesktop(count: options.displays, width: options.vdWidth, height: options.vdHeight,
                                         hiDPI: options.hiDPI, refresh: 60)
             desktop = vd
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+            try await settle(0.5)
             let anchor = CGMainDisplayID()
             let virtualMain = !options.includeMain && !options.windowed
             if virtualMain {
@@ -141,7 +145,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             } else {
                 vd.arrange(rightOf: anchor, cells: options.layout)
             }
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))  // NSScreen list catches up
+            try await settle(1.0)  // NSScreen list catches up
             log("virtual monitors: " + vd.ids.map { id in
                 let b = CGDisplayBounds(id)
                 return "\(id)@\(Int(b.minX)),\(Int(b.minY)) \(Int(b.width))x\(Int(b.height))"
@@ -250,9 +254,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             log(HardwareCursor.hide() ? "cursor: hardware cursor hidden (the panels show the real one)"
                                       : "cursor: could not hide the hardware cursor")
         }
-        try startCaptures(glasses: glasses)
+        try await startCaptures(glasses: glasses)
+        try Task.checkCancellation()
         startRenderLoop(layer: layer)
+        startMonitoring()
+    }
 
+    // Plain (non-isolated) context: these main-queue timers capture self like the rest of the class.
+    private func startMonitoring() {
         statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.printStats()
             self?.checkGlassesPresent()
@@ -437,7 +446,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: capture
 
-    private func startCaptures(glasses: NSScreen?) throws {
+    @MainActor
+    private func startCaptures(glasses: NSScreen?) async throws {
         // (display, panel, excludeOwnApp)
         var plan: [(CGDirectDisplayID, Int, Bool)] = []
         if desktop != nil {
@@ -456,26 +466,16 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: UInt(panel)) }
             captures.append(cap)
             let renderWindow = CGWindowID(window.windowNumber)
-            let (w, h) = try awaitOnMain {
-                try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude, excludeWindowIDs: [renderWindow],
-                                    minScale: isVirtual && hiDPI ? 2 : 1)
-            }
+            let (w, h) = try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude,
+                                             excludeWindowIDs: [renderWindow], minScale: isVirtual && hiDPI ? 2 : 1)
+            try Task.checkCancellation()
             log("capture: panel \(panel + 1) <- display \(id) \(w)x\(h) @\(fps) fps")
         }
     }
 
-    // Runs async work while keeping the main run loop alive (TCC prompt, display updates).
-    private func awaitOnMain<T>(_ work: @escaping () async throws -> T) throws -> T {
-        let sem = DispatchSemaphore(value: 0)
-        var result: Result<T, Error> = .failure(fail("timeout"))
-        Task.detached {
-            do { result = .success(try await work()) } catch { result = .failure(error) }
-            sem.signal()
-        }
-        while sem.wait(timeout: .now()) == .timedOut {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
-        }
-        return try result.get()
+    // Gives macOS time to apply a display change; throws CancellationError if start was cancelled.
+    private func settle(_ seconds: Double) async throws {
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
     }
 
     private func captureDisplay(glasses: NSScreen?) throws -> CGDirectDisplayID {

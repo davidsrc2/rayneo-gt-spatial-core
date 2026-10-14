@@ -13,6 +13,7 @@ final class ServerController: ObservableObject {
     @Published var notice: String?  // transient, shown softly under the status line
 
     private var server: SpatialServer?
+    private var pending: (server: SpatialServer, task: Task<Void, Never>)?  // while starting
     private var poll: Timer?
     private weak var model: AppModel?
     private var runningOptions: ServerOptions?
@@ -36,36 +37,43 @@ final class ServerController: ObservableObject {
     func bind(_ model: AppModel) { self.model = model }
 
     func start() {
-        guard let model, server == nil else { return }
+        guard let model, server == nil, pending == nil else { return }
         let options = model.serverOptions()
         guard options.windowed || Displays.glassesScreen() != nil else {
             say("Conecta las gafas para empezar")
             return
         }
         state = .starting
-        // Let SwiftUI draw "starting" before the (blocking) setup.
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let s = SpatialServer(options: options)
-            s.onStopRequest = { [weak self] reason in
-                self?.stop(notice: reason.contains("disconnected") || reason.contains("IMU")
-                                    ? "Las gafas se han desconectado; todo ha vuelto a la normalidad" : nil)
-            }
-            s.onFovChanged = { [weak self] fov in self?.model?.fov = Double(fov) }
+        let s = SpatialServer(options: options)
+        s.onStopRequest = { [weak self] reason in
+            self?.stop(notice: reason.contains("disconnected") || reason.contains("IMU")
+                                ? "Las gafas se han desconectado; todo ha vuelto a la normalidad" : nil)
+        }
+        s.onFovChanged = { [weak self] fov in self?.model?.fov = Double(fov) }
+        // Setup takes a few seconds (display modes, virtual monitors); the panel stays live.
+        let task = Task { @MainActor [weak self] in
             do {
-                try s.start()
+                try await s.start()
+                guard let self, self.pending?.server === s else { return s.stop() }
+                self.pending = nil
                 self.server = s
                 self.runningOptions = options
                 self.state = .calibrating
             } catch {
                 s.stop()
+                guard let self, self.pending?.server === s else { return }
+                self.pending = nil
                 self.state = .stopped
-                self.say("No se pudo empezar: \(error.localizedDescription)")
+                if !(error is CancellationError) { self.say("No se pudo empezar: \(error.localizedDescription)") }
             }
         }
+        pending = (s, task)
     }
 
     func stop(notice: String? = nil) {
+        // Still starting: cancel, and the start task tears down what it built so far.
+        pending?.task.cancel()
+        pending = nil
         server?.stop()
         server = nil
         runningOptions = nil
@@ -96,7 +104,7 @@ final class ServerController: ObservableObject {
         let was = glassesConnected
         glassesConnected = Displays.glassesScreen() != nil || server != nil
         // Plug and forget: start when the glasses appear (or are already there at launch).
-        if let model, model.autoStart, server == nil, state == .stopped, glassesConnected,
+        if let model, model.autoStart, server == nil, pending == nil, state == .stopped, glassesConnected,
            !was || !autoStartChecked {
             start()
         }
