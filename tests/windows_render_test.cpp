@@ -17,6 +17,19 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 int failures = 0;
+ComPtr<ID3D11InfoQueue> info;
+
+void dump_messages() {
+    if (!info) return;
+    for (UINT64 i = 0; i < info->GetNumStoredMessages(); ++i) {
+        SIZE_T len = 0;
+        info->GetMessage(i, nullptr, &len);
+        std::string buf(len, '\0');
+        auto* msg = reinterpret_cast<D3D11_MESSAGE*>(buf.data());
+        if (SUCCEEDED(info->GetMessage(i, msg, &len))) std::printf("  d3d: %.*s\n", static_cast<int>(msg->DescriptionByteLength), msg->pDescription);
+    }
+    info->ClearStoredMessages();
+}
 
 void check(bool ok, const char* what) {
     std::printf("%s %s\n", ok ? "ok  " : "FAIL", what);
@@ -28,11 +41,18 @@ void check(bool ok, const char* what) {
 int main() {
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> ctx;
-    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0,
+    // Debug layer when installed (Graphics Tools): its messages explain a failing check.
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
+                                 D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_DEBUG, nullptr, 0,
+                                 D3D11_SDK_VERSION, &device, nullptr, &ctx)) &&
+        FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0,
                                  D3D11_SDK_VERSION, &device, nullptr, &ctx))) {
         std::printf("WARP device unavailable: skipped\n");
         return 0;
     }
+
+    device.As(&info);
+    std::printf("debug layer: %s\n", info ? "on" : "off");
 
     rayneo::win::SpatialRenderer renderer;
     std::string error;
@@ -81,7 +101,12 @@ int main() {
     check(pixel(w / 4, h / 2) != 0, "left eye: panel in the centre");
     check(pixel(3 * w / 4, h / 2) != 0, "right eye: panel in the centre");
     check(pixel(0, 0) == 0 && pixel(w - 1, h - 1) == 0, "corners black (see-through)");
-    std::printf("centre 0x%06x\n", pixel(w / 4, h / 2));
+    int lit = 0;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) lit += pixel(x, y) != 0;
+    }
+    std::printf("centre 0x%06x, %d of %d pixels lit\n", pixel(w / 4, h / 2), lit, w * h);
+    dump_messages();
     ctx->Unmap(staging.Get(), 0);
 
     // A head turned 90 degrees away leaves the panel out of view.
