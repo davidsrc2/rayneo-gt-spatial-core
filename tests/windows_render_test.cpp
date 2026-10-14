@@ -36,6 +36,18 @@ void check(bool ok, const char* what) {
     if (!ok) ++failures;
 }
 
+// SEH: a crash inside the driver or debug layer prints its code and the layer's messages.
+bool guarded_render(rayneo::win::SpatialRenderer& r, ID3D11RenderTargetView* rtv, int w, int h,
+                    const rayneo::core::Quat& q) {
+    __try {
+        r.render(rtv, w, h, q, rayneo::core::Vec3{}, 0, 0);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        std::printf("FAIL render raised exception 0x%08lx\n", GetExceptionCode());
+        return false;
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -84,7 +96,11 @@ int main() {
 
     renderer.options.side_by_side = true;
     renderer.options.arc_deg = 30;  // smaller than the ~42 deg horizontal FOV: corners stay empty
-    renderer.render(rtv.Get(), w, h, rayneo::core::Quat{}, rayneo::core::Vec3{}, 0, 0);
+    dump_messages();
+    if (!guarded_render(renderer, rtv.Get(), w, h, rayneo::core::Quat{})) {
+        dump_messages();
+        return 1;
+    }
 
     d.Usage = D3D11_USAGE_STAGING;
     d.BindFlags = 0;
@@ -112,7 +128,10 @@ int main() {
 
     // A head turned 90 degrees away leaves the panel out of view.
     const rayneo::core::Quat away = rayneo::core::Quat::from_axis_angle({0, 0, 1}, 1.5707963f);
-    renderer.render(rtv.Get(), w, h, away, rayneo::core::Vec3{}, 0, 0);
+    if (!guarded_render(renderer, rtv.Get(), w, h, away)) {
+        dump_messages();
+        return 1;
+    }
     ctx->CopyResource(staging.Get(), target.Get());
     ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &m);
     check(pixel(w / 4, h / 2) == 0, "head turned away: panel out of view");
