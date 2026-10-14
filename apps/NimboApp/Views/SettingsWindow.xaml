@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Nimbo.Views.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer>
+        <StackPanel Padding="28" Spacing="18" MaxWidth="600">
+            <TextBlock Text="Ajustes" FontSize="24" FontWeight="SemiBold" />
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Calibración" FontSize="13" Opacity="0.7" />
+                <TextBlock x:Name="CalibrationText" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Pantallas" FontSize="13" Opacity="0.7" />
+                <ToggleSwitch x:Name="DimToggle" Header="Atenuar los monitores que no miras" Toggled="Changed" />
+            </StackPanel>
+
+            <Expander Header="Avanzado" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="10">
+                    <Slider x:Name="FovSlider" Header="Campo de visión (°)" Minimum="15" Maximum="35"
+                            StepFrequency="0.5" ValueChanged="SliderChanged" />
+                    <Slider x:Name="IpdSlider" Header="Distancia entre ojos (mm)" Minimum="54" Maximum="72"
+                            StepFrequency="1" ValueChanged="SliderChanged" />
+                    <Slider x:Name="DeadZoneSlider" Header="Zona quieta (°)" Minimum="0.3" Maximum="2.5"
+                            StepFrequency="0.1" ValueChanged="SliderChanged" />
+                    <Slider x:Name="GapSlider" Header="Separación entre monitores (°)" Minimum="0" Maximum="6"
+                            StepFrequency="0.5" ValueChanged="SliderChanged" />
+                    <ToggleSwitch x:Name="StereoToggle" Header="Imagen en 3D (gafas en modo 3D)" Toggled="Changed" />
+                    <ToggleSwitch x:Name="GazeToggle" Header="El cursor sigue a tu mirada" Toggled="Changed" />
+                    <ToggleSwitch x:Name="GatherToggle" Header="Traer mis ventanas al empezar" Toggled="Changed" />
+                    <Slider x:Name="K1Slider" Header="Corrección de lente k1" Minimum="-0.2" Maximum="0.2"
+                            StepFrequency="0.01" ValueChanged="SliderChanged" />
+                    <Slider x:Name="K2Slider" Header="Corrección de lente k2" Minimum="-0.2" Maximum="0.2"
+                            StepFrequency="0.01" ValueChanged="SliderChanged" />
+                </StackPanel>
+            </Expander>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="Diagnóstico" FontSize="13" Opacity="0.7" />
+                <TextBlock x:Name="DiagnosticsText" TextWrapping="Wrap" Opacity="0.8" />
+                <HyperlinkButton Content="Abrir el registro" Click="OpenLog_Click" Padding="0" />
+            </StackPanel>
+
+            <Button Content="Hecho" HorizontalAlignment="Right" Style="{StaticResource AccentButtonStyle}"
+                    Click="Done_Click" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>

@@ -144,6 +144,30 @@ NIMBO_API bool nimbo_load_settings(const char* path, nimbo_settings* out);
 NIMBO_API bool nimbo_save_settings(const char* path, const nimbo_settings* settings);
 NIMBO_API void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* out);
 
+/* One-click layouts and usage profiles shared with macOS (core/presets.h). Ids are static
+ * strings; titles stay in each app, keyed by id. */
+typedef struct {
+    const char* id; /* "curve", "dual", "triple" */
+    int cell_count;
+    int cols[NIMBO_MAX_PANELS];
+    int rows[NIMBO_MAX_PANELS];
+    float curvature, size_deg, gap_deg;
+} nimbo_layout;
+
+typedef struct {
+    const char* id;        /* "code", "cinema" */
+    const char* layout_id;
+    float distance_m;
+    int text_size;
+    float curvature;       /* < 0: keep the layout's */
+    float size_deg;        /* < 0: keep the layout's */
+} nimbo_profile;
+
+NIMBO_API int nimbo_layout_count(void);
+NIMBO_API bool nimbo_layout_at(int index, nimbo_layout* out);
+NIMBO_API int nimbo_profile_count(void);
+NIMBO_API bool nimbo_profile_at(int index, nimbo_profile* out);
+
 /* ---------------------------------------------------------------------------------------
  * Guided sensor -> head calibration (the app's wizard): bias on the table, then centre, up,
  * down, left, right. Not while a server runs (both need the glasses' IMU).

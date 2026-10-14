@@ -74,6 +74,22 @@ jobs:
           file build/imu_probe | grep arm64
           test -d build/Nimbo.app || echo "Nimbo.app not built on this branch"
 
+      - name: Windows app (WinUI 3)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet publish apps/NimboApp/NimboApp.csproj -c Release -o build/NimboApp `
+            -p:NimboNativeDir="$PWD/build/Release/"
+          if (-not (Test-Path build/NimboApp/Nimbo.exe)) { throw "Nimbo.exe missing" }
+          if (-not (Test-Path build/NimboApp/nimbo.dll)) { throw "nimbo.dll not copied next to the app" }
+
+      - name: Upload Windows app
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-app-win-x64
+          path: build/NimboApp
+
       - name: Upload Windows binaries
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

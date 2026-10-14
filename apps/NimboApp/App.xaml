@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="Nimbo.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    RequestedTheme="Dark">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+            <!-- Calm palette of the macOS panel -->
+            <SolidColorBrush x:Key="NimboGreen" Color="#7AC799" />
+            <SolidColorBrush x:Key="NimboAmber" Color="#E3B566" />
+            <SolidColorBrush x:Key="NimboGrey" Color="#8C8C8C" />
+            <SolidColorBrush x:Key="NimboTeal" Color="#8CB8B3" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
