@@ -26,8 +26,9 @@ typedef struct {
     float qw, qx, qy, qz;      /* relative orientation, earth frame Z-up */
     float yaw_deg, pitch_deg, roll_deg; /* diagnostics only */
     float bias_x, bias_y, bias_z; /* gyro bias, deg/s */
+    float wx, wy, wz;          /* angular velocity, rad/s, same frame as q (for prediction) */
     uint32_t device_tick_100us;
-    uint64_t host_time_ns;
+    uint64_t host_time_ns;     /* std::chrono::steady_clock, see RNSpatialEngine.hostNowNs */
     uint64_t sequence;         /* increments per fused sample */
     bool tracking;
 } rayneo_pose;
@@ -47,6 +48,7 @@ typedef struct {
 typedef struct {
     float madgwick_beta;
     bool use_magnetometer;
+    float dead_zone_deg; /* stabilizer: head motion below this keeps the image still */
 } rayneo_config;
 
 rayneo_config rayneo_default_config(void);

@@ -10,6 +10,8 @@
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/madgwick.h"
+#include "rayneo/core/pose_stabilizer.h"
+#include "rayneo/core/render_math.h"
 #include "rayneo/core/tick_monitor.h"
 
 using namespace rayneo::core;
@@ -155,6 +157,31 @@ void test_pipeline_recenter() {
     p.recenter();
     const Pose after = feed({0, 0, 0}, 10);
     CHECK(near(after.euler.yaw, 0.0f, 0.05f));
+}
+
+// User recenter glides: no jump on the first frame, monotonic, settled after the glide time.
+void test_pipeline_recenter_glide() {
+    ImuPipeline p;
+    uint32_t tick = 0;
+    auto feed = [&](Vec3 g) {
+        tick += 21;
+        const auto r = make_imu_report({0, 0, 9.81f}, g, tick);
+        return *p.process_report(r.data(), r.size());
+    };
+    for (int i = 0; i < 476 * 6; ++i) feed({0, 0, 0});
+    Pose turned;
+    for (int i = 0; i < 476; ++i) turned = feed({0, 0, 45.0f});
+    p.recenter(true);
+    float prev = feed({0, 0, 0}).euler.yaw;
+    CHECK(near(prev, turned.euler.yaw, 1.0f));
+    bool monotonic = true;
+    for (int i = 0; i < 476 * 3 / 10; ++i) {  // 0.3 s
+        const float y = feed({0, 0, 0}).euler.yaw;
+        monotonic = monotonic && y <= prev + 1e-3f;
+        prev = y;
+    }
+    CHECK(monotonic);
+    CHECK(near(feed({0, 0, 0}).euler.yaw, 0.0f, 0.05f));
 }
 
 // Reference-unit cadence: 7 deltas of 22 ticks, then one of 21 (21.875 avg, ~457.14 Hz).
@@ -498,7 +525,372 @@ void test_pipeline_applies_sensor_to_head() {
             CHECK(near(nod.euler.pitch, 0.0f, 1.5f));
         }
         CHECK(near(nod.euler.yaw, 0.0f, 1.5f));
+        // Angular velocity is reported in the relative frame: a nod is about head -Y
+        // (calibrated) or core X (uncalibrated: sensor axes taken as head axes).
+        const Vec3 w = nod.angular_velocity_rads;
+        const float r = rate * 0.0174533f;
+        if (calibrated_pipeline) {
+            CHECK(near(std::fabs(w.y), r, 0.03f) && near(w.x, 0, 0.03f));
+        } else {
+            CHECK(near(std::fabs(w.x), r, 0.03f) && near(w.y, 0, 0.03f));
+        }
+        // Predicting 10 ms ahead matches the pose 10 ms later.
+        const Quat pred = predict_orientation(nod.relative, w, 0.0105f);
+        const Pose later = feed(rate, 5);
+        CHECK(quat_near(pred, later.relative, 2e-5f));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Render math (core Z-up RH -> render Y-up LH)
+// ---------------------------------------------------------------------------
+
+constexpr float kDeg = 0.0174532925f;
+
+float det3(const Mat4& m) {
+    return m.at(0, 0) * (m.at(1, 1) * m.at(2, 2) - m.at(1, 2) * m.at(2, 1)) -
+           m.at(0, 1) * (m.at(1, 0) * m.at(2, 2) - m.at(1, 2) * m.at(2, 0)) +
+           m.at(0, 2) * (m.at(1, 0) * m.at(2, 1) - m.at(1, 1) * m.at(2, 0));
+}
+
+void test_core_to_render_axes() {
+    CHECK(vec_near(core_to_render({1, 0, 0}), {0, 0, 1}, 1e-6f));   // forward -> +Z
+    CHECK(vec_near(core_to_render({0, 1, 0}), {-1, 0, 0}, 1e-6f));  // left -> -X
+    CHECK(vec_near(core_to_render({0, 0, 1}), {0, 1, 0}, 1e-6f));   // up -> +Y
+    // Handedness flips: core X x Y = Z, render images satisfy the left-handed rule.
+    const Vec3 x = core_to_render({1, 0, 0}), y = core_to_render({0, 1, 0});
+    CHECK(vec_near(x.cross(y), core_to_render({0, 0, 1}) * -1.0f, 1e-6f));
+}
+
+void test_render_rotation() {
+    // Turn left 30 deg: the view direction swings to -X.
+    const Mat4 yaw = render_rotation(Quat::from_axis_angle({0, 0, 1}, 30 * kDeg));
+    CHECK(vec_near(yaw.transform_point({0, 0, 1}), {-std::sin(30 * kDeg), 0, std::cos(30 * kDeg)}, 1e-5f));
+    CHECK(near(det3(yaw), 1.0f, 1e-5f));
+    // Look up 20 deg (rotation about core -Y): view direction gains +Y.
+    const Mat4 up = render_rotation(Quat::from_axis_angle({0, -1, 0}, 20 * kDeg));
+    CHECK(vec_near(up.transform_point({0, 0, 1}), {0, std::sin(20 * kDeg), std::cos(20 * kDeg)}, 1e-5f));
+    // Roll right ear down (rotation about core +X): render up vector tilts to +X.
+    const Mat4 roll = render_rotation(Quat::from_axis_angle({1, 0, 0}, 15 * kDeg));
+    CHECK(vec_near(roll.transform_point({0, 1, 0}), {std::sin(15 * kDeg), std::cos(15 * kDeg), 0}, 1e-5f));
+    const Mat4 any = render_rotation(Quat::from_axis_angle({0.3f, -0.7f, 0.4f}, 1.3f));
+    CHECK(near(det3(any), 1.0f, 1e-5f));
+}
+
+void test_view_and_projection() {
+    // Head turned left 30 deg: a world point 30 deg to the left lands straight ahead.
+    const Quat q = Quat::from_axis_angle({0, 0, 1}, 30 * kDeg);
+    const Vec3 world{-2.0f * std::sin(30 * kDeg), 0.0f, 2.0f * std::cos(30 * kDeg)};
+    CHECK(vec_near(view_matrix(q, 0.0f).transform_point(world), {0, 0, 2}, 1e-5f));
+    // Left eye sits at -IPD/2: a centred point appears to its right.
+    CHECK(vec_near(view_matrix(Quat{}, -0.032f).transform_point({0, 0, 2}), {0.032f, 0, 2}, 1e-6f));
+
+    const Mat4 p = perspective_lh(40 * kDeg, 16.0f / 9.0f, 0.1f, 100.0f);
+    auto ndc_z = [&](float z) {
+        const float cz = p.at(2, 2) * z + p.at(2, 3);
+        const float cw = p.at(3, 2) * z;
+        return cz / cw;
+    };
+    CHECK(near(ndc_z(0.1f), 0.0f, 1e-5f));
+    CHECK(near(ndc_z(100.0f), 1.0f, 1e-5f));
+    // Top edge of the vertical FOV maps to NDC y = 1.
+    const float y_top = std::tan(20 * kDeg) * 5.0f;
+    CHECK(near(p.at(1, 1) * y_top / 5.0f, 1.0f, 1e-5f));
+}
+
+void test_predict_orientation() {
+    const Quat q = predict_orientation(Quat{}, {0, 0, 1.0f}, 0.5f);
+    CHECK(near(to_euler_deg(q).yaw, 28.6479f, 0.01f));
+    const Quat base = Quat::from_axis_angle({0, -1, 0}, 10 * kDeg);
+    CHECK(quat_near(predict_orientation(base, {0, 0, 0}, 0.02f), base, 1e-7f));
+    // Extrapolation composes in the world frame: yaw added on top of a pitch.
+    const Quat p = predict_orientation(base, {0, 0, 1.0f}, 0.1f);
+    CHECK(quat_near(p, Quat::from_axis_angle({0, 0, 1}, 0.1f) * base, 1e-6f));
+}
+
+void test_curved_screen_mesh() {
+    const ScreenMesh m = curved_screen_mesh(2.0f, 60 * kDeg, 1.0f, 32);
+    CHECK(m.vertices.size() == 66 && m.indices.size() == 32 * 6);
+    for (const auto& v : m.vertices) {
+        CHECK(near(std::sqrt(v.px * v.px + v.pz * v.pz), 2.0f, 1e-5f));
+        CHECK(near(std::fabs(v.py), 0.5f, 1e-6f));
+    }
+    const auto& left_top = m.vertices.front();
+    CHECK(left_top.px < 0 && left_top.u == 0.0f && left_top.v == 0.0f && left_top.py > 0);
+    CHECK(near(left_top.px, -2.0f * std::sin(30 * kDeg), 1e-5f));
+    const auto& mid = m.vertices[32];  // u = 0.5, top
+    CHECK(near(mid.px, 0.0f, 1e-6f) && near(mid.pz, 2.0f, 1e-6f));
+    for (uint16_t i : m.indices) CHECK(i < m.vertices.size());
+    CHECK(curved_screen_mesh(2.0f, 0.0f, 1.0f, 8).vertices.empty());
+}
+
+void test_panel_layout() {
+    const auto c3 = panel_centers(3, 45 * kDeg, 5 * kDeg);
+    CHECK(c3.size() == 3);
+    CHECK(near(c3[0], -50 * kDeg, 1e-6f) && near(c3[1], 0.0f, 1e-6f) && near(c3[2], 50 * kDeg, 1e-6f));
+    const auto c2 = panel_centers(2, 40 * kDeg, 4 * kDeg);  // even count straddles the centre
+    CHECK(near(c2[0], -22 * kDeg, 1e-6f) && near(c2[1], 22 * kDeg, 1e-6f));
+    CHECK(panel_centers(0, 1, 0).empty());
+    CHECK(near(panel_centers(1, 1, 0)[0], 0.0f, 1e-7f));
+
+    // Right panel: its mesh is the centre mesh rotated 50 deg to the right, edges included.
+    const ScreenMesh right = curved_screen_mesh(2.0f, 45 * kDeg, 1.0f, 8, c3[2], 0.1f);
+    const auto& l = right.vertices.front();  // left/top edge at 27.5 deg
+    CHECK(near(std::atan2(l.px, l.pz), 27.5f * kDeg, 1e-5f) && near(l.py, 0.6f, 1e-6f));
+    const auto& r = right.vertices.back();  // right/bottom edge at 72.5 deg
+    CHECK(near(std::atan2(r.px, r.pz), 72.5f * kDeg, 1e-5f) && near(r.py, -0.4f, 1e-6f));
+
+    // Looking 50 deg right (core yaw -50) puts that panel's centre straight ahead.
+    const Quat look_right = Quat::from_axis_angle({0, 0, 1}, -50 * kDeg);
+    const Vec3 centre{2.0f * std::sin(c3[2]), 0.0f, 2.0f * std::cos(c3[2])};
+    CHECK(vec_near(view_matrix(look_right, 0.0f).transform_point(centre), {0, 0, 2}, 1e-5f));
+
+    CHECK(near(arc_for_pixels(1920.0f, 48.0f), 40 * kDeg, 1e-6f));
+    CHECK(arc_for_pixels(100.0f, 0.0f) == 0.0f);
+}
+
+void test_flat_panels() {
+    const float arc = 38 * kDeg, r = 2.0f;
+    const auto centers = panel_centers(2, arc, 0.0f);
+    const ScreenMesh left = flat_screen_mesh(r, arc, 1.0f, 8, centers[0]);
+    const ScreenMesh right = flat_screen_mesh(r, arc, 1.0f, 8, centers[1]);
+    CHECK(left.vertices.size() == 18 && left.indices.size() == 48);
+    // Planar: every vertex lies on the plane tangent to the circle at the panel centre.
+    for (const auto& v : right.vertices) {
+        CHECK(near(v.px * std::sin(centers[1]) + v.pz * std::cos(centers[1]), r, 1e-5f));
+    }
+    // Spans exactly `arc` from the eye.
+    const auto& l0 = right.vertices.front();
+    const auto& l1 = right.vertices.back();
+    CHECK(near(std::atan2(l1.px, l1.pz) - std::atan2(l0.px, l0.pz), arc, 1e-5f));
+    // With gap 0, adjacent flat panels share their edge (contiguous monitors).
+    const auto& left_edge = left.vertices[left.vertices.size() - 2];  // right/top of left panel
+    const auto& right_edge = right.vertices[0];                      // left/top of right panel
+    CHECK(vec_near({left_edge.px, left_edge.py, left_edge.pz}, {right_edge.px, right_edge.py, right_edge.pz}, 1e-5f));
+    // Centre of a straight-ahead panel is at distance r on +Z; u runs left -> right.
+    const ScreenMesh ahead = flat_screen_mesh(r, arc, 1.0f, 2);
+    CHECK(near(ahead.vertices[2].px, 0.0f, 1e-6f) && near(ahead.vertices[2].pz, r, 1e-6f));
+    CHECK(ahead.vertices[0].px < 0 && ahead.vertices[0].u == 0.0f);
+    CHECK(near(panel_width(r, arc, true), 2 * r * std::tan(arc / 2), 1e-6f));
+    CHECK(near(panel_width(r, arc, false), r * arc, 1e-6f));
+}
+
+void test_panel_at_gaze() {
+    const float arc = 38 * kDeg, gap = 1 * kDeg;
+    const auto c = panel_centers(3, arc, gap);  // -39, 0, +39 deg
+    auto look = [](float yaw_left_deg, float pitch_up_deg) {
+        return Quat::from_axis_angle({0, 0, 1}, yaw_left_deg * kDeg) *
+               Quat::from_axis_angle({0, -1, 0}, pitch_up_deg * kDeg);
+    };
+    CHECK(panel_at_gaze(look(0, 0), c, arc, gap) == 1);
+    CHECK(panel_at_gaze(look(35, 0), c, arc, gap) == 0);    // turned left
+    CHECK(panel_at_gaze(look(-35, 10), c, arc, gap) == 2);  // right, slightly up
+    CHECK(panel_at_gaze(look(-21, 0), c, arc, gap) == 2);   // just past the seam at 19.5
+    CHECK(panel_at_gaze(look(80, 0), c, arc, gap) == -1);   // beyond the row
+    CHECK(panel_at_gaze(look(0, 0), {}, arc, gap) == -1);
+}
+
+void test_fit_panels() {
+    const float hfov = horizontal_fov(24.5f * kDeg, 16.0f / 9.0f);
+    CHECK(near(hfov, 42.2f * kDeg, 0.2f * kDeg));
+    const float arc = fit_panel_arc(hfov, 2, 1 * kDeg, 1 * kDeg);
+    // Both panels, the gap and the margins exactly fill the view.
+    CHECK(near(2 * arc + 1 * kDeg + 2 * 1 * kDeg, hfov, 1e-5f));
+    const auto c = panel_centers(2, arc, 1 * kDeg);
+    CHECK(near(c[1] + arc / 2, hfov / 2 - 1 * kDeg, 1e-5f));  // right edge inside the view
+    CHECK(fit_panel_arc(hfov, 0, 0, 0) == 0.0f);
+    CHECK(fit_panel_arc(0.1f, 3, 0.1f, 0.0f) == 0.0f);
+}
+
+void test_grid_layout() {
+    const float arc = 38 * kDeg, gap = 2 * kDeg;
+    const float varc = panel_vertical_arc(arc, 16.0f / 9.0f, true);
+    // Flat 16:9 panel spanning 38 deg: vertical span from the same tangent geometry.
+    CHECK(near(varc, 2 * std::atan(std::tan(19 * kDeg) * 9.0f / 16.0f), 1e-6f));
+    CHECK(near(panel_vertical_arc(arc, 16.0f / 9.0f, false), 2 * std::atan(arc * 9.0f / 32.0f), 1e-6f));
+
+    const auto quad = grid_layout({{0, 0}, {1, 0}, {0, 1}, {1, 1}}, arc, varc, gap);
+    CHECK(near(quad[0].yaw_rad, -(arc + gap) / 2, 1e-6f) && near(quad[0].pitch_rad, (varc + gap) / 2, 1e-6f));
+    CHECK(near(quad[3].yaw_rad, (arc + gap) / 2, 1e-6f) && near(quad[3].pitch_rad, -(varc + gap) / 2, 1e-6f));
+    const auto stacked = grid_layout({{0, 0}, {0, 1}}, arc, varc, gap);
+    CHECK(near(stacked[0].yaw_rad, 0.0f, 1e-7f) && stacked[0].pitch_rad > 0 && near(stacked[1].pitch_rad, -stacked[0].pitch_rad, 1e-6f));
+    const auto offset = grid_layout({{3, 5}, {4, 5}}, arc, varc, gap);  // translation-invariant
+    CHECK(near(offset[0].yaw_rad, -(arc + gap) / 2, 1e-6f) && near(offset[0].pitch_rad, 0.0f, 1e-7f));
+    CHECK(grid_layout({}, arc, varc, gap).empty());
+
+    // Stacked flat panels with gap 0 share their horizontal edge, like a monitor on a monitor.
+    const auto s0 = grid_layout({{0, 0}, {0, 1}}, arc, varc, 0.0f);
+    ScreenMesh top = flat_screen_mesh(2.0f, arc, panel_width(2.0f, arc, true) * 9.0f / 16.0f, 1);
+    ScreenMesh bottom = top;
+    pitch_mesh(top, s0[0].pitch_rad);
+    pitch_mesh(bottom, s0[1].pitch_rad);
+    const auto& top_bottom_left = top.vertices[1];        // v = 1 (bottom edge), u = 0
+    const auto& bottom_top_left = bottom.vertices[0];     // v = 0 (top edge), u = 0
+    CHECK(vec_near({top_bottom_left.px, top_bottom_left.py, top_bottom_left.pz},
+                   {bottom_top_left.px, bottom_top_left.py, bottom_top_left.pz}, 1e-5f));
+
+    // Gaze: up -> top panel, down -> bottom, diagonal in a 2x2, beyond -> none.
+    auto look = [](float yaw_left_deg, float pitch_up_deg) {
+        return Quat::from_axis_angle({0, 0, 1}, yaw_left_deg * kDeg) * Quat::from_axis_angle({0, -1, 0}, pitch_up_deg * kDeg);
+    };
+    const float up = (varc + gap) / 2 / kDeg;
+    CHECK(panel_at_gaze(look(0, up), stacked, arc, varc, gap) == 0);
+    CHECK(panel_at_gaze(look(0, -up), stacked, arc, varc, gap) == 1);
+    CHECK(panel_at_gaze(look(-15, -up), quad, arc, varc, gap) == 3);  // right + down
+    CHECK(panel_at_gaze(look(15, up), quad, arc, varc, gap) == 0);    // left + up
+    CHECK(panel_at_gaze(look(0, 60), stacked, arc, varc, gap) == -1);
+}
+
+void test_bent_panels() {
+    const float r = 2.0f, arc = 38 * kDeg, h = 0.8f;
+    // Curvature 0 is exactly the flat panel.
+    const ScreenMesh flat = flat_screen_mesh(r, arc, h, 16, 10 * kDeg);
+    const ScreenMesh zero = bent_screen_mesh(r, arc, h, 16, 0.0f, 10 * kDeg);
+    CHECK(flat.vertices.size() == zero.vertices.size());
+    for (size_t i = 0; i < flat.vertices.size(); ++i) {
+        CHECK(near(flat.vertices[i].px, zero.vertices[i].px, 1e-6f) && near(flat.vertices[i].pz, zero.vertices[i].pz, 1e-6f));
+    }
+    // Curvature 1: every column on the viewing circle.
+    const ScreenMesh full = bent_screen_mesh(r, arc, h, 16, 1.0f);
+    for (const auto& v : full.vertices) CHECK(near(std::sqrt(v.px * v.px + v.pz * v.pz), r, 1e-5f));
+    // Any curvature: centre stays at distance r straight ahead; the sheet keeps its width
+    // (arc length between the edges equals the flat width).
+    for (float k : {0.25f, 0.5f, 0.8f}) {
+        const ScreenMesh m = bent_screen_mesh(r, arc, h, 64, k);
+        const auto& mid = m.vertices[64];  // u = 0.5, top
+        CHECK(near(mid.px, 0.0f, 1e-5f) && near(mid.pz, r, 1e-5f));
+        float length = 0.0f;
+        for (size_t i = 2; i < m.vertices.size(); i += 2) {
+            const float dx = m.vertices[i].px - m.vertices[i - 2].px, dz = m.vertices[i].pz - m.vertices[i - 2].pz;
+            length += std::sqrt(dx * dx + dz * dz);
+        }
+        CHECK(near(length, 2 * r * std::tan(arc / 2), 2e-3f));
+        // More curvature pulls the edges closer to the viewer (towards the viewing circle).
+        const ScreenMesh more = bent_screen_mesh(r, arc, h, 64, k + 0.1f);
+        auto edge = [](const ScreenMesh& mm) { return std::sqrt(mm.vertices[0].px * mm.vertices[0].px + mm.vertices[0].pz * mm.vertices[0].pz); };
+        CHECK(edge(more) < edge(m) && edge(more) >= r - 1e-5f);
+    }
+}
+
+void test_barrel_distort() {
+    const Vec2 c = barrel_distort({0, 0}, 0.2f, 0.1f);
+    CHECK(c.x == 0.0f && c.y == 0.0f);
+    const Vec2 e = barrel_distort({0, 1}, 0.1f, 0.0f);
+    CHECK(near(e.y, 1.1f, 1e-6f));
+    const Vec2 d = barrel_distort({0.6f, 0.8f}, 0.1f, 0.05f);  // r = 1
+    CHECK(near(d.x, 0.6f * 1.15f, 1e-6f) && near(d.y, 0.8f * 1.15f, 1e-6f));
+    const Vec2 id = barrel_distort({0.3f, -0.4f}, 0, 0);
+    CHECK(id.x == 0.3f && id.y == -0.4f);
+}
+
+// ---------------------------------------------------------------------------
+// Pose stabilizer
+// ---------------------------------------------------------------------------
+
+float angle_between_deg(const Quat& a, const Quat& b) {
+    const float d = std::fabs(a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z);
+    return 2.0f * std::acos(std::fmin(1.0f, d)) * 57.29578f;
+}
+
+void test_slerp() {
+    const Quat a{}, b = Quat::from_axis_angle({0, 0, 1}, 1.0f);
+    CHECK(quat_near(slerp(a, b, 0.0f), a, 1e-6f) && quat_near(slerp(a, b, 1.0f), b, 1e-6f));
+    CHECK(quat_near(slerp(a, b, 0.25f), Quat::from_axis_angle({0, 0, 1}, 0.25f), 1e-6f));
+    const Quat nb{-b.w, -b.x, -b.y, -b.z};  // same rotation, other hemisphere
+    CHECK(quat_near(slerp(a, nb, 0.5f), Quat::from_axis_angle({0, 0, 1}, 0.5f), 1e-6f));
+}
+
+// Looking at a fixed spot: 8 Hz tremor (0.3 deg), breathing sway and sensor noise must not
+// move the output at all (like a normal monitor).
+void test_stabilizer_holds_still() {
+    Lcg rng;
+    PoseStabilizer s;
+    const float dt = kRefDt, d2r = 0.0174533f;
+    Quat first;
+    float max_in = 0.0f, max_out = 0.0f;
+    for (int i = 0; i < 457 * 8; ++i) {
+        const float t = static_cast<float>(i) * dt;
+        const float tremor = 0.3f * d2r * std::sin(2 * 3.14159f * 8.0f * t);
+        const float sway = 0.5f * d2r * std::sin(2 * 3.14159f * 0.25f * t);  // breathing
+        const float pitch = tremor + sway + rng.uni() * 0.05f * d2r;
+        const float rate = 0.3f * d2r * 2 * 3.14159f * 8.0f * std::cos(2 * 3.14159f * 8.0f * t) +
+                           0.5f * d2r * 2 * 3.14159f * 0.25f * std::cos(2 * 3.14159f * 0.25f * t) +
+                           rng.uni() * 0.03f;
+        const Quat q = Quat::from_axis_angle({0, 1, 0}, pitch);
+        const Quat out = s.update(q, {0, rate, 0}, dt);
+        if (i == 0) first = out;
+        max_in = std::fmax(max_in, angle_between_deg(q, Quat{}));
+        max_out = std::fmax(max_out, angle_between_deg(out, first));
+    }
+    CHECK(max_in > 0.7f);
+    CHECK(max_out == 0.0f);  // frozen
+    CHECK(s.holding() && s.omega().norm() == 0.0f);
+    CHECK(prediction_gain(s.omega().norm()) == 0.0f);
+}
+
+// A real 60 deg/s turn: leaves the dead zone, follows with little lag, then holds again.
+void test_stabilizer_follows_turns() {
+    PoseStabilizer s;
+    const float dt = kRefDt, rate = 60.0f * 0.0174533f;
+    Quat q, out;
+    for (int i = 0; i < 457; ++i) s.update(q, {0, 0, 0}, dt);
+    float worst = 0.0f;
+    for (int i = 0; i < 457; ++i) {
+        q = (Quat::from_axis_angle({0, 0, 1}, rate * dt) * q).normalized();
+        out = s.update(q, {0, 0, rate}, dt);
+        if (i > 45) worst = std::fmax(worst, angle_between_deg(out, q));  // after 0.1 s
+    }
+    CHECK(!s.holding());
+    CHECK(worst < 0.6f);
+    CHECK(prediction_gain(s.omega().norm()) == 1.0f);
+    for (int i = 0; i < 457; ++i) out = s.update(q, {0, 0, 0}, dt);  // stop
+    CHECK(s.holding());
+    CHECK(angle_between_deg(out, q) < 0.2f);
+}
+
+// Slow drift (0.5 deg/s): nothing moves until the dead zone is left, then it catches up.
+void test_stabilizer_dead_zone() {
+    PoseStabilizer s;
+    const float dt = kRefDt, rate = 0.5f * 0.0174533f;
+    Quat q, out, first;
+    for (int i = 0; i < 457 * 2; ++i) {  // 1 deg
+        q = (Quat::from_axis_angle({0, 0, 1}, rate * dt) * q).normalized();
+        out = s.update(q, {0, 0, rate}, dt);
+        if (i == 0) first = out;
+    }
+    CHECK(angle_between_deg(out, first) == 0.0f);
+    for (int i = 0; i < 457 * 2; ++i) {  // to 2 deg: crosses 1.5
+        q = (Quat::from_axis_angle({0, 0, 1}, rate * dt) * q).normalized();
+        out = s.update(q, {0, 0, rate}, dt);
+    }
+    CHECK(angle_between_deg(out, first) > 1.0f);
+}
+
+void test_prediction_gain() {
+    CHECK(prediction_gain(0.0f) == 0.0f && prediction_gain(0.05f) == 0.0f);
+    CHECK(near(prediction_gain(0.175f), 0.5f, 1e-5f));
+    CHECK(prediction_gain(0.3f) == 1.0f && prediction_gain(3.0f) == 1.0f);
+}
+
+// Recenter snaps the stabilized pose to identity instead of gliding there.
+void test_pipeline_stabilized_recenter() {
+    ImuPipeline p;
+    uint32_t tick = 0;
+    auto feed = [&](Vec3 g, int n) {
+        Pose last;
+        for (int i = 0; i < n; ++i) {
+            tick += 22;
+            const auto r = make_imu_report({0, 0, 9.81f}, g, tick);
+            last = *p.process_report(r.data(), r.size());
+        }
+        return last;
+    };
+    feed({0, 0, 0}, 457 * 6);
+    const Pose turned = feed({0, 0, 45.0f}, 457);
+    CHECK(near(turned.euler.yaw, 45.0f, 1.5f));
+    p.recenter();
+    const Pose after = feed({0, 0, 0}, 2);
+    CHECK(near(after.euler.yaw, 0.0f, 0.05f));
 }
 
 }  // namespace
@@ -513,6 +905,7 @@ int main() {
     test_madgwick_yaw_integration();
     test_pipeline_bias_removed();
     test_pipeline_recenter();
+    test_pipeline_recenter_glide();
     test_tick_monitor_reference_cadence();
     test_tick_monitor_gaps();
     test_bias_rejects_transient_step();
@@ -524,12 +917,30 @@ int main() {
     test_bias_worn_start_median();
     test_bias_worn_drift_correction();
     test_bias_worn_ignores_head_motion();
+    test_slerp();
+    test_stabilizer_holds_still();
+    test_stabilizer_follows_turns();
+    test_stabilizer_dead_zone();
+    test_prediction_gain();
+    test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();
     test_head_calibration_tolerates_turn_in_nods();
     test_calibration_json_roundtrip();
     test_hold_detector();
     test_pipeline_applies_sensor_to_head();
+    test_core_to_render_axes();
+    test_render_rotation();
+    test_view_and_projection();
+    test_predict_orientation();
+    test_curved_screen_mesh();
+    test_barrel_distort();
+    test_panel_layout();
+    test_flat_panels();
+    test_panel_at_gaze();
+    test_fit_panels();
+    test_grid_layout();
+    test_bent_panels();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

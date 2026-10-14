@@ -57,7 +57,7 @@ void fusion_loop(rayneo_engine* e) {
                     e->calib_pending = false;
                 }
             }
-            if (e->recenter.exchange(false)) e->pipeline->recenter();
+            if (e->recenter.exchange(false)) e->pipeline->recenter(true);
             const auto pose = e->pipeline->process_report(rr.data, rr.length);
             if (!pose) {
                 std::lock_guard<std::mutex> lock(e->pose_mutex);
@@ -76,6 +76,9 @@ void fusion_loop(rayneo_engine* e) {
             p.bias_x = pose->gyro_bias_degs.x;
             p.bias_y = pose->gyro_bias_degs.y;
             p.bias_z = pose->gyro_bias_degs.z;
+            p.wx = pose->angular_velocity_rads.x;
+            p.wy = pose->angular_velocity_rads.y;
+            p.wz = pose->angular_velocity_rads.z;
             p.device_tick_100us = pose->tick_100us;
             p.host_time_ns = rr.host_time_ns;
             p.sequence = ++seq;
@@ -99,7 +102,7 @@ extern "C" {
 
 rayneo_config rayneo_default_config(void) {
     ImuPipelineConfig d;
-    return rayneo_config{d.madgwick_beta, d.use_magnetometer};
+    return rayneo_config{d.madgwick_beta, d.use_magnetometer, d.stabilizer.enter_deg};
 }
 
 rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
@@ -107,6 +110,7 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
     if (cfg != nullptr) {
         e->cfg.madgwick_beta = cfg->madgwick_beta;
         e->cfg.use_magnetometer = cfg->use_magnetometer;
+        if (cfg->dead_zone_deg > 0.0f) e->cfg.stabilizer.enter_deg = cfg->dead_zone_deg;
     }
     return e;
 }

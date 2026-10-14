@@ -6,6 +6,7 @@
 
 #include "rayneo/core/gyro_bias_estimator.h"
 #include "rayneo/core/madgwick.h"
+#include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/types.h"
 
 namespace rayneo::core {
@@ -13,7 +14,10 @@ namespace rayneo::core {
 struct ImuPipelineConfig {
     float madgwick_beta = 0.033f;
     bool use_magnetometer = false;  // Off: desk/laptop interference spins yaw.
+    bool stabilize = true;          // PoseStabilizer on `relative` and its angular velocity
+    PoseStabilizerConfig stabilizer;
     GyroBiasConfig bias;
+    float recenter_glide_s = 0.3f;  // recenter(true): ease into the new center instead of jumping
 };
 
 // Raw HID payload -> stabilized Pose. Single-threaded, allocation-free, OS-agnostic.
@@ -27,8 +31,12 @@ public:
     // Feeds an already decoded sample (useful for replay / tests).
     Pose process_sample(const ImuSample& s);
 
-    // Next pose's relative orientation becomes identity.
-    void recenter() { recenter_pending_ = true; }
+    // Next pose's relative orientation becomes identity. With glide, the output eases there
+    // over cfg.recenter_glide_s from where it was (user-triggered recenter, no visible jump).
+    void recenter(bool glide = false) {
+        recenter_pending_ = true;
+        glide_requested_ = glide;
+    }
 
     // Mounting of the IMU on the head: v_head = q * v_sensor * q^-1 (see HeadCalibration).
     // Defines which way is "forward" for the relative pose. Triggers a recenter.
@@ -45,11 +53,16 @@ private:
     ImuPipelineConfig cfg_;
     MadgwickFilter filter_;
     GyroBiasEstimator bias_;
+    PoseStabilizer stabilizer_;
 
     bool have_prev_tick_ = false;
     uint32_t prev_tick_ = 0;
     bool attitude_init_ = false;
     bool recenter_pending_ = true;
+    bool glide_requested_ = false;
+    Quat glide_from_;          // output offset at the recenter, eased to identity
+    float glide_t_ = 1.0f;     // 0..1 progress; 1 = no glide
+    Quat last_relative_;       // last output, the glide's starting point
     Quat reference_;
     Quat heading_ref_;  // pure yaw: level frame aligned with the head's forward at recenter
     Quat sensor_to_head_;
