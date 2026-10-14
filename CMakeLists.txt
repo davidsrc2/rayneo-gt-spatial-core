@@ -278,6 +278,13 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
   add_executable(nimbo_win apps/nimbo_win/main.cpp)
   target_link_libraries(nimbo_win PRIVATE rayneo::engine rayneo_windows winmm)
   rayneo_warnings(nimbo_win)
+
+  if(RAYNEO_BUILD_TESTS)
+    add_executable(windows_render_test tests/windows_render_test.cpp)
+    target_link_libraries(windows_render_test PRIVATE rayneo_windows)
+    rayneo_warnings(windows_render_test)
+    add_test(NAME windows_render_test COMMAND windows_render_test)
+  endif()
 endif()
 
 if(RAYNEO_BUILD_APPS)
