@@ -2,6 +2,10 @@
 
 Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para un gestor de ventanas espaciales en macOS (Apple Silicon); el núcleo es portable a Windows.
 
+## Flujo de trabajo (hasta la beta)
+
+Hasta tener una beta, todo se sube directamente a `main`: commit y push sin ramas ni PR, para poder probar siempre la última versión con un `git pull`. El CI corre en cada push a `main`; si falla, se arregla en el siguiente commit. Al publicar la beta se vuelve a ramas `feat/...` + PR con CI en verde.
+
 ## Estado del proyecto
 
 Última actualización: 2026-10-14. Hardware de referencia: RayNeo GT conectadas por USB-C a un MacBook Pro M4 (macOS 27.2). Cuando el hardware contradice la documentación, manda el hardware.

@@ -69,7 +69,7 @@ Pendiente, en orden:
 4. **W5 · Distribución** (preguntar al usuario antes de empezar): instalador con el driver VDD, firma Authenticode (requiere comprar certificado), actualizaciones (Velopack), instalador en CI.
 5. Que la app de macOS use `settings.json` (`core/settings`) en vez de UserDefaults.
 
-Forma de trabajar acordada: ramas `feat/...`, PR, CI en verde, merge a `main`; presentar cada paso siguiente y preguntar antes de empezarlo; respuestas en español.
+Forma de trabajar acordada: hasta la beta, commit y push directos a `main` (ver README, «Flujo de trabajo»); presentar cada paso siguiente y preguntar antes de empezarlo; respuestas en español.
 
 ## Fases
 
