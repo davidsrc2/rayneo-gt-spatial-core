@@ -25,6 +25,7 @@ struct LatencyStats {
     var presentedSum = 0.0, presentedMax = 0.0  // sample -> actual presentedTime (ms)
     var targetErrSum = 0.0                      // presentedTime - targetPresentationTimestamp (ms)
     var tracking = false
+    var idle = 0                                // frames skipped: nothing changed
 
     mutating func add(poseAge: Double, photon: Double, prediction: Double) {
         frames += 1
@@ -77,6 +78,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var lastCaptureFrames: UInt64 = 0
     private var statsTimer: Timer?
     private var calibSeconds = 0
+
+    // Idle skip (render thread): with the head still and no monitor changing, the last
+    // frame is still correct, so nothing is drawn. Settings changes force one redraw.
+    private var lastDrawnOrientation: simd_quatf?
+    private var lastDrawnCaptureFrames: UInt64 = 0
+    private var redrawRequested = true  // guarded by statsLock
+    private var captureFrames: UInt64 = 0  // guarded by statsLock (captures is main-thread only)
 
     init(options: ServerOptions) {
         self.options = options
@@ -338,6 +346,29 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.k1 = o.k1
         options.k2 = o.k2
         options.gazeCursor = o.gazeCursor
+        requestRedraw()
+    }
+
+    private func requestRedraw() {
+        statsLock.lock()
+        redrawRequested = true
+        statsLock.unlock()
+    }
+
+    // True when the frame about to be drawn would equal the one on screen.
+    private func nothingChanged(_ p: PoseSample) -> Bool {
+        statsLock.lock()
+        let forced = redrawRequested
+        redrawRequested = false
+        let capFrames = captureFrames
+        statsLock.unlock()
+        defer {
+            lastDrawnOrientation = p.orientation
+            lastDrawnCaptureFrames = capFrames
+        }
+        guard !forced, p.tracking, let last = lastDrawnOrientation, capFrames == lastDrawnCaptureFrames,
+              simd_length(p.angularVelocity) < 1e-4 else { return false }
+        return simd_distance(last.vector, p.orientation.vector) < 1e-5  // < ~0.001°
     }
 
     // MARK: gaze cursor
@@ -417,6 +448,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         UserDefaults.standard.set(ro.fovYDegrees, forKey: "fovY")
         options.fovYDeg = ro.fovYDegrees
         onFovChanged?(ro.fovYDegrees)
+        requestRedraw()
         log(String(format: "fov: %.1f° (saved)", ro.fovYDegrees))
     }
 
@@ -463,7 +495,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let hiDPI = options.hiDPI
         for (id, panel, exclude) in plan {
             let isVirtual = virtualIDs.contains(id)
-            let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: UInt(panel)) }
+            let cap = ScreenCapture { [weak self] pb in
+                guard let self else { return }
+                self.renderer.setSourcePixelBuffer(pb, forPanel: UInt(panel))
+                self.statsLock.lock()
+                self.captureFrames &+= 1
+                self.statsLock.unlock()
+            }
             captures.append(cap)
             let renderWindow = CGWindowID(window.windowNumber)
             let (w, h) = try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude,
@@ -528,8 +566,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let targetHost = Int64(nowHost) + Int64((update.targetPresentationTimestamp - nowMedia) * 1e9)
 
         guard let p = pose.latest() else {
+            lastDrawnOrientation = nil
             _ = renderer.render(to: update.drawable, orientation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
                                 angularVelocity: .zero, sampleHostNs: 0, targetHostNs: 0)
+            return
+        }
+        if nothingChanged(p) {
+            statsLock.lock()
+            stats.idle += 1
+            stats.tracking = p.tracking
+            statsLock.unlock()
+            isTracking = p.tracking
             return
         }
         // Ground truth: when the frame actually reached the display (same media clock).
@@ -562,7 +609,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let capFrames = captures.reduce(UInt64(0)) { $0 &+ $1.frames }
         let capFps = capFrames &- lastCaptureFrames
         lastCaptureFrames = capFrames
-        guard s.frames > 0 else {
+        guard s.frames + s.idle > 0 else {
             log("render: no frames")
             return
         }
@@ -573,10 +620,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                     " (or ~14 s if you are already wearing them)")
             }
         }
-        let n = Double(s.frames)
+        let n = Double(max(1, s.frames))
         let pn = Double(max(1, s.presentedN))
-        log(String(format: "%@ render %3d fps | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms",
-                   s.tracking ? "TRACK" : "CALIB", s.frames, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms",
+                   s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
                    s.presentedSum / pn, s.presentedMax, s.predSum / n))
     }
 
