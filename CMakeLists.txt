@@ -235,6 +235,21 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
   # CMake adds libc++ once per implicit language (CXX, OBJCXX) when Swift drives the link.
   target_link_options(nimbo PRIVATE "SHELL:-Xlinker -no_warn_duplicate_libraries")
 
+  # Signing identity. An ad-hoc signature ("-") changes with every build, so macOS asks for
+  # Screen Recording / Accessibility again after each rebuild or reinstall; a stable local
+  # certificate (scripts/make_signing_identity.sh) keeps the permissions.
+  if(NOT DEFINED RAYNEO_CODESIGN_IDENTITY)
+    execute_process(COMMAND security find-certificate -c "Nimbo Local Signing"
+                    RESULT_VARIABLE _rayneo_cert OUTPUT_QUIET ERROR_QUIET)
+    if(_rayneo_cert EQUAL 0)
+      set(_rayneo_identity "Nimbo Local Signing")
+    else()
+      set(_rayneo_identity "-")
+      message(STATUS "rayneo: ad-hoc signing; run scripts/make_signing_identity.sh to keep macOS permissions across builds")
+    endif()
+    set(RAYNEO_CODESIGN_IDENTITY "${_rayneo_identity}" CACHE STRING "codesign identity for Nimbo.app (- = ad hoc)")
+  endif()
+  message(STATUS "rayneo: Nimbo.app signed with '${RAYNEO_CODESIGN_IDENTITY}'")
   # App bundle with its own identity: Screen Recording consent (TCC) is granted to
   # "Nimbo" instead of the terminal that launched it.
   set_target_properties(nimbo PROPERTIES
@@ -250,9 +265,9 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${RAYNEO_APP_RESOURCES}
             $<TARGET_BUNDLE_CONTENT_DIR:nimbo>/Resources
     COMMAND find $<TARGET_BUNDLE_CONTENT_DIR:nimbo>/MacOS -name "*.d" -delete
-    COMMAND codesign --force --sign - --identifier io.github.davidsrc2.nimbo
+    COMMAND codesign --force --sign ${RAYNEO_CODESIGN_IDENTITY} --identifier io.github.davidsrc2.nimbo
             $<TARGET_BUNDLE_DIR:nimbo>
-    COMMENT "Ad-hoc signing Nimbo.app"
+    COMMENT "Signing Nimbo.app (${RAYNEO_CODESIGN_IDENTITY})"
     VERBATIM)
 endif()
 

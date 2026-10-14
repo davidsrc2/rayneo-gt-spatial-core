@@ -6,6 +6,16 @@ Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para
 
 Hasta tener una beta, todo se sube directamente a `main`: commit y push sin ramas ni PR, para poder probar siempre la última versión con un `git pull`. El CI corre en cada push a `main`; si falla, se arregla en el siguiente commit. Al publicar la beta se vuelve a ramas `feat/...` + PR con CI en verde.
 
+## Permisos de macOS estables (una vez por Mac)
+
+Con firma «ad hoc», cada compilación cambia la identidad de la app y macOS vuelve a pedir Grabación de pantalla y Accesibilidad (y los permisos viejos dejan la app a medias). Para evitarlo:
+```
+./scripts/make_signing_identity.sh   # certificado local "Nimbo Local Signing" en el llavero
+cmake -S . -B build && cmake --build build
+tccutil reset ScreenCapture io.github.davidsrc2.nimbo; tccutil reset Accessibility io.github.davidsrc2.nimbo
+```
+Después se conceden los permisos una sola vez y se mantienen al recompilar o reinstalar.
+
 ## Estado del proyecto
 
 Última actualización: 2026-10-14. Hardware de referencia: RayNeo GT conectadas por USB-C a un MacBook Pro M4 (macOS 27.2). Cuando el hardware contradice la documentación, manda el hardware.

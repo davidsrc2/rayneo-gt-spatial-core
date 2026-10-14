@@ -27,7 +27,10 @@ if [[ -n "${DEVELOPER_ID:-}" ]]; then
     codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" \
              --identifier io.github.davidsrc2.nimbo "$STAGE/$APP_NAME.app"
 else
-    codesign --force --sign - --identifier io.github.davidsrc2.nimbo "$STAGE/$APP_NAME.app"
+    # Local certificate when present (scripts/make_signing_identity.sh): permissions survive reinstalls.
+    IDENTITY=-
+    security find-certificate -c "Nimbo Local Signing" >/dev/null 2>&1 && IDENTITY="Nimbo Local Signing"
+    codesign --force --sign "$IDENTITY" --identifier io.github.davidsrc2.nimbo "$STAGE/$APP_NAME.app"
 fi
 codesign --verify --strict "$STAGE/$APP_NAME.app"
 
