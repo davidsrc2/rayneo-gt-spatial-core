@@ -25,7 +25,13 @@ final class AppModel: ObservableObject {
     @Published var textSize: Int { didSet { d.set(textSize, forKey: "textSize") } }
     @Published var distance: Double { didSet { d.set(distance, forKey: "distance") } }
     @Published var gap: Double { didSet { d.set(gap, forKey: "gap") } }
-    @Published var curved: Bool { didSet { d.set(curved, forKey: "curved") } }
+    @Published var curvature: Double { didSet { d.set(curvature, forKey: "curvature") } }  // 0 flat .. 1 cylinder
+    @Published var size: Double { didSet { d.set(size, forKey: "size") } }                // panel width, degrees
+    @Published var autoStart: Bool { didSet { d.set(autoStart, forKey: "autoStart") } }
+    var curved: Bool {
+        get { curvature > 0.5 }
+        set { curvature = newValue ? 1 : 0 }
+    }
 
     // Advanced
     @Published var fov: Double { didSet { d.set(Float(fov), forKey: "fovY") } }
@@ -45,7 +51,9 @@ final class AppModel: ObservableObject {
         textSize = d.object(forKey: "textSize") as? Int ?? 3
         distance = d.object(forKey: "distance") as? Double ?? 2.0
         gap = d.object(forKey: "gap") as? Double ?? 1.0
-        curved = d.bool(forKey: "curved")
+        curvature = d.object(forKey: "curvature") as? Double ?? (d.bool(forKey: "curved") ? 1 : 0)
+        size = d.object(forKey: "size") as? Double ?? 38
+        autoStart = d.bool(forKey: "autoStart")
         fov = d.object(forKey: "fovY") != nil ? Double(d.float(forKey: "fovY")) : 24.5
         ipd = d.object(forKey: "ipd") as? Double ?? 63
         stereo = d.bool(forKey: "stereo")
@@ -91,6 +99,68 @@ final class AppModel: ObservableObject {
     }
 
     func applyTemplate(_ t: [GridPos]) { cells = t }
+
+    // MARK: one-click layouts and profiles
+
+    struct Preset: Identifiable {
+        let id: String
+        let title: String
+        let cells: [GridPos]
+        let curvature: Double
+        let size: Double
+        let gap: Double
+    }
+
+    static let layouts = [
+        Preset(id: "curve", title: "1 Pantalla Curva", cells: [GridPos(col: 0, row: 0)], curvature: 0.7, size: 46, gap: 1),
+        Preset(id: "dual", title: "Doble Monitor", cells: [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0)],
+               curvature: 0, size: 38, gap: 1),
+        Preset(id: "triple", title: "Triple Ultrawide",
+               cells: [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0), GridPos(col: 2, row: 0)],
+               curvature: 0.35, size: 36, gap: 0),
+    ]
+
+    var activeLayout: String? {
+        Self.layouts.first { $0.cells == normalizedCells }?.id
+    }
+
+    func apply(_ p: Preset) {
+        cells = p.cells
+        curvature = p.curvature
+        size = p.size
+        gap = p.gap
+    }
+
+    struct Profile: Identifiable {
+        let id: String
+        let title: String
+        let symbol: String
+        let layout: String
+        let distance: Double
+        let textSize: Int
+    }
+
+    static let profiles = [
+        Profile(id: "code", title: "Código", symbol: "chevron.left.forwardslash.chevron.right",
+                layout: "dual", distance: 1.6, textSize: 2),
+        Profile(id: "cinema", title: "Cine", symbol: "film", layout: "curve", distance: 2.6, textSize: 0),
+    ]
+
+    var activeProfile: String? {
+        Self.profiles.first { p in
+            activeLayout == p.layout && abs(distance - p.distance) < 0.05 && textSize == p.textSize
+        }?.id
+    }
+
+    func apply(_ p: Profile) {
+        if let l = Self.layouts.first(where: { $0.id == p.layout }) { apply(l) }
+        if p.id == "cinema" {
+            curvature = 0.6
+            size = 52
+        }
+        distance = p.distance
+        textSize = p.textSize
+    }
 
     // Adds a monitor touching the arrangement: right of a row first, then below a column,
     // keeping the whole layout within 4 columns x 3 rows.
@@ -141,12 +211,13 @@ final class AppModel: ObservableObject {
         o.headless = false
         o.layout = normalizedCells
         o.displays = cells.count
-        let size = Self.textSizes[max(0, min(Self.textSizes.count - 1, textSize))]
-        o.vdWidth = size.width
-        o.vdHeight = size.height
+        let resolution = Self.textSizes[max(0, min(Self.textSizes.count - 1, textSize))]
+        o.vdWidth = resolution.width
+        o.vdHeight = resolution.height
         o.distanceM = Float(distance)
         o.gapDeg = Float(gap)
-        o.curved = curved
+        o.curvature = Float(curvature)
+        o.arcDeg = Float(size)
         o.fovYDeg = Float(fov)
         o.fovFromCLI = true
         o.ipdMM = Float(ipd)

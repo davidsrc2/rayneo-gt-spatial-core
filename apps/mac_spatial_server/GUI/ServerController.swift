@@ -16,6 +16,7 @@ final class ServerController: ObservableObject {
     private var poll: Timer?
     private weak var model: AppModel?
     private var runningOptions: ServerOptions?
+    private var autoStartChecked = false
 
     var isRunning: Bool { state != .stopped }
 
@@ -92,7 +93,14 @@ final class ServerController: ObservableObject {
     }
 
     private func refresh() {
+        let was = glassesConnected
         glassesConnected = Displays.glassesScreen() != nil || server != nil
+        // Plug and forget: start when the glasses appear (or are already there at launch).
+        if let model, model.autoStart, server == nil, state == .stopped, glassesConnected,
+           !was || !autoStartChecked {
+            start()
+        }
+        autoStartChecked = true
         guard let server else { return }
         state = server.isTracking ? .tracking : .calibrating
     }

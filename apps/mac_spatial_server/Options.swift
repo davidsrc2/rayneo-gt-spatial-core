@@ -13,6 +13,7 @@ struct ServerOptions {
     var arcDeg: Float? = nil      // nil: 38 per virtual panel, 50 for single-display capture
     var gapDeg: Float = 1
     var curved = false
+    var curvature: Float = 0          // 0 flat .. 1 cylinder (--curved = 1)
     var fovYDeg: Float = 24.5
     var fovFromCLI = false
     var deadZoneDeg: Float = 1.0
@@ -54,6 +55,7 @@ struct ServerOptions {
       --arc DEG            horizontal size of each panel (38; 50 with --displays 0)
       --gap DEG            space between panels (1)
       --curved             curved panels (default: flat monitors angled towards you)
+      --curvature K        0 flat .. 1 fully curved around you
       --distance M         panel radius in metres (2.0)
       --test-pattern       labelled grid on each virtual monitor
       --keep-main          keep the glasses display as macOS's main display, shown as the left
@@ -109,7 +111,8 @@ struct ServerOptions {
             case "--no-hidpi": o.hiDPI = false
             case "--arc": guard let v = float() else { return nil }; o.arcDeg = v
             case "--gap": guard let v = float() else { return nil }; o.gapDeg = v
-            case "--curved": o.curved = true
+            case "--curved": o.curved = true; o.curvature = 1
+            case "--curvature": guard let v = float(), (0...1).contains(v) else { return nil }; o.curvature = v
             case "--distance": guard let v = float() else { return nil }; o.distanceM = v
             case "--test-pattern": o.testPattern = true
             case "--keep-main": o.includeMain = true

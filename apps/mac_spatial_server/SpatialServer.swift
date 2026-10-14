@@ -226,6 +226,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.arcDegrees = options.panelArcDeg
         ro.gapDegrees = options.gapDeg
         ro.curved = options.curved
+        ro.curvature = options.curvature
         ro.fovYDegrees = options.fovYDeg
         if !options.fovFromCLI, UserDefaults.standard.object(forKey: "fovY") != nil {
             ro.fovYDegrees = UserDefaults.standard.float(forKey: "fovY")
@@ -310,6 +311,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.distanceMeters = o.distanceM
         ro.gapDegrees = o.gapDeg
         ro.curved = o.curved
+        ro.curvature = o.curvature
         ro.fovYDegrees = o.fovYDeg
         ro.ipdMeters = o.ipdMM / 1000
         ro.sideBySide = o.sideBySide ?? !o.windowed
@@ -319,6 +321,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.distanceM = o.distanceM
         options.gapDeg = o.gapDeg
         options.curved = o.curved
+        options.curvature = o.curvature
+        options.arcDeg = o.arcDeg
         options.fovYDeg = o.fovYDeg
         options.ipdMM = o.ipdMM
         options.sideBySide = o.sideBySide

@@ -62,6 +62,13 @@ ScreenMesh curved_screen_mesh(float radius_m, float arc_rad, float height_m, int
 ScreenMesh flat_screen_mesh(float radius_m, float arc_rad, float height_m, int segments,
                             float center_rad = 0.0f, float center_y_m = 0.0f);
 
+// Panel with adjustable curvature, as a sheet of fixed width 2 r tan(arc/2) bent around a
+// vertical axis: curvature 0 = flat (flat_screen_mesh), 1 = a cylinder centred on the viewer
+// (every column at distance r). In between, the bending radius is r / curvature and the
+// panel centre stays at distance r, so distance and curvature are independent controls.
+ScreenMesh bent_screen_mesh(float radius_m, float arc_rad, float height_m, int segments, float curvature,
+                            float center_rad = 0.0f, float center_y_m = 0.0f);
+
 // Physical width of a panel spanning arc_rad at radius_m (arc length if curved).
 float panel_width(float radius_m, float arc_rad, bool flat);
 

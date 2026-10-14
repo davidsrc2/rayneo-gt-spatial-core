@@ -716,6 +716,37 @@ void test_grid_layout() {
     CHECK(panel_at_gaze(look(0, 60), stacked, arc, varc, gap) == -1);
 }
 
+void test_bent_panels() {
+    const float r = 2.0f, arc = 38 * kDeg, h = 0.8f;
+    // Curvature 0 is exactly the flat panel.
+    const ScreenMesh flat = flat_screen_mesh(r, arc, h, 16, 10 * kDeg);
+    const ScreenMesh zero = bent_screen_mesh(r, arc, h, 16, 0.0f, 10 * kDeg);
+    CHECK(flat.vertices.size() == zero.vertices.size());
+    for (size_t i = 0; i < flat.vertices.size(); ++i) {
+        CHECK(near(flat.vertices[i].px, zero.vertices[i].px, 1e-6f) && near(flat.vertices[i].pz, zero.vertices[i].pz, 1e-6f));
+    }
+    // Curvature 1: every column on the viewing circle.
+    const ScreenMesh full = bent_screen_mesh(r, arc, h, 16, 1.0f);
+    for (const auto& v : full.vertices) CHECK(near(std::sqrt(v.px * v.px + v.pz * v.pz), r, 1e-5f));
+    // Any curvature: centre stays at distance r straight ahead; the sheet keeps its width
+    // (arc length between the edges equals the flat width).
+    for (float k : {0.25f, 0.5f, 0.8f}) {
+        const ScreenMesh m = bent_screen_mesh(r, arc, h, 64, k);
+        const auto& mid = m.vertices[64];  // u = 0.5, top
+        CHECK(near(mid.px, 0.0f, 1e-5f) && near(mid.pz, r, 1e-5f));
+        float length = 0.0f;
+        for (size_t i = 2; i < m.vertices.size(); i += 2) {
+            const float dx = m.vertices[i].px - m.vertices[i - 2].px, dz = m.vertices[i].pz - m.vertices[i - 2].pz;
+            length += std::sqrt(dx * dx + dz * dz);
+        }
+        CHECK(near(length, 2 * r * std::tan(arc / 2), 2e-3f));
+        // More curvature pulls the edges closer to the viewer (towards the viewing circle).
+        const ScreenMesh more = bent_screen_mesh(r, arc, h, 64, k + 0.1f);
+        auto edge = [](const ScreenMesh& mm) { return std::sqrt(mm.vertices[0].px * mm.vertices[0].px + mm.vertices[0].pz * mm.vertices[0].pz); };
+        CHECK(edge(more) < edge(m) && edge(more) >= r - 1e-5f);
+    }
+}
+
 void test_barrel_distort() {
     const Vec2 c = barrel_distort({0, 0}, 0.2f, 0.1f);
     CHECK(c.x == 0.0f && c.y == 0.0f);
@@ -883,6 +914,7 @@ int main() {
     test_panel_at_gaze();
     test_fit_panels();
     test_grid_layout();
+    test_bent_panels();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

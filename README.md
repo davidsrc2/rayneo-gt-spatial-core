@@ -51,7 +51,14 @@ Motor 3DoF multiplataforma para las gafas RayNeo GT (USB HID, ~457 Hz). PoC para
 open ~/rayneo-gt-spatial-core/build/mac_spatial_server.app      # o doble clic en Finder
 ```
 
-- Sin argumentos se abre la interfaz; con flags sigue funcionando como CLI (`--help`).
+- Sin argumentos se abre como **app de barra de menús**: clic en **◎** abre el panel compacto (cristal nativo, oscuro). Clic derecho: menú rápido.
+  - Arriba, el estado tipo semáforo (verde «Sensores estabilizados», ámbar «Calibrando (deja las gafas en la mesa 5 s)», gris apagado) y el interruptor de encendido.
+  - Tarjetas de un clic: **1 Pantalla Curva**, **Doble Monitor**, **Triple Ultrawide**.
+  - **Recentrar vista** (⌘⌥C; no ⌘⇧R porque es «recargar» en Safari y Chrome y un atajo global lo anularía).
+  - Deslizadores con anclajes: **Distancia** (Cerca / Normal / Lejos), **Curvatura** continua (Plana / Suave / Envolvente; `core::bent_screen_mesh`), **Tamaño**.
+  - Perfiles **Modo Código** y **Modo Cine**, y **Auto-iniciar al conectar las RayNeo GT**.
+  - «Más opciones…» abre la ventana completa: editor de cuadrícula (horizontal y vertical), tamaño de texto, Ajustes y Avanzado.
+- Con flags sigue funcionando como CLI (`--help`; `--curvature 0..1`).
 - Primera vez: asistente con permisos (Grabación de pantalla y Accesibilidad **para la app**, no para Terminal), calibración guiada (reutiliza tu `calibration.json` si ya existía) y ajuste de escala.
 - Disposición: arrastra las tarjetas para poner monitores al lado o encima/debajo; `+`/`−`; plantillas. El monitor 1 es el principal de macOS (barra de menús y Dock).
 - Distancia, separación, forma, FOV, IPD, 3D y lente se aplican en vivo; el número de monitores, la disposición, el tamaño del texto y la zona quieta relanzan el servidor.

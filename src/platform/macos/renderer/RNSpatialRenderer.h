@@ -15,7 +15,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float distanceMeters;   // cylinder radius, 2.0
 @property(nonatomic) float arcDegrees;       // horizontal extent of each panel, 50
 @property(nonatomic) float gapDegrees;       // space between panels, 4
-@property(nonatomic) BOOL curved;            // NO: flat monitors angled towards you
+@property(nonatomic) BOOL curved;            // shorthand for curvature 1
+@property(nonatomic) float curvature;        // 0 = flat monitors angled towards you, 1 = cylinder
 @property(nonatomic) float fovYDegrees;      // per-eye vertical FOV of the optics, 24.5
 @property(nonatomic) float eyeAspect;        // perceived per-eye aspect, 16/9
 @property(nonatomic) float k1;               // barrel pre-distortion, 0 = off

@@ -1,0 +1,109 @@
+import SwiftUI
+
+// The whole app for everyday use, in the menu bar. Reading order = priority:
+// 1 is it working (light + switch), 2 how many screens, 3 recentre, 4 fine-tune, 5 set-and-forget.
+@available(macOS 14.0, *)
+struct QuickPanel: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var server: ServerController
+    let openMore: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header
+            LayoutCards(model: model) { server.settingsChanged() }
+            recenter
+            Tile {
+                VStack(spacing: 14) {
+                    SnapSlider(title: "Distancia", value: $model.distance, range: 1.2...3.0,
+                               anchors: [(1.2, "Cerca"), (2.0, "Normal"), (3.0, "Lejos")],
+                               format: { String(format: "%.1f m", $0) },
+                               onCommit: server.settingsChanged)
+                    SnapSlider(title: "Curvatura", value: $model.curvature, range: 0...1,
+                               anchors: [(0, "Plana"), (0.5, "Suave"), (1, "Envolvente")],
+                               format: { $0 < 0.02 ? "Plana" : String(format: "%.0f %%", $0 * 100) },
+                               onCommit: server.settingsChanged)
+                    SnapSlider(title: "Tamaño", value: $model.size, range: 28...60,
+                               anchors: [(32, "Pequeña"), (38, "Media"), (46, "Grande"), (56, "Enorme")],
+                               format: { String(format: "%.0f°", $0) },
+                               onCommit: server.settingsChanged)
+                }
+            }
+            footer
+        }
+        .padding(18)
+        .frame(width: 380)
+        .background(Color.black.opacity(0.28))  // keeps the glass dark over bright windows
+        .background(Glass())
+        .preferredColorScheme(.dark)
+        .onChange(of: model.distance) { server.settingsChanged() }
+        .onChange(of: model.curvature) { server.settingsChanged() }
+        .onChange(of: model.size) { server.settingsChanged() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("RayNeo GT").font(.system(size: 17, weight: .semibold))
+                StatusLight(server: server)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(get: { server.isRunning }, set: { $0 ? server.start() : server.stop() }))
+                .toggleStyle(.switch)
+                .tint(Color(red: 0.48, green: 0.78, blue: 0.60))
+                .labelsHidden()
+                .disabled(server.state == .starting)
+        }
+    }
+
+    private var recenter: some View {
+        Button { server.recenter() } label: {
+            HStack {
+                Image(systemName: "scope").font(.system(size: 16))
+                Text("Recentrar vista").font(.system(size: 15, weight: .medium))
+                Spacer()
+                Text("⌘⌥C")
+                    .font(.system(size: 12, design: .rounded))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(.white.opacity(0.1)))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(red: 0.55, green: 0.72, blue: 0.70).opacity(server.isRunning ? 0.32 : 0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.white.opacity(0.12)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!server.isRunning)
+        .opacity(server.isRunning ? 1 : 0.6)
+        .animation(.easeInOut(duration: 0.35), value: server.isRunning)
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ProfileChips(model: model) { server.settingsChanged() }
+            Divider().opacity(0.4)
+            HStack {
+                Toggle(isOn: $model.autoStart) {
+                    Text("Auto-iniciar al conectar las RayNeo GT").font(.system(size: 13))
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                Spacer()
+            }
+            HStack {
+                if let notice = server.notice {
+                    Text(notice).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer()
+                Button("Más opciones…", action: openMore)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}

@@ -125,6 +125,38 @@ ScreenMesh flat_screen_mesh(float radius_m, float arc_rad, float height_m, int s
     return mesh;
 }
 
+ScreenMesh bent_screen_mesh(float radius_m, float arc_rad, float height_m, int segments, float curvature,
+                            float center_rad, float center_y_m) {
+    if (curvature <= 1e-4f) return flat_screen_mesh(radius_m, arc_rad, height_m, segments, center_rad, center_y_m);
+    ScreenMesh mesh;
+    if (segments < 1 || arc_rad <= 0.0f || arc_rad >= 3.0f) return mesh;
+    const float k = std::fmin(curvature, 1.0f);
+    const float width = 2.0f * radius_m * std::tan(arc_rad * 0.5f);
+    const float bend = radius_m / k;  // bending radius; its axis sits at distance r - bend
+    const float half_h = height_m * 0.5f;
+    const float cs = std::cos(center_rad), sn = std::sin(center_rad);
+    mesh.vertices.reserve(static_cast<size_t>(segments + 1) * 2);
+    for (int i = 0; i <= segments; ++i) {
+        const float u = static_cast<float>(i) / static_cast<float>(segments);
+        const float phi = (u - 0.5f) * width / bend;  // arc length along the sheet / bend radius
+        const float lx = bend * std::sin(phi);
+        const float lz = (radius_m - bend) + bend * std::cos(phi);
+        // Rotate the straight-ahead panel to its centre direction (yaw, render Y axis).
+        const float x = lx * cs + lz * sn;
+        const float z = -lx * sn + lz * cs;
+        mesh.vertices.push_back({x, center_y_m + half_h, z, u, 0.0f});
+        mesh.vertices.push_back({x, center_y_m - half_h, z, u, 1.0f});
+    }
+    for (int i = 0; i < segments; ++i) {
+        const auto top = static_cast<uint16_t>(i * 2);
+        const auto bottom = static_cast<uint16_t>(top + 1);
+        const auto next_top = static_cast<uint16_t>(top + 2);
+        const auto next_bottom = static_cast<uint16_t>(top + 3);
+        mesh.indices.insert(mesh.indices.end(), {top, next_top, bottom, bottom, next_top, next_bottom});
+    }
+    return mesh;
+}
+
 float panel_width(float radius_m, float arc_rad, bool flat) {
     return flat ? 2.0f * radius_m * std::tan(arc_rad * 0.5f) : radius_m * arc_rad;
 }

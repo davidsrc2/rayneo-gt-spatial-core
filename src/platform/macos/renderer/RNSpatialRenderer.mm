@@ -46,7 +46,7 @@ struct Panel {
     id<MTLBuffer> indices;
     NSUInteger index_count = 0;
     float mesh_aspect = 0, mesh_distance = 0, mesh_arc = 0, mesh_center = 0, mesh_pitch = 0;
-    int mesh_flat = -1;
+    float mesh_curvature = -1.0f;
 };
 
 }  // namespace
@@ -60,6 +60,7 @@ struct Panel {
         _arcDegrees = 50.0f;
         _gapDegrees = 4.0f;
         _curved = NO;
+        _curvature = 0.0f;
         _fovYDegrees = 24.5f;
         _eyeAspect = 16.0f / 9.0f;
         _k1 = 0.0f;
@@ -179,7 +180,7 @@ struct Panel {
         for (NSUInteger i = 0; i < count; ++i) cells.push_back({static_cast<int>(i), 0});
     }
     const float arc = o.arcDegrees * kDegToRad;
-    return core::grid_layout(cells, arc, core::panel_vertical_arc(arc, aspect, !o.curved), o.gapDegrees * kDegToRad);
+    return core::grid_layout(cells, arc, core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
 }
 
 - (float)fitArcDegreesForPanels:(NSUInteger)count {
@@ -195,7 +196,7 @@ struct Panel {
     os_unfair_lock_unlock(&_sourceLock);
     const float arc = o.arcDegrees * kDegToRad;
     return core::panel_at_gaze(from_simd(orientation), [self placements:self.panelCount aspect:aspect], arc,
-                               core::panel_vertical_arc(arc, aspect, !o.curved), o.gapDegrees * kDegToRad);
+                               core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
 }
 
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pb {
@@ -220,19 +221,22 @@ struct Panel {
     if (old != nullptr) CFRelease(old);
 }
 
+static float effective_curvature(RNRenderOptions* o) {
+    return o.curved && o.curvature <= 0.0f ? 1.0f : std::clamp(o.curvature, 0.0f, 1.0f);
+}
+
 - (void)rebuildMesh:(Panel&)p aspect:(float)aspect placement:(core::PanelPlacement)pl {
     RNRenderOptions* o = _options;
     const float center = pl.yaw_rad;
+    const float k = effective_curvature(o);
     if (p.vertices != nil && aspect == p.mesh_aspect && o.distanceMeters == p.mesh_distance &&
         o.arcDegrees == p.mesh_arc && center == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
-        (o.curved ? 0 : 1) == p.mesh_flat) {
+        k == p.mesh_curvature) {
         return;
     }
     const float arc = o.arcDegrees * kDegToRad;
-    const float width = core::panel_width(o.distanceMeters, arc, !o.curved);
-    core::ScreenMesh mesh =
-        o.curved ? core::curved_screen_mesh(o.distanceMeters, arc, width / aspect, 64, center)
-                 : core::flat_screen_mesh(o.distanceMeters, arc, width / aspect, 1, center);
+    const float width = core::panel_width(o.distanceMeters, arc, true);  // a sheet: bending keeps its width
+    core::ScreenMesh mesh = core::bent_screen_mesh(o.distanceMeters, arc, width / aspect, k > 0.0f ? 64 : 1, k, center);
     core::pitch_mesh(mesh, pl.pitch_rad);
     p.vertices = [_device newBufferWithBytes:mesh.vertices.data()
                                       length:mesh.vertices.size() * sizeof(core::ScreenVertex)
@@ -246,7 +250,7 @@ struct Panel {
     p.mesh_arc = o.arcDegrees;
     p.mesh_center = center;
     p.mesh_pitch = pl.pitch_rad;
-    p.mesh_flat = o.curved ? 0 : 1;
+    p.mesh_curvature = k;
 }
 
 - (void)ensureEyeTextures:(MTLPixelFormat)format width:(NSUInteger)w height:(NSUInteger)h {

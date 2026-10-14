@@ -4,22 +4,69 @@ import SwiftUI
 // The app when opened normally (no command-line flags): one calm window plus "◎" in the
 // menu bar. The server runs in-process and is started/stopped from either.
 @available(macOS 14.0, *)
-final class GUIApp: NSObject, NSMenuDelegate {
+final class GUIApp: NSObject {
     let model = AppModel()
     let server = ServerController()
     private var window: NSWindow?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let toggleItem = NSMenuItem(title: "Empezar", action: #selector(toggleServer), keyEquivalent: "")
+    private let popover = NSPopover()
 
     func launch() {
-        NSApp.setActivationPolicy(.regular)
+        NSApp.setActivationPolicy(.accessory)  // a menu bar app: no Dock icon
         NSApp.appearance = NSAppearance(named: .darkAqua)
         server.bind(model)
-        buildStatusMenu()
-        openLayout()
+        buildStatusItem()
+        if ProcessInfo.processInfo.environment["RAYNEO_PANEL_PREVIEW"] != nil {
+            showPanelPreviewWindow()  // development: the panel as a plain window, for screenshots
+            return
+        }
+        if model.onboardingDone {
+            DispatchQueue.main.async { self.showPanel() }
+        } else {
+            openLayout()  // first run: the full window hosts the welcome assistant
+        }
     }
 
     func shutdown() { server.stop() }
+
+    // Compact glass panel under the ◎ icon.
+    @objc func togglePanel() {
+        popover.isShown ? popover.performClose(nil) : showPanel()
+    }
+
+    func showPanel() {
+        guard let button = statusItem.button else { return }
+        if popover.contentViewController == nil {
+            popover.behavior = .transient
+            popover.animates = true
+            popover.appearance = NSAppearance(named: .darkAqua)
+            popover.contentViewController = NSHostingController(rootView: QuickPanel(model: model, server: server) { [weak self] in
+                self?.popover.performClose(nil)
+                self?.openLayout()
+            })
+        }
+        // A transient popover of an inactive app closes at once: become active first.
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    private var previewWindow: NSWindow?
+
+    private func showPanelPreviewWindow() {
+        let host = NSHostingView(rootView: QuickPanel(model: model, server: server) {})
+        let w = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize), styleMask: [.titled, .fullSizeContentView],
+                         backing: .buffered, defer: false)
+        w.titlebarAppearsTransparent = true
+        w.isOpaque = false
+        w.backgroundColor = .clear
+        w.contentView = host
+        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        w.level = .floating
+        w.center()
+        w.orderFrontRegardless()
+        previewWindow = w
+    }
 
     @objc func openLayout() {
         if window == nil {
@@ -37,28 +84,40 @@ final class GUIApp: NSObject, NSMenuDelegate {
         }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        if window?.title == "RayNeo" { window?.title = "RayNeo · Más opciones" }
     }
 
-    private func buildStatusMenu() {
-        statusItem.button?.title = "◎"
-        statusItem.button?.font = NSFont.systemFont(ofSize: 15)
-        let menu = NSMenu()
-        menu.delegate = self
-        let recenter = NSMenuItem(title: "Recentrar (⌘⌥C)", action: #selector(recenter), keyEquivalent: "")
-        recenter.target = self
-        toggleItem.target = self
-        let layout = NSMenuItem(title: "Abrir disposición", action: #selector(openLayout), keyEquivalent: "")
-        layout.target = self
-        let quit = NSMenuItem(title: "Salir", action: #selector(quit), keyEquivalent: "")
-        quit.target = self
-        [recenter, toggleItem, layout].forEach(menu.addItem)
-        menu.addItem(.separator())
-        menu.addItem(quit)
-        statusItem.menu = menu
+    // Click: the panel. Right-click: the quick menu.
+    private func buildStatusItem() {
+        guard let button = statusItem.button else { return }
+        button.title = "◎"
+        button.font = NSFont.systemFont(ofSize: 15)
+        button.target = self
+        button.action = #selector(statusClicked)
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
-        toggleItem.title = server.isRunning ? "Parar" : "Empezar"
+    @objc private func statusClicked() {
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            let menu = NSMenu()
+            let items: [(String, Selector)] = [("Recentrar (⌘⌥C)", #selector(recenter)),
+                                               (server.isRunning ? "Parar" : "Empezar", #selector(toggleServer)),
+                                               ("Abrir disposición", #selector(openLayout))]
+            for (title, sel) in items {
+                let it = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+                it.target = self
+                menu.addItem(it)
+            }
+            menu.addItem(.separator())
+            let quit = NSMenuItem(title: "Salir", action: #selector(quit), keyEquivalent: "")
+            quit.target = self
+            menu.addItem(quit)
+            statusItem.menu = menu
+            statusItem.button?.performClick(nil)
+            statusItem.menu = nil
+        } else {
+            togglePanel()
+        }
     }
 
     @objc private func recenter() { server.recenter() }

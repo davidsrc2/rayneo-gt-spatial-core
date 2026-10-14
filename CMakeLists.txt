@@ -203,6 +203,11 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${RAYNEO_SERVER_DIR}/GUI/MainView.swift
     ${RAYNEO_SERVER_DIR}/GUI/SettingsView.swift
     ${RAYNEO_SERVER_DIR}/GUI/OnboardingView.swift
+    ${RAYNEO_SERVER_DIR}/GUI/Panel/Glass.swift
+    ${RAYNEO_SERVER_DIR}/GUI/Panel/StatusLight.swift
+    ${RAYNEO_SERVER_DIR}/GUI/Panel/SnapSlider.swift
+    ${RAYNEO_SERVER_DIR}/GUI/Panel/LayoutCards.swift
+    ${RAYNEO_SERVER_DIR}/GUI/Panel/QuickPanel.swift
     ${RAYNEO_SERVER_DIR}/GUI/GUIApp.swift)
   target_compile_options(mac_spatial_server PRIVATE
     "SHELL:-import-objc-header ${RAYNEO_SERVER_DIR}/BridgingHeader.h"

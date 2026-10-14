@@ -49,11 +49,10 @@ struct MainView: View {
                                   caption: String(format: "%.1f m", model.distance))
                     LabeledSlider(title: "Separación", value: $model.gap, range: 0...6, step: 0.5,
                                   caption: model.gap == 0 ? "Juntos" : String(format: "%.1f°", model.gap))
-                    HStack {
-                        Text("Forma").font(Theme.body).foregroundStyle(Theme.text).frame(width: 170, alignment: .leading)
-                        CalmSegmented(options: ["Plano", "Curvo"],
-                                      selection: Binding(get: { model.curved ? 1 : 0 }, set: { model.curved = $0 == 1 }))
-                    }
+                    LabeledSlider(title: "Curvatura", value: $model.curvature, range: 0...1, step: 0.05,
+                                  caption: model.curvature < 0.05 ? "Plana" : String(format: "%.0f %%", model.curvature * 100))
+                    LabeledSlider(title: "Tamaño", value: $model.size, range: 28...60, step: 1,
+                                  caption: String(format: "%.0f°", model.size))
                 }
 
                 actions
@@ -71,7 +70,8 @@ struct MainView: View {
         .onChange(of: model.textSize) { server.settingsChanged() }
         .onChange(of: model.distance) { server.settingsChanged() }
         .onChange(of: model.gap) { server.settingsChanged() }
-        .onChange(of: model.curved) { server.settingsChanged() }
+        .onChange(of: model.curvature) { server.settingsChanged() }
+        .onChange(of: model.size) { server.settingsChanged() }
         .sheet(isPresented: $showSettings.value) {
             SettingsView(model: model, server: server, onRecalibrate: {
                 showSettings.value = false
