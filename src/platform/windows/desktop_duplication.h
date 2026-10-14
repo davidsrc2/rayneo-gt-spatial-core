@@ -1,8 +1,9 @@
 #pragma once
 
 // DXGI Desktop Duplication of one output (the ScreenCaptureKit equivalent). A capture thread
-// copies every new desktop frame into a texture of its own; the renderer reads the latest
-// one from the render thread. Both share one D3D11 device with multithread protection on.
+// with a D3D11 device of its own copies every new desktop frame into a shared texture; the
+// render device opens it and copies from it under a keyed mutex. Separate devices matter:
+// AcquireNextFrame holds its device's lock while it waits, which would stall the render loop.
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
@@ -38,7 +39,8 @@ struct PointerState {
 class DesktopDuplication {
 public:
     struct Frame {
-        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;  // B8G8R8A8_UNORM, output size
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;  // render device, B8G8R8A8_UNORM, output size
+        Microsoft::WRL::ComPtr<IDXGIKeyedMutex> mutex;    // hold (key 0) while reading `texture`
         uint64_t generation = 0;  // bumps on every new frame or pointer change
         int width = 0;
         int height = 0;
@@ -50,11 +52,11 @@ public:
     DesktopDuplication(const DesktopDuplication&) = delete;
     DesktopDuplication& operator=(const DesktopDuplication&) = delete;
 
-    // `device` must be on the adapter that owns `output`.
-    bool start(ID3D11Device* device, IDXGIOutput1* output, std::string* error);
+    // `adapter` must own `output`; frames are handed to `render_device` (same adapter).
+    bool start(IDXGIAdapter* adapter, IDXGIOutput1* output, ID3D11Device* render_device, std::string* error);
     void stop();
 
-    Frame latest();
+    Frame latest();  // render thread
     uint64_t generation() const { return generation_.load(std::memory_order_acquire); }
     // Copies the shape if its generation differs from `have`; returns false otherwise.
     bool pointer_shape(uint64_t have, PointerShape* out);
@@ -65,13 +67,19 @@ private:
     bool open(std::string* error);
     void read_shape(const DXGI_OUTDUPL_FRAME_INFO& info);
 
-    Microsoft::WRL::ComPtr<ID3D11Device> device_;
+    Microsoft::WRL::ComPtr<ID3D11Device> device_;  // capture thread's own device
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
+    Microsoft::WRL::ComPtr<ID3D11Device> render_device_;
     Microsoft::WRL::ComPtr<IDXGIOutput1> output_;
     Microsoft::WRL::ComPtr<IDXGIOutputDuplication> dup_;  // capture thread
 
     std::mutex mutex_;
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> latest_;  // guarded by mutex_
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> latest_;  // capture device; shared, keyed mutex
+    Microsoft::WRL::ComPtr<IDXGIKeyedMutex> latest_mutex_;
+    HANDLE shared_handle_ = nullptr;                  // guarded by mutex_
+    HANDLE opened_handle_ = nullptr;                  // render thread
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> render_texture_;  // render thread
+    Microsoft::WRL::ComPtr<IDXGIKeyedMutex> render_mutex_;    // render thread
     int width_ = 0, height_ = 0;                      // guarded by mutex_
     PointerState pointer_;                            // guarded by mutex_
     PointerShape shape_;                              // guarded by mutex_

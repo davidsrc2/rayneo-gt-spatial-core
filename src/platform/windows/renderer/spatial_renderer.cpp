@@ -232,7 +232,8 @@ void SpatialRenderer::compose(Panel& p) {
     if (p.source == nullptr) return;
     const DesktopDuplication::Frame f = p.source->latest();
     if (!f.texture || f.generation == p.composed_generation) return;
-    p.composed_generation = f.generation;
+    // The capture thread is writing it: keep the previous composite, retry next frame.
+    if (f.mutex->AcquireSync(0, 0) != S_OK) return;
 
     if (!p.composite || p.width != f.width || p.height != f.height) {
         D3D11_TEXTURE2D_DESC d{};
@@ -248,7 +249,10 @@ void SpatialRenderer::compose(Panel& p) {
         p.composite.Reset();
         p.composite_srv.Reset();
         p.composite_rtv.Reset();
-        if (FAILED(device_->CreateTexture2D(&d, nullptr, &p.composite))) return;
+        if (FAILED(device_->CreateTexture2D(&d, nullptr, &p.composite))) {
+            f.mutex->ReleaseSync(0);
+            return;
+        }
         D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
         sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
         sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
@@ -263,6 +267,8 @@ void SpatialRenderer::compose(Panel& p) {
         p.aspect = f.height > 0 ? static_cast<float>(f.width) / static_cast<float>(f.height) : 16.0f / 9.0f;
     }
     ctx_->CopySubresourceRegion(p.composite.Get(), 0, 0, 0, 0, f.texture.Get(), 0, nullptr);
+    f.mutex->ReleaseSync(0);
+    p.composed_generation = f.generation;
 
     PointerShape shape;
     if (p.source->pointer_shape(p.shape_generation, &shape) && shape.width > 0 && shape.height > 0) {

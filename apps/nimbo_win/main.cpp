@@ -453,8 +453,9 @@ bool Server::start() {
         return false;
     }
 
-    // One device for capture, render and present, on the GPU that owns the captured output
-    // (Desktop Duplication requires it). A glasses output on another GPU costs a copy.
+    // Render and present on the GPU that owns the captured output (the capture's own device
+    // must be there, and frames are shared between the two). A glasses output on another GPU
+    // costs a copy.
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1,
                                         D3D_FEATURE_LEVEL_10_0};
     D3D_FEATURE_LEVEL level{};
@@ -465,8 +466,6 @@ bool Server::start() {
         logln("D3D11CreateDevice failed (0x%08lx)", static_cast<unsigned long>(hr));
         return false;
     }
-    ComPtr<ID3D11Multithread> mt;
-    if (SUCCEEDED(ctx_.As(&mt))) mt->SetMultithreadProtected(TRUE);  // capture thread shares the context
     logln("gpu: %s (feature level %x)", win::narrow(source->adapter_name).c_str(), static_cast<unsigned>(level));
 
     // Pose first: the IMU needs ~6 s of rest, let it start while the rest comes up.
@@ -519,7 +518,7 @@ bool Server::start() {
         ro.side_by_side ? "half-SBS" : "mono", ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.distance_m,
         opt_.ipd_mm, ro.fov_y_deg, ro.k1, ro.k2);
 
-    if (!capture_.start(device_.Get(), source->output.Get(), &error)) {
+    if (!capture_.start(source->adapter.Get(), source->output.Get(), device_.Get(), &error)) {
         logln("capture: %s", error.c_str());
         return false;
     }
@@ -696,7 +695,7 @@ bool Server::frame() {
     UINT id = 0;
     if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) sent_[id % 128] = {p->host_ns, target};
     if (p) {
-        const double age = static_cast<double>(static_cast<int64_t>(now - p->host_ns)) / 1e6;
+        const double age = static_cast<double>(static_cast<int64_t>(steady_ns() - p->host_ns)) / 1e6;
         stats_.frames += 1;
         stats_.pose_age_sum += age;
         stats_.pose_age_max = std::max(stats_.pose_age_max, age);
