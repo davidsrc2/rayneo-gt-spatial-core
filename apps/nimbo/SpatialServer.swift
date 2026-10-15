@@ -425,7 +425,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.brightness = o.brightness
         options.glassesPinned = o.glassesPinned
         options.growFocused = o.growFocused
-        options.focusByCursor = o.focusByCursor
         options.focusWindows = o.focusWindows
         applyPinned(o)  // last: it overrides the panel width
         requestRedraw()
@@ -710,10 +709,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if !(o.glassesPinned && o.growFocused) { renderer.growPanel = -1 }
     }
 
-    // Pinned: everything shares the glasses' one image, so the panel in use is drawn large and
-    // the others small around it. By gaze: the one you look at for a second, or the one you take
-    // the mouse to (at once: a small panel is hard to work in). By cursor: the one with the
-    // cursor. Floating windows only when allowed.
+    // Pinned: the panel in use fills the glasses' image. It is the one you look at for a second
+    // (the others lie just beyond the image's edges: look there), or the one you take the mouse
+    // to, at once. Floating windows only when allowed.
     private func updateGrow() {
         guard options.glassesPinned, options.growFocused, focusMode == 0, renderer.panelCount > 1,
               let p = pose.latest(), p.tracking else {
@@ -723,19 +721,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let current = renderer.growPanel
         if current >= monitorPanels && !options.focusWindows { renderer.growPanel = -1 }
         let cursorPanel = self.cursorPanel()
-        if options.focusByCursor {
-            guard let panel = cursorPanel, panel != current, eligible(panel) else {
-                growCandidate = -2
-                return
-            }
-            if panel != growCandidate {  // a short hold: crossing a panel on the way is not a choice
-                growCandidate = panel
-                growCandidateSince = Date()
-            } else if Date().timeIntervalSince(growCandidateSince) >= 0.15 {
-                grow(panel, "cursor")
-            }
-            return
-        }
         let id = cursorPanel.map { gazeDisplays[$0] } ?? 0
         if id != growCursorDisplay {
             growCursorDisplay = id
@@ -920,12 +905,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             onNotice?("Todos los monitores")
         } else {
             if focusMode == 0 {
-                // The panel with the cursor or the one you look at; a floating window only when
-                // allowed (else the cursor's monitor, else the first).
+                // The panel you look at, else the cursor's; a floating window only when allowed
+                // (else the first).
                 let gaze = pose.latest().map { renderer.panel(atGaze: $0.orientation) } ?? -1
                 let cursor = cursorPanel() ?? -1
-                let candidates = options.focusByCursor ? [cursor, gaze] : [gaze, cursor]
-                ro.focusPanel = candidates.first { $0 >= 0 && eligible($0) } ?? 0
+                ro.focusPanel = [gaze, cursor].first { $0 >= 0 && eligible($0) } ?? 0
             }
             focusMode = wanted
             ro.cinema = cinema

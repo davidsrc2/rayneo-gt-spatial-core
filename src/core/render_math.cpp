@@ -286,31 +286,6 @@ float pinned_zoom(float shown_arc_rad) {
     return std::pow(r, 0.25f);
 }
 
-void grow_panel(std::vector<PanelPlacement>& panels, const std::vector<float>& widths_rad,
-                const std::vector<float>& heights_rad, int focus, float shrink) {
-    const size_t n = std::min(panels.size(), std::min(widths_rad.size(), heights_rad.size()));
-    if (focus < 0 || static_cast<size_t>(focus) >= n) return;
-    const auto f = static_cast<size_t>(focus);
-    // Offset `d` between the two centres along one axis; `touch` is the offset at which they
-    // just touch, `touch_new` the same once the other one has shrunk. Apart: the space between
-    // them shrinks too. Overlapping on this axis (side by side on the other): proportional.
-    const auto pull = [shrink](float d, float touch, float touch_new) {
-        const float a = std::fabs(d);
-        if (touch <= 0.0f) return d * shrink;
-        const float m = a >= touch ? touch_new + (a - touch) * shrink : a * touch_new / touch;
-        return std::copysign(m, d);
-    };
-    for (size_t i = 0; i < n; ++i) {
-        if (i == f) continue;
-        const float tx = 0.5f * (widths_rad[f] + widths_rad[i]), ty = 0.5f * (heights_rad[f] + heights_rad[i]);
-        const float tx2 = 0.5f * (widths_rad[f] + widths_rad[i] * shrink);
-        const float ty2 = 0.5f * (heights_rad[f] + heights_rad[i] * shrink);
-        panels[i].yaw_rad = panels[f].yaw_rad + pull(panels[i].yaw_rad - panels[f].yaw_rad, tx, tx2);
-        panels[i].pitch_rad = panels[f].pitch_rad + pull(panels[i].pitch_rad - panels[f].pitch_rad, ty, ty2);
-        panels[i].scale *= shrink;
-    }
-}
-
 namespace {
 
 // Cluster indices of `values` (any order): sorted ascending, a new cluster wherever the step

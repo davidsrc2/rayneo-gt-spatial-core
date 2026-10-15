@@ -57,9 +57,8 @@ struct ServerOptions {
     var dimOthers: Float = 1      // brightness of the panels you are not looking at (1 = off)
     var trackingAxes = 1          // head rotations that move the panels: 0 both, 1 left/right, 2 up/down
     var glassesPinned = false     // glasses in their own pinned mode: panels fixed in the image, fitted inside it
-    var growFocused = true        // pinned: the panel you look at (1 s) or take the mouse to is drawn large
-    var focusByCursor = false     // enlarged / focus / cinema panel: the one with the cursor, not the one you look at
-    var focusWindows = true       // floating windows can be that panel too
+    var growFocused = true        // pinned: the panel you look at (1 s) or take the mouse to fills the image
+    var focusWindows = true       // floating windows can be that panel (and focus / cinema's) too
     var glassesMode = -1          // set the glasses' mode at start: 0 follow, 1 pinned, 2 steady; -1 = leave
     var brightness = 0            // set the glasses' brightness 1..8 at start; 0 = leave
     var recenterGlasses = false   // ⌘⌥C also recentres the glasses' own pinned mode (0x08 pinned)
@@ -102,9 +101,8 @@ struct ServerOptions {
       --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
       --pinned             the glasses are in their pinned mode: they anchor the image, so the
                            panels stay put in it and are sized to fit inside it (sets that mode)
-      --no-grow            pinned: keep every panel the same size (else the one you look at is large)
-      --focus-cursor       enlarge / focus / cinema the panel with the cursor, not the one you look at
-      --focus-monitors     only monitors are enlarged / focused, never floating windows
+      --no-grow            pinned: always the whole arrangement (else the panel you look at fills the image)
+      --focus-monitors     only monitors fill the image / are focused, never floating windows
       --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
       --brightness N       glasses' brightness 1..8 (8 = factory level)
       --recenter-glasses   Cmd+Opt+C also recentres the glasses' own pinned mode
@@ -190,7 +188,6 @@ struct ServerOptions {
             case "--full-tracking": o.trackingAxes = 0
             case "--pinned": o.glassesPinned = true; o.glassesMode = 1
             case "--no-grow": o.growFocused = false
-            case "--focus-cursor": o.focusByCursor = true
             case "--focus-monitors": o.focusWindows = false
             case "--glasses-mode":
                 guard let v = value(), let m = ["follow": 0, "pinned": 1, "steady": 2][v] else { return nil }

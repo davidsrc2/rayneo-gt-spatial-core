@@ -28,19 +28,14 @@ struct SettingsView: View {
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     if model.glassesPinned {
                         Toggle("Agrandar la pantalla que miras", isOn: $model.growFocused)
-                        Text("La pantalla destacada se ve grande y las demás pequeñas a su alrededor. Todo sigue dentro de la imagen de las gafas.")
+                        Text("La pantalla que miras un segundo, o a la que llevas el ratón, ocupa toda la imagen de las gafas, grande y nítida como sin Nimbo. Las demás quedan justo fuera de los bordes: mira hacia ellas un segundo para pasar a otra. Desactivado: se ve todo junto, más pequeño.")
                             .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     }
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
-                    Picker("Pantalla destacada", selection: $model.focusByCursor) {
-                        Text("La que miras").tag(false)
-                        Text("La del cursor").tag(true)
-                    }
-                    .pickerStyle(.segmented)
                     Toggle("Incluir ventanas flotantes", isOn: $model.focusWindows)
-                    Text("Decide qué pantalla se agranda en pinned y cuál muestran el modo enfoque (⌘⌥O) y el modo cine (⌘⌥P). La que miras: un segundo de mirada, o al llevarle el ratón. La del cursor: donde esté el ratón. Sin ventanas flotantes, solo cuentan los monitores.")
+                    Text("Si una ventana flotante puede ser la pantalla agrandada en pinned o la del modo enfoque (⌘⌥O) y cine (⌘⌥P). Desactivado: solo los monitores.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
@@ -101,7 +96,6 @@ struct SettingsView: View {
         .onChange(of: model.tracking) { server.settingsChanged() }
         .onChange(of: model.glassesPinned) { server.settingsChanged() }
         .onChange(of: model.growFocused) { server.settingsChanged() }
-        .onChange(of: model.focusByCursor) { server.settingsChanged() }
         .onChange(of: model.focusWindows) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }

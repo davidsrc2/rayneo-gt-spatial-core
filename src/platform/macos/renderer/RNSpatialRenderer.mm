@@ -41,8 +41,7 @@ core::Quat from_simd(simd_quatf q) { return core::Quat{q.vector.w, q.vector.x, q
 
 constexpr NSUInteger kMaxPanels = 8;
 constexpr float kCinemaScale = 1.6f;  // cinema mode: the panel this much larger than a monitor
-constexpr float kGrowShrink = 0.3f;        // glasses' pinned mode: the panels around the enlarged one
-constexpr double kGrowSeconds = 0.35;      // and the transition when another one is enlarged
+constexpr double kGrowSeconds = 0.35;      // glasses' pinned mode: pan and zoom to another highlighted panel
 
 uint64_t now_ns() { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 
@@ -327,58 +326,53 @@ static float panel_arc(RNRenderOptions* o) {
     if (o.cinema && o.focusPanel >= 0 && static_cast<NSUInteger>(o.focusPanel) < out.size()) {
         out[static_cast<size_t>(o.focusPanel)] = core::PanelPlacement{0.0f, 0.0f, kCinemaScale};
     }
-    if (o.staticHead && o.focusPanel < 0) [self growInGlassesImage:out];
-    if (o.staticHead) [self fitInGlassesImage:out];
+    if (o.staticHead) [self arrangeInGlassesImage:out];
     return out;
 }
 
-// Glasses in their pinned mode: the panel you look at enlarged, the others small around it
-// (fitted afterwards), easing from the previous one.
-- (void)growInGlassesImage:(std::vector<core::PanelPlacement>&)out {
-    float aspects[kMaxPanels];
+// Glasses in their own pinned mode anchor the image we send and let the eyes roam over it:
+// nothing outside it can ever be seen. With a panel highlighted (the one you look at, or focus
+// / cinema) that panel fills the whole image, sharp, as the Mac's own screen would; the
+// arrangement keeps its shape, so the others lie just beyond the edges, where a look picks
+// them. With none, the whole arrangement is fitted in the image. Changing the highlighted
+// panel pans and zooms there over a third of a second.
+- (void)arrangeInGlassesImage:(std::vector<core::PanelPlacement>&)out {
+    RNRenderOptions* o = _options;
     os_unfair_lock_lock(&_sourceLock);
+    float aspects[kMaxPanels];
     for (NSUInteger i = 0; i < kMaxPanels; ++i) aspects[i] = _panels[i].aspect;
     const NSInteger to = _growPanel, from = _growFrom;
     const double t = _growStartNs == 0 ? 1.0 : std::min(1.0, static_cast<double>(now_ns() - _growStartNs) * 1e-9 / kGrowSeconds);
     os_unfair_lock_unlock(&_sourceLock);
-    if (to < 0 && (from < 0 || t >= 1.0)) return;
-    const float arc = panel_arc(_options);
-    std::vector<float> w, h;
-    for (size_t i = 0; i < out.size(); ++i) {
-        w.push_back(arc * out[i].scale);
-        h.push_back(core::panel_vertical_arc(w.back(), aspects[std::min<size_t>(i, kMaxPanels - 1)], true));
+    if (o.focusPanel >= 0) {
+        [self fill:out panel:o.focusPanel aspects:aspects];
+        return;
     }
     auto target = out;
-    core::grow_panel(target, w, h, static_cast<int>(to), kGrowShrink);
-    if (t >= 1.0) {
+    [self fill:target panel:to aspects:aspects];
+    if (t >= 1.0 || from == to) {
         out = target;
         return;
     }
-    auto start = out;
-    core::grow_panel(start, w, h, static_cast<int>(from), kGrowShrink);
+    [self fill:out panel:from aspects:aspects];
     const float k = static_cast<float>(t * t * (3.0 - 2.0 * t));  // smoothstep
     for (size_t i = 0; i < out.size(); ++i) {
-        out[i].yaw_rad = start[i].yaw_rad + (target[i].yaw_rad - start[i].yaw_rad) * k;
-        out[i].pitch_rad = start[i].pitch_rad + (target[i].pitch_rad - start[i].pitch_rad) * k;
-        out[i].scale = start[i].scale + (target[i].scale - start[i].scale) * k;
+        out[i].yaw_rad += (target[i].yaw_rad - out[i].yaw_rad) * k;
+        out[i].pitch_rad += (target[i].pitch_rad - out[i].pitch_rad) * k;
+        out[i].scale += (target[i].scale - out[i].scale) * k;
     }
 }
 
-// Glasses in their own pinned mode anchor the image we send and let the eyes roam over it:
-// nothing outside it can ever be seen. The whole arrangement (monitors and floating windows,
-// both axes; only the focused panel in focus / cinema) is centred and scaled to fit in it.
-// Distance and size zoom along the whole of their range, never past the image (see
-// core::pinned_zoom): the largest and closest fills it.
-- (void)fitInGlassesImage:(std::vector<core::PanelPlacement>&)out {
+// `panel` centred and scaled to fill the glasses' image (the others keep their place around
+// it); -1 or out of range: everything fitted, zoomed by distance and size (core::pinned_zoom).
+- (void)fill:(std::vector<core::PanelPlacement>&)out panel:(NSInteger)panel aspects:(const float*)aspects {
     RNRenderOptions* o = _options;
-    float aspects[kMaxPanels];
-    os_unfair_lock_lock(&_sourceLock);
-    for (NSUInteger i = 0; i < kMaxPanels; ++i) aspects[i] = _panels[i].aspect;
-    os_unfair_lock_unlock(&_sourceLock);
     const float arc = panel_arc(o);
+    const float fw = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect), fh = o.fovYDegrees * kDegToRad;
     float y0 = 1e9f, y1 = -1e9f, p0 = 1e9f, p1 = -1e9f;
+    const bool one = panel >= 0 && static_cast<size_t>(panel) < out.size();
     for (size_t i = 0; i < out.size() && i < kMaxPanels; ++i) {
-        if (o.focusPanel >= 0 && static_cast<NSInteger>(i) != o.focusPanel) continue;
+        if (one && static_cast<NSInteger>(i) != panel) continue;
         const float w = arc * out[i].scale, h = core::panel_vertical_arc(w, aspects[i], true);
         y0 = std::min(y0, out[i].yaw_rad - w / 2);
         y1 = std::max(y1, out[i].yaw_rad + w / 2);
@@ -386,15 +380,26 @@ static float panel_arc(RNRenderOptions* o) {
         p1 = std::max(p1, out[i].pitch_rad + h / 2);
     }
     if (y1 <= y0 || p1 <= p0) return;
-    const float fw = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect), fh = o.fovYDegrees * kDegToRad;
-    const float zoom = core::pinned_zoom(arc);
-    const float s = 0.94f * std::min(fw * zoom / (y1 - y0), fh * zoom / (p1 - p0));
+    const float room = one ? 1.0f : 0.94f * core::pinned_zoom(arc);
+    const float s = room * std::min(fw / (y1 - y0), fh / (p1 - p0));
     const float yc = 0.5f * (y0 + y1), pc = 0.5f * (p0 + p1);
     for (auto& pl : out) {
         pl.yaw_rad = (pl.yaw_rad - yc) * s;
         pl.pitch_rad = (pl.pitch_rad - pc) * s;
         pl.scale *= s;
     }
+}
+
+// A panel fills the glasses' image: drawn flat, like the Mac's own screen (a curve would
+// bend its edges and soften the 1:1 pixels).
+- (BOOL)fillingImage {
+    RNRenderOptions* o = _options;
+    if (!o.staticHead) return NO;
+    if (o.focusPanel >= 0) return YES;
+    os_unfair_lock_lock(&_sourceLock);
+    const bool grown = _growPanel >= 0;
+    os_unfair_lock_unlock(&_sourceLock);
+    return grown;
 }
 
 - (std::vector<core::PanelPlacement>)monitorPlacements:(NSUInteger)count aspect:(float)aspect {
@@ -471,7 +476,7 @@ static float effective_curvature(RNRenderOptions* o) {
 - (void)rebuildMesh:(Panel&)p aspect:(float)aspect placement:(core::PanelPlacement)pl {
     RNRenderOptions* o = _options;
     const float center = pl.yaw_rad;
-    const float k = effective_curvature(o);
+    const float k = [self fillingImage] ? 0.0f : effective_curvature(o);
     if (p.vertices != nil && aspect == p.mesh_aspect && o.distanceMeters == p.mesh_distance &&
         o.arcDegrees == p.mesh_arc && center == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
         k == p.mesh_curvature && pl.scale == p.mesh_scale) {
