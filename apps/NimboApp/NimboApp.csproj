@@ -38,8 +38,10 @@
     <NimboNativeDir Condition="'$(NimboNativeDir)' == ''">$(MSBuildThisFileDirectory)..\..\build-win\Release\</NimboNativeDir>
   </PropertyGroup>
   <ItemGroup>
-    <None Include="$(NimboNativeDir)nimbo.dll" Link="nimbo.dll" CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('$(NimboNativeDir)nimbo.dll')" />
+    <!-- Always: PreserveNewest kept an older copy from an earlier build (the app then asked a
+         stale nimbo.dll for functions it did not have). -->
+    <None Include="$(NimboNativeDir)nimbo.dll" Link="nimbo.dll" CopyToOutputDirectory="Always"
+          CopyToPublishDirectory="Always" Condition="Exists('$(NimboNativeDir)nimbo.dll')" />
     <Content Include="..\..\assets\icon\Nimbo.ico" Link="Assets\Nimbo.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
