@@ -53,8 +53,10 @@ struct SettingsView: View {
                                   caption: String(format: "%.1f°", model.fov))
                     LabeledSlider(title: "Distancia entre ojos", value: $model.ipd, range: 54...72, step: 1,
                                   caption: String(format: "%.0f mm", model.ipd))
-                    LabeledSlider(title: "Zona quieta", value: $model.deadZone, range: 0.3...2.5, step: 0.1,
-                                  caption: String(format: "%.1f°", model.deadZone))
+                    if model.glassesPinned {  // space at real size: never frozen, always fixed in the room
+                        LabeledSlider(title: "Zona quieta", value: $model.deadZone, range: 0.3...2.5, step: 0.1,
+                                      caption: String(format: "%.1f°", model.deadZone))
+                    }
                     Toggle("Imagen en 3D (gafas en modo 3D)", isOn: $model.stereo)
                     Toggle("El cursor sigue a tu mirada", isOn: $model.gazeCursor)
                     Toggle("Traer mis ventanas al empezar", isOn: $model.gatherWindows)

@@ -48,7 +48,7 @@ typedef struct {
 typedef struct {
     float madgwick_beta;
     bool use_magnetometer;
-    float dead_zone_deg; /* stabilizer: head motion below this keeps the image still */
+    float dead_zone_deg; /* stabilizer: head motion below this keeps the image still; < 0 = never (always world-locked) */
 } rayneo_config;
 
 rayneo_config rayneo_default_config(void);

@@ -126,6 +126,7 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
         e->cfg.madgwick_beta = cfg->madgwick_beta;
         e->cfg.use_magnetometer = cfg->use_magnetometer;
         if (cfg->dead_zone_deg > 0.0f) e->cfg.stabilizer.enter_deg = cfg->dead_zone_deg;
+        if (cfg->dead_zone_deg < 0.0f) e->cfg.stabilizer.enter_deg = 0.0f;  // never frozen: always world-locked
     }
     return e;
 }

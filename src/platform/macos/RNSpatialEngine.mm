@@ -40,7 +40,7 @@
 - (instancetype)initWithDeadZoneDegrees:(float)deadZone {
     if ((self = [super init])) {
         rayneo_config cfg = rayneo_default_config();
-        if (deadZone > 0.0f) cfg.dead_zone_deg = deadZone;
+        if (deadZone != 0.0f) cfg.dead_zone_deg = deadZone;  // < 0: off
         _engine = rayneo_engine_create(&cfg);
     }
     return self;

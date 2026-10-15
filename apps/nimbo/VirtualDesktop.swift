@@ -52,9 +52,16 @@ final class VirtualDesktop {
         guard CGBeginDisplayConfiguration(&config) == .success else { return false }
         for (id, p) in zip(ids, points) { CGConfigureDisplayOrigin(config, id, Int32(p.x), Int32(p.y)) }
         if let physical {
+            // Below-left of the row, touching it only at a corner: the glasses first, then every
+            // other display (the Mac's own screen, externals) further left, touching only the one
+            // before. Left where it was, the Mac's screen ended up between two monitors.
             let minX = points.map(\.x).min() ?? 0
             let maxY = zip(ids, points).map { $1.y + CGDisplayBounds($0).height }.max() ?? 0
-            CGConfigureDisplayOrigin(config, physical, Int32(minX - CGDisplayBounds(physical).width), Int32(maxY))
+            var x = minX
+            for id in [physical] + Self.otherDisplays(excluding: ids + [physical]) {
+                x -= CGDisplayBounds(id).width
+                CGConfigureDisplayOrigin(config, id, Int32(x), Int32(maxY))
+            }
         }
         return CGCompleteDisplayConfiguration(config, .forAppOnly) == .success
     }
@@ -68,6 +75,15 @@ final class VirtualDesktop {
     @discardableResult
     func arrangeAsMain(tucking physical: CGDirectDisplayID, cells: [GridPos]? = nil) -> Bool {
         apply(origins(cells: cellsOrRow(cells), origin: .zero), tucking: physical)
+    }
+
+    // Active displays that are not these and not mirroring another (a mirror follows its source).
+    private static func otherDisplays(excluding: [CGDirectDisplayID]) -> [CGDirectDisplayID] {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+        var list = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &list, &count) == .success else { return [] }
+        return list.prefix(Int(count)).filter { !excluding.contains($0) && CGDisplayMirrorsDisplay($0) == kCGNullDirectDisplay }
     }
 
     func screen(for id: CGDirectDisplayID) -> NSScreen? {

@@ -337,7 +337,9 @@ final class AppModel: ObservableObject {
         o.fovFromCLI = true
         o.ipdMM = Float(ipd)
         o.sideBySide = stereo
-        o.deadZoneDeg = Float(deadZone)
+        // Space at real size: the panels never move with the head, not even a little (the dead
+        // zone would hold them on the head while it moves less than it, then let go).
+        o.deadZoneDeg = glassesPinned ? Float(deadZone) : -1
         o.gazeCursor = gazeCursor
         o.dimOthers = dimOthers ? 0.55 : 1  // linear light: ~80 % perceived brightness
         o.gatherWindows = gatherWindows
