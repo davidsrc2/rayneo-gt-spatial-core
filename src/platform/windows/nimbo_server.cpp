@@ -1233,13 +1233,23 @@ bool Server::setup_virtual_displays() {
     }
     virtual_ = true;  // from here on shutdown() restores the arrangement
     std::vector<const win::OutputInfo*> panels;
+    bool extended = false;
     for (int waited = 0; waited < 15000; waited += 250) {  // the driver adds its monitors
         Sleep(250);
+        // With the glasses as the only active display (laptop lid closed, "second screen only"),
+        // Windows adds the new monitors switched off or duplicating the glasses: extend the
+        // desktop (Win+P > Extend), once.
+        if (!extended && waited >= 2000) {
+            extended = true;
+            const LONG r = SetDisplayConfig(0, nullptr, 0, nullptr, SDC_TOPOLOGY_EXTEND | SDC_APPLY);
+            logln("virtual monitors: not there yet, desktop set to Extend (%s)", r == ERROR_SUCCESS ? "ok" : "failed");
+        }
         outputs_ = win::enumerate_outputs();
         panels.clear();
         for (const auto& o : outputs_) {
             const bool is_new = std::find(before.begin(), before.end(), o.gdi_name) == before.end();
-            if (!o.glasses && (win::is_virtual_panel(o) || is_new)) panels.push_back(&o);
+            // After Extend a screen of yours may switch on too: only the drivers' monitors then.
+            if (!o.glasses && (win::is_virtual_panel(o) || (is_new && !extended))) panels.push_back(&o);
         }
         if (static_cast<int>(panels.size()) >= n) break;
     }
