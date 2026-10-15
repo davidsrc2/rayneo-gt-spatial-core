@@ -124,15 +124,16 @@ class VddBackend final : public VirtualDisplayBackend {
 public:
     const char* name() const override { return "Virtual Display Driver"; }
     // A count change reloads the adapter, and after a reload this driver's pipe may stop
-    // answering until Windows restarts (seen on the test PC: one run per boot). So the count is
-    // changed only when it has to be, and left as is on exit (the monitors are detached).
+    // answering until Windows restarts (seen on the test PC). So the count is only ever raised,
+    // straight to kPool so that adding panels later needs no reload; unused monitors stay
+    // detached, and the count is left as is on exit.
+    static constexpr int kPool = 6;
     bool set_monitors(int count, int, int, std::string* error) override {
-        const int live = VirtualDisplayDriver::live_monitors();
-        if (live == count) return true;
-        if (VirtualDisplayDriver::set_count(count, error)) return true;
-        if (live > count) {  // pipe silent, but enough of them: use those
-            if (error != nullptr) error->clear();
-            return true;
+        if (VirtualDisplayDriver::live_monitors() >= count) return true;
+        if (VirtualDisplayDriver::set_count(std::max(count, kPool), error)) return true;
+        if (error != nullptr) {
+            *error = "the Virtual Display Driver has fewer monitors than needed and does not answer to add more: "
+                     "restart Windows once (afterwards Nimbo keeps " + std::to_string(kPool) + " ready)";
         }
         return false;
     }
