@@ -19,6 +19,7 @@ final class GUIApp: NSObject {
         server.bind(model)
         buildStatusItem()
         registerLayoutHotKeys()
+        watchFrontApp()
         if ProcessInfo.processInfo.environment["RAYNEO_PANEL_PREVIEW"] != nil {
             showPanelPreviewWindow()  // development: the panel as a plain window, for screenshots
             return
@@ -31,6 +32,24 @@ final class GUIApp: NSObject {
     }
 
     func shutdown() { server.stop() }
+
+    // Per-app profiles: the front app decides which profile's look applies (Nimbo itself in
+    // front, e.g. its panel, keeps the current one).
+    private var frontAppObserver: NSObjectProtocol?
+
+    private func watchFrontApp() {
+        frontAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+            let profile = self.model.appRules.first { $0.bundleID == app.bundleIdentifier }?.profile
+            guard profile != self.model.activeAppProfile else { return }
+            self.model.activeAppProfile = profile
+            self.server.settingsChanged()
+        }
+    }
 
     // ⌘⌥1 / ⌘⌥2 / ⌘⌥3: the one-click layouts without opening the panel. ⌘⌥N: the panel.
     private func registerLayoutHotKeys() {

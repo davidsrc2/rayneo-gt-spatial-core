@@ -215,6 +215,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${NIMBO_DIR}/GUI/LayoutEditor.swift
     ${NIMBO_DIR}/GUI/SpatialEditor.swift
     ${NIMBO_DIR}/GUI/FloatingWindowsList.swift
+    ${NIMBO_DIR}/GUI/AppRulesList.swift
     ${NIMBO_DIR}/GUI/LayoutPreview.swift
     ${NIMBO_DIR}/GUI/MainView.swift
     ${NIMBO_DIR}/GUI/SettingsView.swift

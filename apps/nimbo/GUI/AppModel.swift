@@ -32,6 +32,17 @@ final class AppModel: ObservableObject {
     @Published var panelPoses: [PanelPos] { didSet { save(panelPoses, "panelPoses") } }
     // Single windows floating as panels (this session: window ids do not survive the app).
     @Published var floating: [FloatingWindow] = []
+
+    // Per-app profiles: while one of these apps is in front, its profile's look (distance,
+    // curvature, size) applies on top of the saved settings, which stay untouched. The number
+    // of monitors does not change, so nothing is rebuilt and no window moves.
+    struct AppRule: Codable, Hashable {
+        var bundleID: String
+        var name: String
+        var profile: String
+    }
+    @Published var appRules: [AppRule] { didSet { save(appRules, "appProfiles") } }
+    @Published var activeAppProfile: String? = nil  // profile id applied for the front app
     private var keepingPoses = false
     @Published var textSize: Int { didSet { d.set(textSize, forKey: "textSize") } }
     @Published var distance: Double { didSet { d.set(distance, forKey: "distance") } }
@@ -66,6 +77,7 @@ final class AppModel: ObservableObject {
         cells = Self.load([GridPos].self, "layoutCells", from: UserDefaults.standard)
             ?? [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0)]
         panelPoses = Self.load([PanelPos].self, "panelPoses", from: UserDefaults.standard) ?? []
+        appRules = Self.load([AppRule].self, "appProfiles", from: UserDefaults.standard) ?? []
         textSize = d.object(forKey: "textSize") as? Int ?? 3
         distance = d.object(forKey: "distance") as? Double ?? 2.0
         gap = d.object(forKey: "gap") as? Double ?? 1.0
@@ -332,6 +344,12 @@ final class AppModel: ObservableObject {
         if ProcessInfo.processInfo.environment["RAYNEO_SIM"] != nil {
             o.sim = true
             o.windowed = true
+        }
+        // Per-app profile on top (transient: the saved settings stay as they are).
+        if let id = activeAppProfile, let p = Self.profiles.first(where: { $0.id == id }) {
+            o.distanceM = Float(p.distance)
+            if let c = p.curvature { o.curvature = Float(c) }
+            if let s = p.size { o.arcDeg = Float(s) }
         }
         return o
     }
