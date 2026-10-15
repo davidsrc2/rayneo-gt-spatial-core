@@ -28,20 +28,30 @@ public partial class App : Application
         // A crash at start-up closes a tray app without a word: write why to crash.log.
         AppDomain.CurrentDomain.UnhandledException += (_, e) => CrashLog("unhandled", e.ExceptionObject as Exception);
         UnhandledException += (_, e) => CrashLog("xaml", e.Exception);
+        Trace("app: loading App.xaml");
         InitializeComponent();
+        Trace("app: App.xaml loaded");
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
     }
 
+    // Start-up steps, so a silent exit shows how far it got.
+    internal static void Trace(string step) => CrashLog(step, null);
+
     public static string CrashLogPath => Path.Combine(AppModel.DataDirectory, "crash.log");
 
-    private static void CrashLog(string where, Exception? e)
+    internal static void CrashLog(string where, Exception? e)
     {
         try
         {
-            Directory.CreateDirectory(AppModel.DataDirectory);
-            File.AppendAllText(CrashLogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{where}] {e}{Environment.NewLine}{Environment.NewLine}");
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Nimbo");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "crash.log"),
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{where}]{(e != null ? " " + e : "")}{Environment.NewLine}");
         }
         catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
         {
         }
     }
@@ -61,17 +71,22 @@ public partial class App : Application
 
     private void Launch()
     {
+        Trace("launch: start");
         _single = new Mutex(true, @"Local\NimboApp", out bool first);
         if (!first)
         {
             Exit();  // already running: its icon is in the tray
             return;
         }
+        Trace("launch: nimbo.dll");
         NimboNative.nimbo_restore_displays();  // a previous run that crashed
+        Trace("launch: nimbo.dll ok, settings");
 
         _model = new AppModel();
         _server = new ServerController(_model, DispatcherQueue.GetForCurrentThread());
+        Trace("launch: panel");
         _panel = new PanelWindow(_model, _server, OpenSettings);
+        Trace("launch: panel ok");
         _server.GlassesChanged += OnGlassesChanged;
         _frontApp = new ForegroundWatcher(app =>
         {
@@ -128,11 +143,14 @@ public partial class App : Application
             ContextMenuMode = ContextMenuMode.PopupMenu,
             ContextFlyout = menu,
         };
+        Trace("launch: tray icon");
         _tray.ForceCreate();
+        Trace("launch: tray icon ok");
 
         bool background = Environment.GetCommandLineArgs().Contains(Startup.BackgroundArg);
         if (!_model.OnboardingDone) OpenOnboarding(OnboardingWindow.Step.Welcome, singleStep: false);
         else if (!background) _panel.ShowNearTray();
+        Trace("launch: done");
     }
 
     private void OpenOnboarding(OnboardingWindow.Step step, bool singleStep)
