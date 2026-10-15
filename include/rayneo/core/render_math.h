@@ -121,6 +121,12 @@ struct PanelPose {
 // Hand-placed panels as placements, angles multiplied by `angle_scale`.
 std::vector<PanelPlacement> placements_from_poses(const std::vector<PanelPose>& poses, float angle_scale = 1.0f);
 
+// Glasses' pinned mode: the share of the glasses' image the fitted arrangement fills, from
+// the panel arc shown at the current size and distance. Every setting changes it and none
+// overflows the image: the largest and closest (60 deg at 1.2 m) fills it, a 38 deg panel at
+// 2 m about 81 %, the smallest and farthest (28 deg at 3 m) about 68 %.
+float pinned_zoom(float shown_arc_rad);
+
 // One panel enlarged among the others (glasses' pinned mode: everything shares one image).
 // `focus` keeps its size; the others shrink by `shrink` and are pulled in towards it, on each
 // axis, so they stay as clear of it and of each other as they were. `widths_rad` and

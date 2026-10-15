@@ -279,6 +279,13 @@ std::vector<PanelPlacement> placements_from_poses(const std::vector<PanelPose>& 
     return out;
 }
 
+float pinned_zoom(float shown_arc_rad) {
+    constexpr float d2r = 0.017453292519943295f;
+    const float largest = arc_at_distance(60.0f * d2r, 1.2f, 2.0f);
+    const float r = std::fmin(1.0f, std::fmax(0.01f, shown_arc_rad / largest));
+    return std::pow(r, 0.25f);
+}
+
 void grow_panel(std::vector<PanelPlacement>& panels, const std::vector<float>& widths_rad,
                 const std::vector<float>& heights_rad, int focus, float shrink) {
     const size_t n = std::min(panels.size(), std::min(widths_rad.size(), heights_rad.size()));

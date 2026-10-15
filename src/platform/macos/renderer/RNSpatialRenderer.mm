@@ -41,7 +41,6 @@ core::Quat from_simd(simd_quatf q) { return core::Quat{q.vector.w, q.vector.x, q
 
 constexpr NSUInteger kMaxPanels = 8;
 constexpr float kCinemaScale = 1.6f;  // cinema mode: the panel this much larger than a monitor
-constexpr float kReferenceArcDeg = 38.0f;  // glasses' pinned mode: this panel size at 2 m fits exactly
 constexpr float kGrowShrink = 0.3f;        // glasses' pinned mode: the panels around the enlarged one
 constexpr double kGrowSeconds = 0.35;      // and the transition when another one is enlarged
 
@@ -368,8 +367,8 @@ static float panel_arc(RNRenderOptions* o) {
 // Glasses in their own pinned mode anchor the image we send and let the eyes roam over it:
 // nothing outside it can ever be seen. The whole arrangement (monitors and floating windows,
 // both axes; only the focused panel in focus / cinema) is centred and scaled to fit in it.
-// Distance and size still zoom out (farther or smaller shrinks it), but never past the
-// image: closer or larger than a 38° panel at 2 m stays fitted, or the edges would be cut.
+// Distance and size zoom along the whole of their range, never past the image (see
+// core::pinned_zoom): the largest and closest fills it.
 - (void)fitInGlassesImage:(std::vector<core::PanelPlacement>&)out {
     RNRenderOptions* o = _options;
     float aspects[kMaxPanels];
@@ -388,7 +387,7 @@ static float panel_arc(RNRenderOptions* o) {
     }
     if (y1 <= y0 || p1 <= p0) return;
     const float fw = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect), fh = o.fovYDegrees * kDegToRad;
-    const float zoom = std::min(1.0f, arc / (kReferenceArcDeg * kDegToRad));
+    const float zoom = core::pinned_zoom(arc);
     const float s = 0.94f * std::min(fw * zoom / (y1 - y0), fh * zoom / (p1 - p0));
     const float yc = 0.5f * (y0 + y1), pc = 0.5f * (p0 + p1);
     for (auto& pl : out) {

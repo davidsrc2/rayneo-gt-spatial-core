@@ -854,6 +854,12 @@ void test_grow_panel() {
     // The window stays above, clear of the enlarged monitor, and between the two monitors.
     CHECK(pl[2].pitch_rad - 0.3f * 0.36f / 2 >= pl[0].pitch_rad + 0.36f / 2 - 1e-6f);
     CHECK(pl[2].yaw_rad > pl[0].yaw_rad && pl[2].yaw_rad < pl[1].yaw_rad);
+    // Pinned zoom: continuous, never past the image.
+    const float d2r = 0.0174533f;
+    CHECK(near(pinned_zoom(arc_at_distance(60 * d2r, 1.2f, 2.0f)), 1.0f, 1e-4f));
+    CHECK(pinned_zoom(arc_at_distance(70 * d2r, 1.0f, 2.0f)) <= 1.0f);
+    const float z38 = pinned_zoom(38 * d2r), z40 = pinned_zoom(40 * d2r);
+    CHECK(z38 > 0.78f && z38 < 0.84f && z40 > z38);
     std::vector<PanelPlacement> same = pl;
     grow_panel(same, w, h, -1, 0.3f);  // no focus: untouched
     CHECK(near(same[1].scale, pl[1].scale, 1e-6f));

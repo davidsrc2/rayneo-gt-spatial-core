@@ -70,6 +70,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // A monitor of its own per floating window (nil: captured where it is), placed in the
     // macOS arrangement where the window floats, so the cursor reaches it like a monitor.
     private var floatingDisplays: [RNVirtualDisplay?] = []
+    private var floatingSerials: [UInt32] = []  // with floatingDisplays (0: none)
     private var floatingArrangeWork: DispatchWorkItem?
     private var desktop: VirtualDesktop?
     private var patternWindows: [NSWindow] = []
@@ -483,7 +484,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         floatingCaptures = []
         floatingCrops = []
         for c in old { await c.stop() }
-        let oldDisplays = floatingDisplays  // released last: windows staying afloat move straight to their new monitor
+        // Monitors of the windows already afloat, by window: kept for the ones that stay.
+        var kept: [UInt32: (display: RNVirtualDisplay, serial: UInt32)] = [:]
+        for (i, w) in floatingResolved.enumerated() where i < floatingDisplays.count {
+            if let d = floatingDisplays[i] { kept[w.windowID] = (d, floatingSerials[i]) }
+        }
+        let oldDisplays = floatingDisplays  // released last, once the windows leaving are back on monitor 1
         defer { withExtendedLifetime(oldDisplays) {} }
         var resolved: [FloatingWindow] = []
         let base = monitorPanels
@@ -510,41 +516,62 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             resolved.append(w)
         }
 
-        // Monitors of their own.
+        // Windows no longer afloat leave their monitor before it disappears: back to monitor 1,
+        // at their size (macOS would otherwise drop them anywhere, even on the hidden surface).
+        let staying = Set(resolved.map(\.windowID))
+        for w in floatingResolved where kept[w.windowID] != nil && !staying.contains(w.windowID) {
+            returnToFirstMonitor(w)
+        }
+
+        // Monitors of their own: the same one for a window that stays, a new one for a new window.
         var displays = [RNVirtualDisplay?](repeating: nil, count: resolved.count)
+        var serials = [UInt32](repeating: 0, count: resolved.count)
+        var fresh: [Int] = []
         let ownMonitors = desktop != nil && !options.windowed && !resolved.isEmpty
         if ownMonitors && !WindowGatherer.isTrusted(prompt: false) {
             log("window: allow Nimbo in Privacy & Security > Accessibility so the cursor can reach floating windows")
         } else if ownMonitors {
             for (i, w) in resolved.enumerated() {
+                if let k = kept[w.windowID] {
+                    displays[i] = k.display
+                    serials[i] = k.serial
+                }
+            }
+            for (i, w) in resolved.enumerated() where displays[i] == nil {
                 guard let frame = WindowGatherer.frame(windowID: CGWindowID(w.windowID)) else { continue }
                 let width = Int(max(640, min(2560, frame.width))) & ~7
                 let height = Int(max(360, min(1440, frame.height))) & ~7
-                let serial = UInt32(0x8000_0000) | UInt32((width / 16) << 16 | (height / 16) << 4) | UInt32(i & 7)
+                // A serial no live monitor has (the old ones still exist until the end).
+                let geometry = UInt32(0x8000_0000) | UInt32((width / 16) << 16 | (height / 16) << 4)
+                let used = Set(serials + floatingSerials)
+                guard let serial = (0..<8).map({ geometry | UInt32($0) }).first(where: { !used.contains($0) }) else { continue }
                 do {
                     displays[i] = try RNVirtualDisplay(name: "Nimbo · \(w.app)", width: UInt(width), height: UInt(height),
                                                        refreshRate: 60, hiDPI: options.hiDPI, serial: serial)
+                    serials[i] = serial
+                    fresh.append(i)
                 } catch {
                     log("window: no monitor of its own for \(w.title): \(error.localizedDescription)")
                 }
             }
-            if displays.contains(where: { $0 != nil }) {
-                floatingDisplays = displays
-                floatingResolved = resolved
-                try? await settle(1.0)  // NSScreen list catches up
-                arrangeFloatingDisplays()
-                try? await settle(0.5)
-                for (i, w) in resolved.enumerated() {
-                    guard let d = displays[i] else { continue }
-                    let target = Displays.visibleBounds(d.displayID) ?? CGDisplayBounds(d.displayID)
-                    if !WindowGatherer.move(windowID: CGWindowID(w.windowID), title: w.windowTitle, to: target) {
-                        log("window: could not move \(w.title) to its monitor")
-                    }
-                }
-                try? await settle(0.3)
-            }
         }
         floatingDisplays = displays
+        floatingSerials = serials
+        floatingResolved = resolved
+        if !fresh.isEmpty {
+            try? await settle(1.0)  // NSScreen list catches up
+            arrangeFloatingDisplays()
+            try? await settle(0.5)
+            for i in fresh {
+                guard let d = displays[i] else { continue }
+                let w = resolved[i]
+                let target = Displays.visibleBounds(d.displayID) ?? CGDisplayBounds(d.displayID)
+                if !WindowGatherer.move(windowID: CGWindowID(w.windowID), title: w.windowTitle, to: target) {
+                    log("window: could not move \(w.title) to its monitor")
+                }
+            }
+            try? await settle(0.3)
+        }
 
         for (i, w) in resolved.enumerated() {
             let panel = UInt(base + floatingCaptures.count)
@@ -567,6 +594,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         floatingResolved = resolved
         options.floatingWindows = resolved
+        // The enlarged panel was a window: the windows' panels may have shifted.
+        if renderer.growPanel >= base { renderer.growPanel = -1 }
         renderer.panelCount = UInt(base + resolved.count)
         applyFloatingPoses(resolved.map { $0.pose ?? PanelPos(yaw: 0, pitch: 0) })
     }
@@ -583,6 +612,21 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let work = DispatchWorkItem { [weak self] in self?.arrangeFloatingDisplays() }
         floatingArrangeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    // A window leaving its monitor of its own: centred on monitor 1 at its size (no larger than
+    // the room there).
+    private func returnToFirstMonitor(_ w: FloatingWindow) {
+        guard let first = panelDisplays.first, let frame = WindowGatherer.frame(windowID: CGWindowID(w.windowID)) else { return }
+        let room = Displays.visibleBounds(first) ?? CGDisplayBounds(first)
+        let size = CGSize(width: min(frame.width, room.width), height: min(frame.height, room.height))
+        let target = CGRect(x: room.midX - size.width / 2, y: room.midY - size.height / 2,
+                            width: size.width, height: size.height).integral
+        if WindowGatherer.move(windowID: CGWindowID(w.windowID), title: w.windowTitle, to: target) {
+            log("window: \(w.title) back on monitor 1")
+        } else {
+            log("window: could not bring \(w.title) back to monitor 1")
+        }
     }
 
     // The window's frame on its monitor (points, the monitor's top-left), so the panel shows the
@@ -833,6 +877,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         window?.orderOut(nil)
         window = nil
         floatingDisplays = []
+        floatingSerials = []
         desktop = nil  // virtual monitors disappear here
         // App-scoped display changes would otherwise last until the process exits.
         CGRestorePermanentDisplayConfiguration()
