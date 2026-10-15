@@ -170,6 +170,12 @@ Hoy todo se controla con flags en Terminal. La fase 5 sustituye eso por una app 
 - SwiftUI sobre el servidor actual (`apps/nimbo`): las opciones de `Options.swift` son el modelo, y la UI las edita y relanza el servidor (o las aplica en caliente cuando sea posible: FOV, distancia, separación, plano/curvo).
 - La disposición vertical requiere ampliar `core::panel_centers` a una cuadrícula (yaw + pitch), mallas inclinadas en pitch y `VirtualDesktop` colocando los monitores en filas y columnas, para que el ratón pase entre ellos como en la realidad.
 
+## Estado al 15-10-2026 y punto de continuación
+
+- **Modo de la app (macOS y Windows):** «Espacio a tamaño real», el único en la app. Las gafas en follow (Nimbo las pone y las devuelve a pinned al salir); cada pantalla del tamaño de la imagen de las gafas, fija en la habitación en los dos ejes; estabilizador world-locked (`core::world_locked_stabilizer`), ancla en reposo opcional, inclinación, pantalla del ordenador como panel 1, ventanas flotantes separadas de los monitores. Pinned queda solo por línea de comandos (`--pinned`).
+- **macOS:** probado con las gafas y estable; ⌘⌥R graba lo que muestran las gafas a Descargas.
+- **Windows:** el servidor funciona con las gafas (120 fps, ~18 ms), con el Virtual Display Driver 25.7.23 y la DLL renombrada a `nimbo_server.dll`; la app WinUI ya abre. Lo que falta comprobar y hacer está en [docs/WINDOWS_PLAN.md](docs/WINDOWS_PLAN.md), sección «Estado al terminar el 15-10-2026».
+
 ## Windows
 
 Plan de trabajo para la versión de Windows: [docs/WINDOWS_PLAN.md](docs/WINDOWS_PLAN.md).

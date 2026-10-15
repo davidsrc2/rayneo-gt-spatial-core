@@ -51,7 +51,7 @@ Driver IddCx (monitores virtuales)     instalado aparte, con firma
 | W2 | Probada en ventana (`--windowed --sim`) tras corregir el bloqueo entre captura y render. **Falta el log con las gafas**: `nimbo_win.exe` (captura DXGI con cursor, render D3D11 portado de Metal, swap chain flip a 120 Hz excluida de la captura, predicción hasta el scanout). CI compila sin warnings y renderiza un fotograma en WARP (`windows_render_test`) |
 | W3 | Implementada, **falta probarla**. Dos drivers, el que responda: *Virtual Display Driver* (VDD: MIT, firmado, se controla con `SETDISPLAYCOUNT`) o *virtual-display-rs* (MIT, el que ya tiene el PC de prueba: pipe `\\.\pipe\virtualdisplaydriver`, JSON + EOT, resolución exacta, respeta los monitores del usuario con ids < 41000). Monitores en cuadrícula, superficie de las gafas apartada, escala por monitor, cursor que sigue la mirada, ventanas traídas al panel 1, restauración al salir y `--restore` tras un cuelgue |
 | W4 | **Hecha, falta probarla**: `apps/NimboApp` (WinUI 3, .NET 8, sin empaquetar). Bandeja + panel (luz de estado, interruptor, tarjetas de disposición, recentrar, deslizadores, perfiles, auto-inicio al conectar), ajustes (avanzado, editor de disposición, inicio con Windows, diagnóstico), asistente de primer uso (driver VDD, calibración guiada, tamaño del texto), avisos al conectar y desconectar, Ctrl+Alt+1/2/3, `settings.json` común con macOS. CI la publica como artefacto `nimbo-app-win-x64` |
-| W1 | **Hecha**: `core/presets`, `core/panel_dimmer`, `core/frame_skip`, `core/settings` (los ajustes de la app de macOS, mismas claves, en JSON) con tests. `nimbo.dll` con C ABI (`rayneo/platform/nimbo_win.h`): arrancar y parar en su propio hilo, ajustes en vivo, estado, log, ajustes ↔ opciones, gafas y driver presentes, restaurar pantallas, calibración guiada. `nimbo_win.exe` es un CLI sobre esa API; `nimbo_api_test` la prueba en CI. Pendiente: que la app de macOS lea y escriba `settings.json` en vez de UserDefaults |
+| W1 | **Hecha**: `core/presets`, `core/panel_dimmer`, `core/frame_skip`, `core/settings` (los ajustes de la app de macOS, mismas claves, en JSON) con tests. `nimbo_server.dll` (antes `nimbo.dll`) con C ABI (`rayneo/platform/nimbo_win.h`): arrancar y parar en su propio hilo, ajustes en vivo, estado, log, ajustes ↔ opciones, gafas y driver presentes, restaurar pantallas, calibración guiada. `nimbo_win.exe` es un CLI sobre esa API; `nimbo_api_test` la prueba en CI. Pendiente: que la app de macOS lea y escriba `settings.json` en vez de UserDefaults |
 
 ## Siguiente sesión (punto de continuación)
 
@@ -79,18 +79,43 @@ Después: modo enfoque (⌘⌥O / Ctrl+Alt+O: solo el panel que miras) y modo ci
 
 Después: **pinned que sigue a la cabeza** (re-anclar la imagen al girar y pararse) se probó con las gafas y se **retiró**: re-anclaba a cada momento y movía las pantallas. Vuelve el encaje: todo (monitores y ventanas flotantes) dentro de la imagen fija de las gafas, sin nada que se mueva solo; la distancia y el tamaño solo pueden alejar, nunca agrandar más allá de la imagen (eso era lo que cortaba los bordes). La mirada en pinned usa los dos ejes, así que una ventana puesta arriba se elige mirando hacia arriba; la pose de Nimbo se pone a cero junto con el anclaje de las gafas (solo con ⌘⌥C / Ctrl+Alt+C: Nimbo nunca mueve el anclaje por su cuenta, ni al arrancar) para que mirada e imagen coincidan. **Cursor hasta las ventanas flotantes (solo macOS)**: cada ventana flotante va a un monitor virtual propio del tamaño de la ventana, colocado en la disposición de macOS donde flota (encima de los monitores → se llega subiendo el ratón), y se captura ese monitor (con cursor). Necesita Accesibilidad para mover la ventana; sin ella, captura de la ventana como antes. Windows: pendiente (hace falta un monitor extra del driver por ventana).
 
-Pendiente, en orden:
-0. **Revisar para meter 3D** (macOS y Windows): ya existe la imagen lado a lado (half-SBS, ajuste «Imagen en 3D» con la distancia entre ojos), pero no está pensada para el modo «Espacio a tamaño real». Ver cómo se combina el modo 3D de las gafas con el follow que pone Nimbo, el tamaño real por ojo y la distancia de las pantallas (profundidad).
-0. **Hecho en Windows (2026-10-15, sin probar con las gafas)**: modo «Espacio a tamaño real» como único modo de la app (Nimbo pone las gafas en follow y las devuelve a pinned al parar; panel del tamaño de la imagen, cabe en los dos sentidos; dos ejes; estabilizador world-locked con zona muerta < 0), inclinación, ancla en reposo, pantalla del portátil como panel 1 (la primaria; con virtual-display-rs los monitores virtuales toman su forma), recolocación cuando Windows mueve paneles o gafas, fondo de pantalla copiado (IDesktopWallpaper), reinicio con 1,5 s de espera. **Pendiente en Windows**: grabación de lo que muestran las gafas; cursor en ventanas flotantes (monitor propio por ventana: con Virtual Display Driver añadir un monitor recarga el adaptador y todos los monitores desaparecen un momento, así que solo sería viable con virtual-display-rs); ventana flotante recortada a su marco (va con lo anterior). Hecho también: predicción al instante real de presentación.
-0. **Portar a Windows (macOS, 2026-10-15, tarde)**: estabilizador «world-locked» en modo espacio (`core::world_locked_stabilizer`, zona muerta < 0); predicción al instante real de presentación (retraso medido sumado al horizonte); todas las pantallas que no son de Nimbo apartadas abajo a la izquierda; opción «La pantalla del Mac es una de las de Nimbo» (en Windows: la pantalla principal del portátil como panel 1).
-0. **Portar a Windows el modo «Espacio a tamaño real»** (macOS, 2026-10-15): selector «Cómo ves las pantallas» (una pantalla grande = pinned / espacio a tamaño real = follow). Nimbo pone las gafas en ese modo (0x08:1 / 0x08:0) y al parar en espacio las devuelve a pinned. En espacio: seguimiento en los dos ejes y cada panel del ancho de la imagen de las gafas (`arc = 2·atan(tan(fw/2)·d/2)`, que anula el escalado por distancia); distancia y tamaño deshabilitados. El reinicio (tamaño de texto, disposición) espera 2 s a que macOS restaure las pantallas.
-0. **Portar a Windows lo de macOS de 2026-10-15**: en pinned la pantalla que miras 1 s (o a la que llevas el ratón) ocupa toda la imagen de las gafas, plana y 1:1 como sin Nimbo; la disposición conserva su forma, así que las demás quedan justo fuera de los bordes y se eligen mirando hacia ellas (pan y zoom de 0,35 s; sin ninguna destacada, todo encajado con `core::pinned_zoom`). En enfoque y cine, el panel también llena la imagen. Ajustes «Agrandar la pantalla que miras» (`growFocused`) e «Incluir ventanas flotantes» (`focusWindows`). La ventana flotante en su monitor propio se recorta a su marco (`SCStreamConfiguration.sourceRect`, refrescado cada segundo). Al quitar una ventana flotante, las demás conservan su monitor y la quitada vuelve al monitor 1.
-0. **Validar con las gafas** el encaje en pinned (ventana arriba visible mirando hacia arriba, nada cortado a 1,9 m), la mirada vertical y el cursor en ventanas flotantes en macOS. Después, el cursor en ventanas flotantes en Windows.
-1. **Probar W3 con virtual-display-rs** en el PC: `build-win\Release\nimbo_win.exe --windowed --sim --displays 2`. Riesgos sin verificar: el nombre que Windows da a sus monitores (se esperan «VirtuDisplay+»; si no, se detectan como pantallas nuevas), que acepte el JSON de `Notify` de la 0.4.0, que Windows admita las gafas tocando solo por una esquina (si no, van debajo del último panel) y el cambio de escala por monitor (llamada no documentada).
-2. **Probar W2/W3 con las gafas** (`--displays 0` y `--displays 2`): `target err` cerca de 0 a pantalla completa, panel fijo al girar, texto nítido.
-3. **Probar la app**: artefacto `nimbo-app-win-x64` del último build de `main` (o `dotnet publish`, ver W4). Asistente, calibración guiada, bandeja, Ctrl+Alt+1/2/3.
-4. **W5 · Distribución** (preguntar al usuario antes de empezar): instalador con el driver VDD, firma Authenticode (requiere comprar certificado), actualizaciones (Velopack), instalador en CI.
-5. Que la app de macOS use `settings.json` (`core/settings`) en vez de UserDefaults.
+### Estado al terminar el 15-10-2026 (para seguir mañana)
+
+**Modo de la app (macOS y Windows):** uno solo, «Espacio a tamaño real». Nimbo pone las gafas en follow al empezar y en pinned al salir; cada pantalla mide lo que la imagen de las gafas (el 94 % de lo que cabe en ancho y alto), fija en la habitación en los dos ejes. Estabilizador `core::world_locked_stabilizer` (zona muerta < 0 en `rayneo_config`; −1,3 = ancla en reposo de 0,3°): giro en ejes de la cabeza (`body_frame_delta`), Madgwick 0,01 con arranque a 0,1, predicción con ω a 15 Hz y compensación del retraso del filtro, rechazo de golpes en las patillas (> 60 rad/s²), predicción al instante real de presentación. Ajustes nuevos: inclinación (`core::place_pitched`), ancla en reposo, pantalla del ordenador como panel 1 («macScreen»), ventanas flotantes separadas de los monitores (`core::separate_floating`). Pinned (encajar todo / agrandar la que miras) sigue en el servidor solo por línea de comandos.
+
+**macOS:** probado con las gafas, el usuario lo da por muy estable. Queda un temblor residual pequeño con la cabeza quieta (log `still wobble` ≈ 0,005°/fotograma antes del último ajuste). Grabación de lo que muestran las gafas: ⌘⌥R a Descargas.
+
+**Windows, PC de prueba (portátil Intel Iris Xe, Windows 11 26100):**
+- Drivers: **Virtual Display Driver 25.7.23** (VDD Control, `ROOT\DISPLAY\0001`) es el que usa Nimbo. virtual-display-rs 0.4.0 (`ROOT\DISPLAY\0000`) acepta el JSON pero **no crea monitores**: deshabilitado. Hubo un VDD duplicado (`0002`): quitarlo si sigue.
+- El VDD **deja de responder por su pipe tras una recarga** (cambio de número de monitores) hasta reiniciar Windows. Por eso Nimbo sube el número una sola vez a un **pool de 6** y no lo toca al salir: engancha los que necesita (`attach_detached_virtual`), desconecta los sobrantes y solo los desconecta al salir. No deshabilitar el dispositivo a mano (al rehabilitarlo, el pipe tampoco vuelve).
+- Windows suele estar en **Duplicar**: Nimbo extiende al empezar y restaura el modo Win+P al salir. Tras extender, el portátil es el panel 1 (`--laptop-screen`).
+- Las gafas a veces no aceptan el stream-on tras cambios de pantallas: Nimbo reintenta 4 veces; si no, desenchufar y enchufar las gafas.
+- `calibration.json` (la misma del Mac) copiada a la raíz del repo y a `%LOCALAPPDATA%\Nimbo`.
+- Medido con `nimbo_win`: 120 fps, ~18 ms del sensor a la imagen (mejor que el Mac), dos paneles capturados.
+- La DLL del servidor se llama **`nimbo_server.dll`**: como `nimbo.dll` era el mismo archivo que la `Nimbo.dll` de la app (Windows no distingue mayúsculas) y se pisaban (EntryPointNotFound / BadImageFormat).
+- La app WinUI ya abre (panel, asistente). Arranque trazado en `%LOCALAPPDATA%\Nimbo\crash.log`.
+
+**Comandos en el PC (PowerShell, carpeta del repo):**
+```powershell
+git pull
+cmake --build build-win --config Release
+.\build-win\Release\nimbo_win.exe --displays 2 --space --anchor --laptop-screen   # consola, log en vivo; Ctrl+Alt+Q sale
+Get-Process Nimbo, nimbo_win -ErrorAction SilentlyContinue | Stop-Process
+Remove-Item -Recurse -Force .\build-win\NimboApp, .\apps\NimboApp\bin, .\apps\NimboApp\obj -ErrorAction SilentlyContinue
+dotnet publish apps/NimboApp/NimboApp.csproj -c Release -o build-win\NimboApp -p:NimboNativeDir="$PWD\build-win\Release\"
+.\build-win\NimboApp\Nimbo.exe
+```
+Opciones de la consola nuevas: `--space` (modo de la app, mono salvo `--sbs`), `--anchor`, `--tilt K`, `--laptop-screen`, `--app` (arranca con el `settings.json` de la app). `--restore` deshace las pantallas tras un cuelgue.
+
+**Siguiente, en orden:**
+1. **Windows: comprobar los arreglos del final del día** (sin probar): «Más opciones» ya no debería cerrar la app (los deslizadores lanzaban eventos mientras XAML construía la ventana); la corrección del retraso de presentación (se medía contra el objetivo ya corregido y se quedaba en la mitad: `target err` debería bajar de +4,2 a ~0); dos arranques seguidos con dos paneles sin reiniciar Windows (pool de 6).
+2. **Windows: igualar la sensación al Mac**: probar quietud, giros a izquierda y derecha y golpecitos en las patillas con `--space --anchor`. Añadir al log de Windows la medida `still wobble` del Mac para comparar con cifras.
+3. **Windows: ventanas flotantes con cursor.** Hoy se capturan con Windows.Graphics.Capture como paneles propios (se ven solo la ventana, donde la pusiste, separadas de los monitores), pero el ratón no llega a ellas. En macOS cada una tiene su monitor virtual. En Windows ahora es viable sin recargar el driver: usar un monitor libre del pool de 6, mover la ventana allí y capturar ese monitor recortado al marco de la ventana.
+4. **Revisar para meter 3D** (macOS y Windows): la imagen lado a lado existe (half-SBS, «Imagen en 3D», distancia entre ojos) pero no está pensada para el modo espacio: modo 3D de las gafas con el follow que pone Nimbo, tamaño real por ojo, profundidad.
+5. Grabación de lo que muestran las gafas en Windows (en macOS: ⌘⌥R).
+6. **Linux** (idea): el núcleo ya compila y pasa tests en Linux; faltaría captura (PipeWire / wlr-screencopy), dibujado (Vulkan/OpenGL), monitores virtuales (en Hyprland: `hyprctl output create headless`, sin drivers) e interfaz.
+7. **W5 · Distribución** (preguntar antes): instalador con el driver VDD, firma, actualizaciones.
+8. Que la app de macOS use `settings.json` en vez de UserDefaults.
 
 Forma de trabajar acordada: hasta la beta, commit y push directos a `main` (ver README, «Flujo de trabajo»); presentar cada paso siguiente y preguntar antes de empezarlo; respuestas en español.
 
@@ -249,7 +274,7 @@ Variantes: `--layout "0,0;0,1"` (uno encima de otro), `--displays 3`, `--fit`, `
 ### W4 · App (M)
 
 #### Probar la app (4A)
-Descargar el artefacto `nimbo-app-win-x64` del último build de `main` en GitHub Actions, descomprimir y abrir `Nimbo.exe` (lleva su `nimbo.dll` y el Windows App SDK dentro). Para compilarla en el PC hace falta el SDK de .NET 8 o superior:
+Descargar el artefacto `nimbo-app-win-x64` del último build de `main` en GitHub Actions, descomprimir y abrir `Nimbo.exe` (lleva su `nimbo_server.dll` y el Windows App SDK dentro). Para compilarla en el PC hace falta el SDK de .NET 8 o superior:
 ```powershell
 cmake --build build-win --config Release
 dotnet publish apps\NimboApp\NimboApp.csproj -c Release -o build-win\NimboApp
