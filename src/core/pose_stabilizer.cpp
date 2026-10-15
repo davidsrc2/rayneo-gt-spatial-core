@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "rayneo/core/render_math.h"
+
 namespace rayneo::core {
 namespace {
 
@@ -38,6 +40,7 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
         holding_ = true;
         out_ = q.normalized();
         omega_slow_ = omega;
+        omega_fast_ = omega;
         omega_out_ = {};
         speed_ = omega.norm();
         slow_time_ = 0.0f;
@@ -46,13 +49,14 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
     // Speed of the low-passed vector: tremor is zero-mean and cancels, a real turn persists.
     omega_slow_ = omega_slow_ + (omega - omega_slow_) * alpha(cfg_.speed_cutoff_hz, dt);
     speed_ = omega_slow_.norm();
+    if (cfg_.predict_cutoff_hz > 0.0f) omega_fast_ = omega_fast_ + (omega - omega_fast_) * alpha(cfg_.predict_cutoff_hz, dt);
 
     if (holding_) {
         const float d = std::fabs(out_.w * q.w + out_.x * q.x + out_.y * q.y + out_.z * q.z);
         const float err_deg = 2.0f * std::acos(std::fmin(1.0f, d)) * 57.29578f;
         if (err_deg <= cfg_.enter_deg) {
             omega_out_ = {};
-            return out_;  // frozen: identical to a head-locked monitor
+            return finish();  // frozen: identical to a head-locked monitor
         }
         holding_ = false;
         slow_time_ = 0.0f;
@@ -66,7 +70,14 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
         holding_ = true;
         omega_out_ = {};
     }
-    return out_;
+    return finish();
+}
+
+Quat PoseStabilizer::finish() const {
+    if (!cfg_.compensate_lag) return out_;
+    const float cutoff = cfg_.follow_min_cutoff_hz + cfg_.follow_beta * speed_;
+    const float gain = prediction_gain(omega().norm(), kPredictStartRads, kPredictFullRads);
+    return predict_orientation(out_, omega(), gain / (kTwoPi * cutoff));
 }
 
 float prediction_gain(float speed_rads, float start_rads, float full_rads) {

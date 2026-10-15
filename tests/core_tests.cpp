@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include "rayneo/core/frame_skip.h"
@@ -887,44 +888,51 @@ void test_stabilizer_holds_still() {
 }
 
 // A real 60 deg/s turn: leaves the dead zone, follows with little lag, then holds again.
-// World-locked (space mode): never frozen, much less shake at rest than the plain 8 Hz floor,
-// turns still tight.
-void test_stabilizer_world_locked() {
-    const float dt = kRefDt, d2r = 0.0174533f, pi = 3.14159265f;
-    const auto shake = [&](PoseStabilizerConfig c) {
-        PoseStabilizer s(c);
-        Lcg rng;
-        double sum = 0;
-        int n = 0;
-        for (int i = 0; i < 457 * 10; ++i) {
-            const float t = static_cast<float>(i) * dt;
-            const float sway = 0.5f * d2r * std::sin(2 * pi * 0.25f * t);
-            const float pitch = 0.3f * d2r * std::sin(2 * pi * 8.0f * t) + sway + rng.uni() * 0.05f * d2r;
-            const float rate = 0.3f * d2r * 2 * pi * 8.0f * std::cos(2 * pi * 8.0f * t) +
-                               0.5f * d2r * 2 * pi * 0.25f * std::cos(2 * pi * 0.25f * t) + rng.uni() * 0.03f;
-            const Quat out = s.update(Quat::from_axis_angle({0, 1, 0}, pitch), {0, rate, 0}, dt);
-            if (i > 457 * 2) {
-                const float e = angle_between_deg(out, Quat::from_axis_angle({0, 1, 0}, sway));
-                sum += e * e;
-                ++n;
-            }
+// World-locked (space mode), measured on the whole chain: a head looking around (or still)
+// with tremor, sensor noise, frames reaching the glasses 30 ms after the sample and predicted
+// for then as the renderers do. Error = where a panel is shown vs where it is in the room.
+float world_lock_error_deg(const PoseStabilizerConfig& c, bool moving) {
+    const float dt = kRefDt, d2r = 0.0174533f, pi = 3.14159265f, latency = 0.030f;
+    const auto head = [&](float t) {
+        float yaw = 0.05f * d2r * std::sin(2 * pi * 8 * t), pitch = 0.2f * d2r * std::sin(2 * pi * 0.25f * t);
+        float wy = 0.05f * d2r * 2 * pi * 8 * std::cos(2 * pi * 8 * t), wp = 0.2f * d2r * 2 * pi * 0.25f * std::cos(2 * pi * 0.25f * t);
+        if (moving) {
+            yaw += 20 * d2r * std::sin(2 * pi * 0.25f * t) + 6 * d2r * std::sin(2 * pi * 0.9f * t + 1);
+            wy += 20 * d2r * 2 * pi * 0.25f * std::cos(2 * pi * 0.25f * t) + 6 * d2r * 2 * pi * 0.9f * std::cos(2 * pi * 0.9f * t + 1);
+            pitch += 8 * d2r * std::sin(2 * pi * 0.17f * t + 2);
+            wp += 8 * d2r * 2 * pi * 0.17f * std::cos(2 * pi * 0.17f * t + 2);
         }
-        return std::sqrt(sum / n);
+        const Quat q = Quat::from_axis_angle({0, 0, 1}, yaw) * Quat::from_axis_angle({0, -1, 0}, pitch);
+        const Vec3 pitch_axis = Quat::from_axis_angle({0, 0, 1}, yaw).rotate({0, -1, 0});
+        return std::pair<Quat, Vec3>{q, pitch_axis * wp + Vec3{0, 0, wy}};
     };
-    PoseStabilizerConfig plain;
+    PoseStabilizer s(c);
+    Lcg rng;
+    const auto gauss = [&] { return (rng.uni() + rng.uni() + rng.uni() + rng.uni()) * 0.866f; };
+    double sum = 0;
+    int n = 0;
+    for (int i = 0; i < static_cast<int>(20 / dt); ++i) {
+        const float t = static_cast<float>(i) * dt;
+        const auto [q, w] = head(t);
+        const Quat noisy = Quat::from_axis_angle({gauss(), gauss(), gauss()}, 0.02f * d2r * std::fabs(gauss())) * q;
+        const Quat out = s.update(noisy, w + Vec3{gauss(), gauss(), gauss()} * 0.02f, dt);
+        if (i % 4 != 0 || t < 2) continue;  // ~114 frames/s, after settling
+        const Vec3 om = s.omega();
+        const Quat shown = predict_orientation(out, om, latency * prediction_gain(om.norm(), kPredictStartRads, kPredictFullRads));
+        const float e = angle_between_deg(shown, head(t + latency).first);
+        sum += e * e;
+        ++n;
+    }
+    return static_cast<float>(std::sqrt(sum / n));
+}
+
+void test_stabilizer_world_locked() {
+    PoseStabilizerConfig plain;  // no dead zone, 8 Hz floor, slow speed filter driving prediction
     plain.enter_deg = 0.0f;
     const auto locked = world_locked_stabilizer();
-    CHECK(shake(locked) < 0.55 * shake(plain));
-    // A 60 deg/s turn after a second of rest: under 0.8 deg behind.
-    PoseStabilizer s(locked);
-    float lag = 0.0f;
-    for (int i = 0; i < 457 * 2; ++i) {
-        const float t = static_cast<float>(i) * dt;
-        const Quat q = Quat::from_axis_angle({0, 0, 1}, t > 1 ? (t - 1) * 60 * d2r : 0.0f);
-        const Quat out = s.update(q, {0, 0, t > 1 ? 60 * d2r : 0.0f}, dt);
-        if (t > 1) lag = std::fmax(lag, angle_between_deg(out, q));
-    }
-    CHECK(lag < 0.8f);
+    const float rest = world_lock_error_deg(locked, false), moving = world_lock_error_deg(locked, true);
+    CHECK(rest < 0.04f && rest < world_lock_error_deg(plain, false));
+    CHECK(moving < 0.16f && moving < 0.5f * world_lock_error_deg(plain, true));
 }
 
 // Recentered with the head pitched down and rolled, then turned about the vertical: content

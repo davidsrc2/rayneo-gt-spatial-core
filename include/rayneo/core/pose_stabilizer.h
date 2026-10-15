@@ -21,20 +21,33 @@ struct PoseStabilizerConfig {
     float follow_min_cutoff_hz = 8.0f;
     float follow_beta = 40.0f;        // cutoff increase per rad/s while following
     float speed_cutoff_hz = 3.0f;     // low-pass on the angular velocity vector
+    // > 0: omega() is the angular velocity low-passed here (for the renderer's prediction)
+    // instead of the speed filter's, and never zeroed: a slow one predicts turns late.
+    float predict_cutoff_hz = 0.0f;
+    // The output is advanced by the follow filter's own delay (1 / (2 pi cutoff)) along omega(),
+    // ramped in with speed: the smoothing then costs no lag while the head turns.
+    bool compensate_lag = false;
 };
 
-// Panels fixed in the room at every moment (no dead zone, nothing frozen): sensor noise and
-// tremor smoothed hard while the head is nearly still, released with speed so turns stay
-// tight. Simulated (tests/core_tests.cpp): ~2x less shake at rest than an 8 Hz floor, ~0.7
-// deg of lag at 60 deg/s.
+// Panels fixed in the room at every moment (no dead zone, nothing frozen). Tuned on a
+// simulated chain (head looking around with tremor, sensor noise, 30 ms to the glasses;
+// error = where a panel is shown vs where it is in the room): 0.027 deg rms at rest, 0.12 deg
+// while looking around, against 0.054 / 0.44 with a 0.3 Hz floor and the slow speed filter
+// driving the prediction (it noticed turns late: the panels dragged with the head).
 inline PoseStabilizerConfig world_locked_stabilizer() {
     PoseStabilizerConfig c;
     c.enter_deg = 0.0f;
-    c.follow_min_cutoff_hz = 0.3f;
+    c.follow_min_cutoff_hz = 2.0f;
     c.follow_beta = 40.0f;
-    c.speed_cutoff_hz = 3.0f;  // 1.5 noticed turns late: the panels dragged with the head first
+    c.speed_cutoff_hz = 3.0f;
+    c.predict_cutoff_hz = 15.0f;
+    c.compensate_lag = true;
     return c;
 }
+
+// Speeds (rad/s) between which the renderers ramp their presentation-time prediction in.
+inline constexpr float kPredictStartRads = 0.02f;
+inline constexpr float kPredictFullRads = 0.1f;
 
 class PoseStabilizer {
 public:
@@ -45,7 +58,7 @@ public:
     Quat update(const Quat& q, const Vec3& omega, float dt);
 
     bool holding() const { return holding_; }
-    const Vec3& omega() const { return omega_out_; }  // zero while holding
+    const Vec3& omega() const { return cfg_.predict_cutoff_hz > 0.0f ? omega_fast_ : omega_out_; }  // see predict_cutoff_hz
     float speed() const { return speed_; }            // |low-passed omega|, rad/s
 
 private:
@@ -55,6 +68,8 @@ private:
     Quat out_;
     Vec3 omega_slow_;
     Vec3 omega_out_;
+    Vec3 omega_fast_;
+    Quat finish() const;  // out_, advanced by the filter's delay when compensating lag
     float speed_ = 0.0f;
     float slow_time_ = 0.0f;
 };

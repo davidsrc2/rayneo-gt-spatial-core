@@ -90,8 +90,9 @@ final class GUIApp: NSObject {
     func showPanel() {
         if panel == nil {
             let host = NSHostingView(rootView: QuickPanelContainer(layout: panelLayout, model: model, server: server) { [weak self] in
+                let from = self?.panel?.screen  // before it hides
                 self?.panel?.orderOut(nil)
-                self?.openLayout()
+                self?.openLayoutWindow(on: from)
             }
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)))
             let p = KeyPanel(contentRect: NSRect(origin: .zero, size: host.fittingSize),
@@ -168,7 +169,9 @@ final class GUIApp: NSObject {
         previewWindow = w
     }
 
-    @objc func openLayout() {
+    @objc func openLayout() { openLayoutWindow(on: nil) }
+
+    func openLayoutWindow(on asked: NSScreen?) {
         if window == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 900),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -182,15 +185,17 @@ final class GUIApp: NSObject {
             w.center()
             window = w
         }
-        // Fully on the screen it opens on, title bar included (a small virtual monitor is
-        // shorter than the window: its close button ended up off screen).
-        if let w = window, let room = (w.screen ?? NSScreen.main)?.visibleFrame {
+        // Centred on the screen it was asked from (the quick panel's, else the cursor's), fully
+        // on it, title bar included: it used to open wherever macOS last had it, often on a
+        // monitor out of view, and a small virtual monitor is shorter than the window.
+        let mouse = NSEvent.mouseLocation
+        let from = asked ?? (panel?.isVisible == true ? panel?.screen : nil)
+            ?? NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        if let w = window, let room = from?.visibleFrame {
             var f = w.frame
-            f.size.width = min(f.width, room.width - 20)
-            f.size.height = min(f.height, room.height - 20)
-            f.origin.x = max(room.minX + 10, min(f.minX, room.maxX - f.width - 10))
-            f.origin.y = max(room.minY + 10, min(f.minY, room.maxY - f.height - 10))
-            if !room.intersects(w.frame) { f.origin = CGPoint(x: room.midX - f.width / 2, y: room.midY - f.height / 2) }
+            f.size.width = min(max(f.width, 880), room.width - 20)
+            f.size.height = min(max(f.height, 700), room.height - 20)
+            f.origin = CGPoint(x: room.midX - f.width / 2, y: room.midY - f.height / 2)
             w.setFrame(f, display: false)
         }
         window?.makeKeyAndOrderFront(nil)

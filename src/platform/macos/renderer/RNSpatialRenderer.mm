@@ -571,7 +571,7 @@ static float effective_curvature(RNRenderOptions* o) {
     // Extrapolating while the head holds still would only amplify noise: ramp the prediction
     // in with angular speed.
     const core::Vec3 w{angularVelocity.x, angularVelocity.y, angularVelocity.z};
-    horizon_s *= core::prediction_gain(w.norm());
+    horizon_s *= core::prediction_gain(w.norm(), core::kPredictStartRads, core::kPredictFullRads);
     core::Quat head = core::predict_orientation(from_simd(orientation), w, horizon_s);
     head = core::track_axes(head, static_cast<core::TrackingAxes>(o.trackingAxes));
     if (o.staticHead) {  // the glasses' pinned mode moves the whole image: the panels stay put in it

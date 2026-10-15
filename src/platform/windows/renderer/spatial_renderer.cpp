@@ -465,7 +465,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     }
     // Extrapolating while the head holds still would only amplify noise: ramp the prediction
     // in with angular speed.
-    horizon_s *= core::prediction_gain(angular_velocity.norm());
+    horizon_s *= core::prediction_gain(angular_velocity.norm(), core::kPredictStartRads, core::kPredictFullRads);
     core::Quat head = core::predict_orientation(orientation, angular_velocity, horizon_s);
     head = core::track_axes(head, options.tracking_axes);
     if (options.static_head) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
