@@ -56,6 +56,8 @@ public:
     void set_poses(std::vector<core::PanelPose> poses) { poses_ = std::move(poses); }
     // Floating windows: the last N panels (after the monitors), placed at these poses.
     void set_floating(std::vector<core::PanelPose> poses) { floating_ = std::move(poses); }
+    // A message fixed in front of the eyes (start-up), two lines separated by '\n'; empty hides it.
+    void set_overlay_text(const std::wstring& text);
     // The capture feeding a panel (not owned; must outlive the renderer's use).
     void set_source(int panel, FrameSource* source);
 
@@ -102,6 +104,7 @@ private:
     void compose(Panel& p);
     void ensure_eye_textures(int width, int height);
     float vertical_arc(float aspect) const;
+    void fit_in_glasses_image(std::vector<core::PanelPlacement>& out) const;
     float panel_arc() const;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
@@ -114,6 +117,10 @@ private:
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> raster_;
     Microsoft::WRL::ComPtr<ID3D11BlendState> blend_alpha_, blend_invert_;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> placeholder_;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> overlay_;  // start-up message, null = none
+    Microsoft::WRL::ComPtr<ID3D11Buffer> overlay_vertices_, overlay_indices_;
+    UINT overlay_index_count_ = 0;
+    uint64_t overlay_generation_ = 0;  // a new message must be drawn even with a still head
     Microsoft::WRL::ComPtr<ID3D11Texture2D> eye_tex_[2];
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> eye_rtv_[2];
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> eye_srv_[2];

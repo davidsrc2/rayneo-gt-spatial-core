@@ -368,6 +368,7 @@ private:
     void jump_cursor_to_gaze();
     void toggle_focus(bool cinema);
     int focus_mode_ = 0;  // 0 all, 1 focus, 2 cinema
+    bool overlay_shown_ = false;  // start-up message on the glasses until tracking starts
     void start_floating(std::vector<Options::Floating> specs);
     core::PanelPose default_floating_pose(int index) const;
     void apply_pending();
@@ -611,6 +612,7 @@ bool Server::start() {
             return false;
         }
         logln("imu: streaming, leave the glasses still on the table ~6 s until TRACK");
+        overlay_shown_ = true;  // shown on the glasses once the renderer exists
         pose_ = std::move(imu);
         imu_ = true;
         if (opt_.glasses_mode >= 0) {
@@ -706,6 +708,7 @@ bool Server::start() {
         logln("capture: panel %d <- %s %dx%d", i + 1, win::narrow(src->gdi_name).c_str(), src->width(), src->height());
     }
     refresh_rects();
+    if (overlay_shown_) renderer_.set_overlay_text(L"Nimbo se está preparando\nDeja las gafas quietas unos segundos");
     monitor_panels_ = panels;
     render_adapter_ = first->adapter;
     start_floating(opt_.floating);
@@ -934,6 +937,15 @@ void Server::periodic() {
     for (const auto& c : window_captures_) cap += c->frames();
     const uint64_t cap_fps = cap - last_capture_frames_;
     last_capture_frames_ = cap;
+    if (overlay_shown_ && s.tracking) {
+        renderer_.set_overlay_text(L"");
+        overlay_shown_ = false;
+        logln("ready: tracking");
+        redraw_ = true;
+    } else if (overlay_shown_) {
+        renderer_.set_overlay_text(L"Nimbo se está preparando\nDeja las gafas quietas · " +
+                                   std::to_wstring(std::max(1, 6 - calib_s_)) + L" s");
+    }
     if (!s.tracking && imu_ && ++calib_s_ % 3 == 1) {
         logln("CALIB: head tracking starts after ~6 s with the glasses still on the table"
             " (or ~14 s if you are already wearing them)");
@@ -996,21 +1008,7 @@ const win::OutputInfo* Server::find_output(const std::wstring& gdi_name) const {
 
 void Server::apply_pinned(const Options& o) {
     auto& ro = renderer_.options;
-    ro.static_head = o.glasses_pinned;
-    if (!o.glasses_pinned) return;
-    int columns = std::max(1, renderer_.panel_count());
-    if (!o.layout.empty()) {
-        std::vector<int> cols;
-        for (const auto& c : o.layout) {
-            if (std::find(cols.begin(), cols.end(), c.col) == cols.end()) cols.push_back(c.col);
-        }
-        columns = static_cast<int>(cols.size());
-    }
-    // Size and distance can make the panels smaller, never wider than the glasses' image.
-    constexpr float kDeg = 0.017453292519943295f;
-    const float fit = renderer_.fit_arc_deg(columns) * kDeg;
-    const float seen = std::min(fit, core::arc_at_distance(o.panel_arc_deg() * kDeg, ro.distance_m));
-    ro.arc_deg = core::arc_at_distance(seen, 2.0f, ro.distance_m) / kDeg;  // undo the render's distance scaling
+    ro.static_head = o.glasses_pinned;  // the renderer fits everything in the glasses' image
 }
 
 // Ctrl+Alt+O focus mode: only the panel you look at stays; Ctrl+Alt+P cinema: that one centred
@@ -1215,7 +1213,7 @@ void Server::follow_gaze(uint64_t now) {
         return;
     }
     // Pinned: the glasses pan over the image, so the head direction does not say which panel is in view.
-    if (!opt_.gaze_cursor || opt_.glasses_pinned || focus_mode_ != 0 || panel_rects_.size() < 2 || !p || !p->tracking) return;
+    if (!opt_.gaze_cursor || focus_mode_ != 0 || panel_rects_.size() < 2 || !p || !p->tracking) return;
     if (gaze == last_gaze_panel_) {
         gaze_candidate_ = gaze;
         return;
@@ -1718,9 +1716,10 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.dim_others = s.dim_others ? 0.55f : 1.0f;  // linear light: ~80 % perceived brightness
     o.gather_windows = s.gather_windows;
     o.tracking_axes = s.tracking;
-    // The glasses' mode is changed with their own button: the app only recentres them.
+    // The glasses' mode is changed with their own button. Pinned: they anchor the image, so
+    // Nimbo fits everything in it and Ctrl+Alt+C recentres them.
     o.glasses_mode = -1;
-    o.glasses_pinned = false;
+    o.glasses_pinned = s.glasses_mode == 1;
     o.recenter_glasses = s.glasses_mode == 1;
     o.brightness = s.brightness;
     o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;

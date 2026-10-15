@@ -188,7 +188,102 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
     if (options.cinema && options.focus_panel >= 0 && options.focus_panel < static_cast<int>(out.size())) {
         out[static_cast<size_t>(options.focus_panel)] = core::PanelPlacement{0.0f, 0.0f, 1.6f};
     }
+    if (options.static_head) fit_in_glasses_image(out);
     return out;
+}
+
+// Glasses in their own pinned mode anchor the image we send and let the eyes roam over it:
+// nothing outside it can ever be seen. The whole arrangement (monitors and floating windows,
+// both axes; only the focused panel in focus / cinema) is centred and scaled to fit in it.
+// Distance and size still zoom: a 38° panel at 2 m fits exactly, closer or larger grows.
+void SpatialRenderer::fit_in_glasses_image(std::vector<core::PanelPlacement>& out) const {
+    const float arc = panel_arc();
+    float y0 = 1e9f, y1 = -1e9f, p0 = 1e9f, p1 = -1e9f;
+    for (size_t i = 0; i < out.size() && i < static_cast<size_t>(kMaxPanels); ++i) {
+        if (options.focus_panel >= 0 && static_cast<int>(i) != options.focus_panel) continue;
+        const float w = arc * out[i].scale, h = core::panel_vertical_arc(w, panels_[i].aspect, true);
+        y0 = std::min(y0, out[i].yaw_rad - w / 2);
+        y1 = std::max(y1, out[i].yaw_rad + w / 2);
+        p0 = std::min(p0, out[i].pitch_rad - h / 2);
+        p1 = std::max(p1, out[i].pitch_rad + h / 2);
+    }
+    if (y1 <= y0 || p1 <= p0) return;
+    const float fw = core::horizontal_fov(options.fov_y_deg * kDegToRad, options.eye_aspect);
+    const float fh = options.fov_y_deg * kDegToRad;
+    const float zoom = arc / (38.0f * kDegToRad);
+    const float s = 0.94f * std::min(fw * zoom / (y1 - y0), fh * zoom / (p1 - p0));
+    const float yc = 0.5f * (y0 + y1), pc = 0.5f * (p0 + p1);
+    for (auto& pl : out) {
+        pl.yaw_rad = (pl.yaw_rad - yc) * s;
+        pl.pitch_rad = (pl.pitch_rad - pc) * s;
+        pl.scale *= s;
+    }
+}
+
+void SpatialRenderer::set_overlay_text(const std::wstring& text) {
+    overlay_.Reset();
+    overlay_generation_ += 1;
+    if (text.empty()) return;
+    // Dark card with white text, drawn with GDI into a 32-bit DIB (black would be see-through
+    // on the glasses).
+    constexpr int w = 1400, h = 360;
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;  // top-down
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HDC dc = CreateCompatibleDC(nullptr);
+    HBITMAP bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (bmp == nullptr || bits == nullptr) {
+        DeleteDC(dc);
+        return;
+    }
+    HGDIOBJ old = SelectObject(dc, bmp);
+    RECT all{0, 0, w, h};
+    HBRUSH bg = CreateSolidBrush(RGB(33, 38, 41));
+    FillRect(dc, &all, bg);
+    DeleteObject(bg);
+    SetBkMode(dc, TRANSPARENT);
+    const size_t nl = text.find(L'\n');
+    const std::wstring lines[2] = {text.substr(0, nl), nl == std::wstring::npos ? L"" : text.substr(nl + 1)};
+    for (int i = 0; i < 2; ++i) {
+        HFONT font = CreateFontW(i == 0 ? 76 : 50, 0, 0, 0, i == 0 ? FW_SEMIBOLD : FW_NORMAL, FALSE, FALSE, FALSE,
+                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                 DEFAULT_PITCH, L"Segoe UI");
+        HGDIOBJ oldFont = SelectObject(dc, font);
+        SetTextColor(dc, i == 0 ? RGB(255, 255, 255) : RGB(190, 196, 200));
+        RECT r{0, i == 0 ? 70 : 200, w, i == 0 ? 170 : 280};
+        DrawTextW(dc, lines[i].c_str(), static_cast<int>(lines[i].size()), &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(dc, oldFont);
+        DeleteObject(font);
+    }
+    GdiFlush();
+    auto* px = static_cast<uint32_t*>(bits);
+    for (int k = 0; k < w * h; ++k) px[k] |= 0xFF000000u;  // GDI leaves alpha undefined
+    overlay_ = image(device_.Get(), w, h, px, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+    SelectObject(dc, old);
+    DeleteObject(bmp);
+    DeleteDC(dc);
+    if (!overlay_vertices_) {
+        // 20° wide card at 2 m, 4° below straight ahead, head-locked.
+        core::ScreenMesh m =
+            core::flat_screen_mesh(2.0f, 20.0f * kDegToRad, core::panel_width(2.0f, 20.0f * kDegToRad, true) * h / w, 1);
+        core::pitch_mesh(m, -4.0f * kDegToRad);
+        D3D11_BUFFER_DESC d{};
+        d.Usage = D3D11_USAGE_IMMUTABLE;
+        d.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        d.ByteWidth = static_cast<UINT>(m.vertices.size() * sizeof(core::ScreenVertex));
+        D3D11_SUBRESOURCE_DATA init{m.vertices.data(), 0, 0};
+        device_->CreateBuffer(&d, &init, &overlay_vertices_);
+        d.BindFlags = D3D11_BIND_INDEX_BUFFER;
+        d.ByteWidth = static_cast<UINT>(m.indices.size() * sizeof(uint16_t));
+        init.pSysMem = m.indices.data();
+        device_->CreateBuffer(&d, &init, &overlay_indices_);
+        overlay_index_count_ = static_cast<UINT>(m.indices.size());
+    }
 }
 
 float SpatialRenderer::fit_arc_deg(int columns) const {
@@ -212,7 +307,7 @@ bool SpatialRenderer::can_skip_frame(const core::Quat& orientation, const core::
     core::FrameSkipper::Input in;
     in.orientation = options.static_head ? core::Quat{} : orientation;
     in.angular_speed_rads = options.static_head ? 0.0f : angular_velocity.norm();
-    in.source_generation = generation;
+    in.source_generation = generation + overlay_generation_;
     in.tracking = tracking;
     in.animating = dimmer_.animating();
     in.forced = forced;
@@ -431,6 +526,19 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
             ID3D11ShaderResourceView* srv = p.composite_srv ? p.composite_srv.Get() : placeholder_.Get();
             ctx_->PSSetShaderResources(0, 1, &srv);
             ctx_->DrawIndexed(p.index_count, 0, 0);
+        }
+        if (overlay_ && overlay_vertices_) {
+            // Head-locked: straight ahead whatever the pose.
+            SceneUniforms ou;
+            std::memcpy(ou.view_projection, (proj * core::view_matrix(core::Quat{}, offset)).m, sizeof(ou.view_projection));
+            ctx_->UpdateSubresource(scene_cb_.Get(), 0, nullptr, &ou, 0, 0);
+            const PanelUniforms pu{1.0f, {0, 0, 0}};
+            ctx_->UpdateSubresource(panel_cb_.Get(), 0, nullptr, &pu, 0, 0);
+            const UINT stride = sizeof(core::ScreenVertex), offset0 = 0;
+            ctx_->IASetVertexBuffers(0, 1, overlay_vertices_.GetAddressOf(), &stride, &offset0);
+            ctx_->IASetIndexBuffer(overlay_indices_.Get(), DXGI_FORMAT_R16_UINT, 0);
+            ctx_->PSSetShaderResources(0, 1, overlay_.GetAddressOf());
+            ctx_->DrawIndexed(overlay_index_count_, 0, 0);
         }
     }
 
