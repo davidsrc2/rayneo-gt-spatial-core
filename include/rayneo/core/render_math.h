@@ -121,6 +121,13 @@ struct PanelPose {
 // Hand-placed panels as placements, angles multiplied by `angle_scale`.
 std::vector<PanelPlacement> placements_from_poses(const std::vector<PanelPose>& poses, float angle_scale = 1.0f);
 
+// One panel enlarged among the others (glasses' pinned mode: everything shares one image).
+// `focus` keeps its size; the others shrink by `shrink` and are pulled in towards it, on each
+// axis, so they stay as clear of it and of each other as they were. `widths_rad` and
+// `heights_rad` are each panel's extent at its current scale. Then fit the result as usual.
+void grow_panel(std::vector<PanelPlacement>& panels, const std::vector<float>& widths_rad,
+                const std::vector<float>& heights_rad, int focus, float shrink);
+
 // Grid cells for the OS display arrangement (so the cursor crosses to the neighbour you see):
 // panels grouped into columns by yaw and rows by pitch, in panel order, every cell unique.
 std::vector<GridCell> cells_from_poses(const std::vector<PanelPose>& poses, float column_deg, float row_deg);

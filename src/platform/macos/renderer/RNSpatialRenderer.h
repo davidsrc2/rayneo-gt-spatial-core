@@ -69,6 +69,11 @@ NS_ASSUME_NONNULL_BEGIN
 // current distance, never wider than what fits `count` columns in the glasses' image.
 - (float)pinnedArcDegreesForPanels:(NSUInteger)count sizeDegrees:(float)sizeDegrees;
 
+// Glasses in their pinned mode: this panel is drawn large and the others small around it,
+// all still fitted in the glasses' image; changing it eases over a third of a second. -1: all
+// the same size. Any thread.
+@property(nonatomic) NSInteger growPanel;
+
 // Panel index the given head orientation (core frame) looks at, or -1.
 - (NSInteger)panelAtGaze:(simd_quatf)orientation;
 

@@ -26,6 +26,11 @@ struct SettingsView: View {
                     Toggle("Mis gafas están en modo pinned", isOn: $model.glassesPinned)
                     Text("El modo se cambia con el botón de las gafas. Actívalo si las usas en pinned: Nimbo coloca todo (monitores y ventanas) dentro de la imagen que fijan las gafas, así nada se corta y nada se mueve solo: una ventana puesta arriba se ve mirando hacia arriba. ⌘⌥C vuelve a centrar la imagen delante.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                    if model.glassesPinned {
+                        Toggle("Agrandar la pantalla que miras", isOn: $model.growFocused)
+                        Text("La pantalla que miras un segundo, o a la que llevas el ratón, se ve grande y las demás pequeñas a su alrededor. Todo sigue dentro de la imagen de las gafas.")
+                            .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                    }
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
@@ -84,6 +89,7 @@ struct SettingsView: View {
         .onChange(of: model.dimOthers) { server.settingsChanged() }
         .onChange(of: model.tracking) { server.settingsChanged() }
         .onChange(of: model.glassesPinned) { server.settingsChanged() }
+        .onChange(of: model.growFocused) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }

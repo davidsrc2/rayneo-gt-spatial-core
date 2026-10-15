@@ -841,6 +841,24 @@ void test_panel_poses() {
     CHECK(panel_at_gaze(head, placements_from_poses({{0, 0, 0.5f}}), 0.66f, 0.38f, 0.0f) == -1);
 }
 
+// Two monitors in a row and a window above between them; the left one enlarged.
+void test_grow_panel() {
+    std::vector<PanelPlacement> pl = {{-0.33f, 0, 1}, {0.33f, 0, 1}, {0, 0.39f, 1}};
+    const std::vector<float> w = {0.63f, 0.63f, 0.63f}, h = {0.36f, 0.36f, 0.36f};
+    grow_panel(pl, w, h, 0, 0.3f);
+    CHECK(near(pl[0].yaw_rad, -0.33f, 1e-6f) && near(pl[0].scale, 1.0f, 1e-6f));
+    CHECK(near(pl[1].scale, 0.3f, 1e-6f) && near(pl[2].scale, 0.3f, 1e-6f));
+    // The right monitor sits just clear of the left one, the same 0.03 gap shrunk.
+    const float right_gap = (pl[1].yaw_rad - 0.3f * 0.63f / 2) - (pl[0].yaw_rad + 0.63f / 2);
+    CHECK(near(right_gap, 0.03f * 0.3f, 1e-5f));
+    // The window stays above, clear of the enlarged monitor, and between the two monitors.
+    CHECK(pl[2].pitch_rad - 0.3f * 0.36f / 2 >= pl[0].pitch_rad + 0.36f / 2 - 1e-6f);
+    CHECK(pl[2].yaw_rad > pl[0].yaw_rad && pl[2].yaw_rad < pl[1].yaw_rad);
+    std::vector<PanelPlacement> same = pl;
+    grow_panel(same, w, h, -1, 0.3f);  // no focus: untouched
+    CHECK(near(same[1].scale, pl[1].scale, 1e-6f));
+}
+
 void test_slerp() {
     const Quat a{}, b = Quat::from_axis_angle({0, 0, 1}, 1.0f);
     CHECK(quat_near(slerp(a, b, 0.0f), a, 1e-6f) && quat_near(slerp(a, b, 1.0f), b, 1e-6f));
@@ -1072,6 +1090,7 @@ int main() {
     test_prediction_gain();
     test_yaw_only();
     test_panel_poses();
+    test_grow_panel();
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();

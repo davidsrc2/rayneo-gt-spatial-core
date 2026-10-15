@@ -78,6 +78,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var lastGazePanel = -2
     private var gazeCandidate = -2          // panel looked at, not yet followed
     private var gazeCandidateSince = Date()
+    private var growCandidate = -2          // pinned: panel looked at, not yet enlarged
+    private var growCandidateSince = Date()
+    private var growCursorDisplay: CGDirectDisplayID = 0
+    // Floating windows on a monitor of their own: only the window's part of it is shown.
+    private var floatingCrops: [(capture: ScreenCapture, windowID: CGWindowID, display: CGDirectDisplayID, crop: CGRect)] = []
     private var physicalDisplay: CGDirectDisplayID?  // glasses surface when it is not a panel
     private var glassesID: CGDirectDisplayID?        // render target (nil in --windowed)
     private var lastPoseNs: UInt64 = 0
@@ -329,15 +334,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.printStats()
             self?.checkGlassesPresent()
+            self?.refreshFloatingCrops()
         }
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                                 object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
         }
+        // Always: the gaze also picks the enlarged panel in pinned, which can be switched on later.
+        gazeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.followGaze()
+        }
         if (options.gazeCursor && (panelDisplays.count > 1 || !floatingDisplays.isEmpty)) || physicalDisplay != nil {
-            gazeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-                self?.followGaze()
-            }
             log("cursor: follows the panel you look at (--no-gaze-cursor to disable)")
         }
     }
@@ -416,6 +423,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.recenterGlasses = o.recenterGlasses
         options.brightness = o.brightness
         options.glassesPinned = o.glassesPinned
+        options.growFocused = o.growFocused
         applyPinned(o)  // last: it overrides the panel width
         requestRedraw()
     }
@@ -471,6 +479,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     func setFloatingWindows(_ specs: [FloatingWindow]) async {
         let old = floatingCaptures
         floatingCaptures = []
+        floatingCrops = []
         for c in old { await c.stop() }
         let oldDisplays = floatingDisplays  // released last: windows staying afloat move straight to their new monitor
         defer { withExtendedLifetime(oldDisplays) {} }
@@ -540,9 +549,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: panel) }
             do {
                 let (pw, ph): (Int, Int)
-                if let d = displays[i] {  // the whole monitor: the window and the cursor over it
+                if let d = displays[i] {  // the window's part of its monitor, with the cursor over it
+                    let crop = windowCrop(CGWindowID(w.windowID), on: d.displayID)
                     (pw, ph) = try await cap.start(displayID: d.displayID, fps: 60, excludeOwnApp: true,
-                                                   minScale: options.hiDPI ? 2 : 1)
+                                                   minScale: options.hiDPI ? 2 : 1, crop: crop)
+                    if let crop { floatingCrops.append((cap, CGWindowID(w.windowID), d.displayID, crop)) }
                 } else {
                     (pw, ph) = try await cap.start(windowID: CGWindowID(w.windowID), fps: 60)
                 }
@@ -570,6 +581,25 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let work = DispatchWorkItem { [weak self] in self?.arrangeFloatingDisplays() }
         floatingArrangeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    // The window's frame on its monitor (points, the monitor's top-left), so the panel shows the
+    // window and not the monitor around it. nil: not on it.
+    private func windowCrop(_ windowID: CGWindowID, on display: CGDirectDisplayID) -> CGRect? {
+        guard let frame = WindowGatherer.frame(windowID: windowID) else { return nil }
+        let b = CGDisplayBounds(display)
+        let r = frame.intersection(b).offsetBy(dx: -b.minX, dy: -b.minY).integral
+        return r.width >= 64 && r.height >= 64 ? r : nil
+    }
+
+    // Once a second: a floating window moved or resized on its monitor, the crop follows.
+    private func refreshFloatingCrops() {
+        for (i, f) in floatingCrops.enumerated() {
+            guard let crop = windowCrop(f.windowID, on: f.display), crop != f.crop else { continue }
+            floatingCrops[i].crop = crop
+            let cap = f.capture
+            Task { await cap.updateCrop(crop) }
+        }
     }
 
     // A monitor's pose in degrees (yaw right, pitch up): hand-placed or its grid cell.
@@ -631,6 +661,48 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // Which panel you look at: the image is anchored on both axes, so a window above is
         // reached by looking up.
         if o.glassesPinned { ro.trackingAxes = 0 }
+        if !(o.glassesPinned && o.growFocused) { renderer.growPanel = -1 }
+    }
+
+    // Pinned: everything shares the glasses' one image, so the panel in use is drawn large and
+    // the others small around it. It is the one you look at for a second, or the one you take
+    // the mouse to (at once: a small panel is hard to work in).
+    private func updateGrow() {
+        guard options.glassesPinned, options.growFocused, focusMode == 0, renderer.panelCount > 1,
+              let p = pose.latest(), p.tracking else {
+            growCandidate = -2
+            return
+        }
+        let current = renderer.growPanel
+        if let cursor = CGEvent(source: nil)?.location {
+            let displays = gazeDisplays
+            let index = displays.firstIndex { $0 != 0 && CGDisplayBounds($0).contains(cursor) }
+            let id = index.map { displays[$0] } ?? 0
+            if id != growCursorDisplay {
+                growCursorDisplay = id
+                let moved = [CGEventType.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+                    .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? .infinity
+                if let index, index != current, moved < 0.5 {
+                    renderer.growPanel = index
+                    growCandidate = -2
+                    log("grow: panel \(index + 1) (mouse)")
+                    return
+                }
+            }
+        }
+        let panel = renderer.panel(atGaze: p.orientation)
+        guard panel >= 0, panel != current else {
+            growCandidate = -2
+            return
+        }
+        if panel != growCandidate {
+            growCandidate = panel
+            growCandidateSince = Date()
+        } else if Date().timeIntervalSince(growCandidateSince) >= 1.0 {
+            renderer.growPanel = panel
+            growCandidate = -2
+            log("grow: panel \(panel + 1) (gaze)")
+        }
     }
 
     private func requestRedraw() {
@@ -655,6 +727,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // position (the main display is invisible behind the glasses image otherwise).
     private func followGaze() {
         logCursorState()
+        updateGrow()
         // The glasses surface is head-locked: a cursor there would be a second, floating one.
         if let physical = physicalDisplay, let cursor = CGEvent(source: nil)?.location,
            CGDisplayBounds(physical).contains(cursor) {

@@ -5,6 +5,8 @@ import ScreenCaptureKit
 // even when the glasses mirror the captured display).
 final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
+    private var config: SCStreamConfiguration?
+    private var cropScale: CGFloat = 1
     private let queue = DispatchQueue(label: "rayneo.capture", qos: .userInteractive)
     private let onFrame: (CVPixelBuffer) -> Void
     private(set) var frames: UInt64 = 0
@@ -17,8 +19,9 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     // virtual monitors so this process's test-pattern windows are captured.
     // excludeWindowIDs: windows hidden from this capture regardless of their owner (the
     // renderer window; app-based exclusion misses processes launched from a terminal).
+    // crop: only this part of the display (points, display top-left), e.g. one window on it.
     func start(displayID: CGDirectDisplayID, fps: Int, excludeOwnApp: Bool,
-               excludeWindowIDs: [CGWindowID] = [], minScale: CGFloat = 1) async throws -> (Int, Int) {
+               excludeWindowIDs: [CGWindowID] = [], minScale: CGFloat = 1, crop: CGRect? = nil) async throws -> (Int, Int) {
         // Freshly created virtual monitors and just-ordered-front windows take a moment to
         // appear in the shareable content; a window missing here would not be excluded.
         var found: (SCShareableContent, SCDisplay)?
@@ -55,17 +58,33 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             cfg.width = mode.pixelWidth
             cfg.height = mode.pixelHeight
         }
+        if let crop {
+            cropScale = scale
+            cfg.sourceRect = crop
+            cfg.width = Int(crop.width * scale)
+            cfg.height = Int(crop.height * scale)
+        }
         cfg.scalesToFit = true
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
         cfg.queueDepth = 4
         cfg.showsCursor = true
 
+        config = cfg
         let s = SCStream(filter: filter, configuration: cfg, delegate: self)
         try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await s.startCapture()
         stream = s
         return (cfg.width, cfg.height)
+    }
+
+    // A new crop for a display capture started with one (the window moved or was resized).
+    func updateCrop(_ crop: CGRect) async {
+        guard let stream, let cfg = config else { return }
+        cfg.sourceRect = crop
+        cfg.width = Int(crop.width * cropScale)
+        cfg.height = Int(crop.height * cropScale)
+        try? await stream.updateConfiguration(cfg)
     }
 
     // A single window, wherever it is (covered by others too): a floating panel in space.

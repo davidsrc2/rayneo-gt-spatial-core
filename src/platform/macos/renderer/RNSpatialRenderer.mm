@@ -42,6 +42,10 @@ core::Quat from_simd(simd_quatf q) { return core::Quat{q.vector.w, q.vector.x, q
 constexpr NSUInteger kMaxPanels = 8;
 constexpr float kCinemaScale = 1.6f;  // cinema mode: the panel this much larger than a monitor
 constexpr float kReferenceArcDeg = 38.0f;  // glasses' pinned mode: this panel size at 2 m fits exactly
+constexpr float kGrowShrink = 0.3f;        // glasses' pinned mode: the panels around the enlarged one
+constexpr double kGrowSeconds = 0.35;      // and the transition when another one is enlarged
+
+uint64_t now_ns() { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 
 struct Panel {
     CVMetalTextureRef texture = nullptr;  // guarded by _sourceLock
@@ -121,10 +125,39 @@ static float panel_arc(RNRenderOptions* o) {
     core::FrameSkipper _skipper;   // render thread
     uint64_t _lastFrameNs;         // render thread: for frame-rate independent fades
     uint64_t _sourceGeneration;    // guarded by _sourceLock: bumps on every new frame
+
+    NSInteger _growPanel;          // guarded by _sourceLock: enlarged panel (-1: none)
+    NSInteger _growFrom;           // guarded by _sourceLock: the one before, during the transition
+    uint64_t _growStartNs;         // guarded by _sourceLock
+}
+
+- (BOOL)growAnimating {
+    os_unfair_lock_lock(&_sourceLock);
+    const bool moving = _growStartNs != 0 && static_cast<double>(now_ns() - _growStartNs) * 1e-9 < kGrowSeconds + 0.05;  // and a frame at the end
+    os_unfair_lock_unlock(&_sourceLock);
+    return moving;
 }
 
 - (BOOL)animating {
-    return _dimmer.animating();
+    return _dimmer.animating() || [self growAnimating];
+}
+
+- (NSInteger)growPanel {
+    os_unfair_lock_lock(&_sourceLock);
+    const NSInteger g = _growPanel;
+    os_unfair_lock_unlock(&_sourceLock);
+    return g;
+}
+
+- (void)setGrowPanel:(NSInteger)panel {
+    os_unfair_lock_lock(&_sourceLock);
+    if (panel != _growPanel) {
+        _growFrom = _growPanel;
+        _growPanel = panel;
+        _growStartNs = now_ns();
+        ++_sourceGeneration;
+    }
+    os_unfair_lock_unlock(&_sourceLock);
 }
 
 - (nullable instancetype)initWithDevice:(id<MTLDevice>)device
@@ -136,6 +169,8 @@ static float panel_arc(RNRenderOptions* o) {
     _queue = [device newCommandQueue];
     _sourceLock = OS_UNFAIR_LOCK_INIT;
     _panelCount = 1;
+    _growPanel = -1;
+    _growFrom = -1;
 
     id<MTLLibrary> lib = [device newLibraryWithSource:@(kRNShaderSource) options:nil error:error];
     if (lib == nil) return nil;
@@ -293,8 +328,41 @@ static float panel_arc(RNRenderOptions* o) {
     if (o.cinema && o.focusPanel >= 0 && static_cast<NSUInteger>(o.focusPanel) < out.size()) {
         out[static_cast<size_t>(o.focusPanel)] = core::PanelPlacement{0.0f, 0.0f, kCinemaScale};
     }
+    if (o.staticHead && o.focusPanel < 0) [self growInGlassesImage:out];
     if (o.staticHead) [self fitInGlassesImage:out];
     return out;
+}
+
+// Glasses in their pinned mode: the panel you look at enlarged, the others small around it
+// (fitted afterwards), easing from the previous one.
+- (void)growInGlassesImage:(std::vector<core::PanelPlacement>&)out {
+    float aspects[kMaxPanels];
+    os_unfair_lock_lock(&_sourceLock);
+    for (NSUInteger i = 0; i < kMaxPanels; ++i) aspects[i] = _panels[i].aspect;
+    const NSInteger to = _growPanel, from = _growFrom;
+    const double t = _growStartNs == 0 ? 1.0 : std::min(1.0, static_cast<double>(now_ns() - _growStartNs) * 1e-9 / kGrowSeconds);
+    os_unfair_lock_unlock(&_sourceLock);
+    if (to < 0 && (from < 0 || t >= 1.0)) return;
+    const float arc = panel_arc(_options);
+    std::vector<float> w, h;
+    for (size_t i = 0; i < out.size(); ++i) {
+        w.push_back(arc * out[i].scale);
+        h.push_back(core::panel_vertical_arc(w.back(), aspects[std::min<size_t>(i, kMaxPanels - 1)], true));
+    }
+    auto target = out;
+    core::grow_panel(target, w, h, static_cast<int>(to), kGrowShrink);
+    if (t >= 1.0) {
+        out = target;
+        return;
+    }
+    auto start = out;
+    core::grow_panel(start, w, h, static_cast<int>(from), kGrowShrink);
+    const float k = static_cast<float>(t * t * (3.0 - 2.0 * t));  // smoothstep
+    for (size_t i = 0; i < out.size(); ++i) {
+        out[i].yaw_rad = start[i].yaw_rad + (target[i].yaw_rad - start[i].yaw_rad) * k;
+        out[i].pitch_rad = start[i].pitch_rad + (target[i].pitch_rad - start[i].pitch_rad) * k;
+        out[i].scale = start[i].scale + (target[i].scale - start[i].scale) * k;
+    }
 }
 
 // Glasses in their own pinned mode anchor the image we send and let the eyes roam over it:
@@ -461,7 +529,7 @@ static float effective_curvature(RNRenderOptions* o) {
     in.angular_speed_rads = _options.staticHead ? 0.0f : simd_length(angularVelocity);
     in.source_generation = generation;
     in.tracking = tracking;
-    in.animating = _dimmer.animating();
+    in.animating = _dimmer.animating() || [self growAnimating];
     in.forced = forced;
     return _skipper.skip(in);
 }
