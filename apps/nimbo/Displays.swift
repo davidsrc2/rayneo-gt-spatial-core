@@ -18,6 +18,15 @@ enum Displays {
         }
     }
 
+    // The display's area without the menu bar (and Dock), in global top-left coordinates
+    // (CGDisplayBounds space).
+    static func visibleBounds(_ display: CGDirectDisplayID) -> CGRect? {
+        guard let screen = NSScreen.screens.first(where: { id(of: $0) == display }),
+              let primary = NSScreen.screens.first else { return nil }
+        let v = screen.visibleFrame
+        return CGRect(x: v.minX, y: primary.frame.height - v.maxY, width: v.width, height: v.height)
+    }
+
     static func isMirrored(_ display: CGDirectDisplayID) -> Bool {
         CGDisplayIsInMirrorSet(display) != 0
     }

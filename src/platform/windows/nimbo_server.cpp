@@ -373,6 +373,19 @@ private:
     int focus_mode_ = 0;  // 0 all, 1 focus, 2 cinema
     bool overlay_shown_ = false;  // start-up message on the glasses until tracking starts
     void start_floating(std::vector<Options::Floating> specs);
+    // Glasses in their pinned mode hold their image still in the world: nothing outside it can
+    // be seen. Turn and hold the head away from it and the image is anchored again where you
+    // look (follow, then pinned). The panels stay fixed in the world: drawn from the head
+    // orientation the image was anchored at, and from the live head while the glasses follow.
+    bool roaming() const { return opt_.glasses_pinned; }
+    std::optional<PoseSample> drawn_pose();
+    void roam(uint64_t now);
+    void reanchor();
+    core::Quat anchor_{};
+    bool reanchoring_ = false;
+    uint64_t repin_at_ns_ = 0;         // send pinned again (0: done)
+    uint64_t reanchor_done_ns_ = 0;    // draw from the anchor again
+    uint64_t roam_since_ns_ = 0;       // head away from the image since
     core::PanelPose default_floating_pose(int index) const;
     void apply_pending();
     void set_state(nimbo_state st);
@@ -689,7 +702,7 @@ bool Server::start() {
     apply_pinned(opt_);
     static const char* kTracking[] = {"full head rotation", "left/right turn only (panels never move vertically)",
                                       "up/down only (panels never move sideways)"};
-    logln("tracking: %s", opt_.glasses_pinned ? "by the glasses (pinned mode); panels fitted inside their image"
+    logln("tracking: %s", opt_.glasses_pinned ? "by the glasses (pinned mode); their image is anchored again where you turn and hold"
                                               : kTracking[opt_.tracking_axes]);
     logln("render: %s, %d %s panel(s) of %.1f deg gap %.1f deg at %.1f m, ipd %.0f mm, fov %.1f deg, k1 %.3f k2 %.3f",
           ro.side_by_side ? "half-SBS" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
@@ -874,7 +887,7 @@ bool Server::frame() {
     collect_presented();
     const uint64_t now = steady_ns();
     const uint64_t target = estimate_target(now);
-    const auto p = pose_->latest();
+    const auto p = drawn_pose();
     float prediction = 0;
     if (!p) {
         renderer_.invalidate_skipped_frame();
@@ -908,10 +921,75 @@ bool Server::frame() {
     return true;
 }
 
+std::optional<PoseSample> Server::drawn_pose() {
+    auto p = pose_->latest();
+    if (!p || !roaming() || reanchoring_) return p;
+    p->orientation = anchor_;
+    p->angular_velocity = {};  // no prediction: the glasses hold the image still
+    return p;
+}
+
+// The head turned away from the anchored image and holds there (reading, not glancing): a
+// third of the image off centre, a little under half a second, slow head.
+void Server::roam(uint64_t now) {
+    if (!roaming()) {
+        reanchoring_ = false;
+        repin_at_ns_ = 0;
+        return;
+    }
+    if (reanchoring_) {
+        if (repin_at_ns_ != 0 && now >= repin_at_ns_) {
+            if (const auto p = pose_->latest()) anchor_ = p->orientation;
+            pose_->set_glasses_mode(1);
+            repin_at_ns_ = 0;
+            reanchor_done_ns_ = now + 30000000ull;  // the glasses take the command a moment later
+        } else if (repin_at_ns_ == 0 && now >= reanchor_done_ns_) {
+            reanchoring_ = false;
+            redraw_ = true;
+        }
+        return;
+    }
+    const auto p = pose_->latest();
+    if (!p || !p->tracking) {
+        roam_since_ns_ = 0;
+        return;
+    }
+    const core::Vec3 fwd = (anchor_.conjugate() * p->orientation).rotate({1, 0, 0});  // X forward, Y left, Z up
+    const float yaw = std::fabs(std::atan2(fwd.y, fwd.x));
+    const float pitch = std::fabs(std::asin(std::fmax(-1.0f, std::fmin(1.0f, fwd.z))));
+    const float fov_y = renderer_.options.fov_y_deg * 0.017453292519943295f;
+    const float fov_x = 2.0f * std::atan(std::tan(fov_y / 2) * 16.0f / 9.0f);
+    const bool away = yaw > fov_x / 3 || pitch > fov_y / 3;
+    if (!away || p->angular_velocity.norm() > 0.35f) {
+        roam_since_ns_ = 0;
+        return;
+    }
+    if (roam_since_ns_ == 0) {
+        roam_since_ns_ = now;
+    } else if (now - roam_since_ns_ > 400000000ull) {
+        roam_since_ns_ = 0;
+        reanchor();
+    }
+}
+
+// Follow, then pinned again 0.3 s later (setting pinned while pinned does nothing). While the
+// glasses follow the head the panels are drawn from the live head, so they stay put.
+void Server::reanchor() {
+    if (!imu_) {  // simulated head: no glasses to move
+        if (const auto p = pose_->latest()) anchor_ = p->orientation;
+        redraw_ = true;
+        return;
+    }
+    reanchoring_ = true;
+    pose_->set_glasses_mode(0);
+    repin_at_ns_ = steady_ns() + 300000000ull;
+}
+
 void Server::periodic() {
     if (display_changed_) handle_display_change();
     const uint64_t now = steady_ns();
     apply_pending();
+    roam(now);
     if (now >= next_gaze_ns_) {
         next_gaze_ns_ = now + 33000000ull;  // ~30 Hz
         follow_gaze(now);
@@ -949,6 +1027,7 @@ void Server::periodic() {
         overlay_shown_ = false;
         logln("ready: tracking");
         redraw_ = true;
+        if (roaming()) reanchor();  // the glasses anchored their image at start, maybe on the table
     } else if (overlay_shown_) {
         renderer_.set_overlay_text(L"Nimbo se está preparando\nDeja las gafas quietas · " +
                                    std::to_wstring(std::max(1, 6 - calib_s_)) + L" s");
@@ -1015,7 +1094,10 @@ const win::OutputInfo* Server::find_output(const std::wstring& gdi_name) const {
 
 void Server::apply_pinned(const Options& o) {
     auto& ro = renderer_.options;
-    ro.static_head = o.glasses_pinned;  // the renderer fits everything in the glasses' image
+    ro.static_head = false;  // re-anchoring (roam()) instead of everything shrunk into one image
+    // The glasses anchor their image on both axes: so do the panels, or one above could never
+    // be brought into view.
+    if (o.glasses_pinned) ro.tracking_axes = core::TrackingAxes::Both;
 }
 
 // Ctrl+Alt+O focus mode: only the panel you look at stays; Ctrl+Alt+P cinema: that one centred
@@ -1265,6 +1347,13 @@ void Server::on_hotkey(int id) {
     constexpr float step = 10;
     switch (id) {
     case kRecenter:
+        if (roaming()) {  // the panels in front again, and the glasses' image anchored there
+            pose_->recenter();
+            reanchor();
+            last_gaze_panel_ = -2;
+            logln("recenter: panels in front, glasses' image anchored there");
+            break;
+        }
         // Glasses in their own pinned mode hold an anchor too. Setting pinned while in pinned does
         // nothing; a mode change recentres it (both axes): follow, then pinned again a moment later.
         if (opt_.recenter_glasses || opt_.glasses_pinned) {

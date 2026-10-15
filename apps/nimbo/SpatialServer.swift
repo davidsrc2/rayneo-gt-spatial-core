@@ -67,6 +67,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var captures: [ScreenCapture] = []
     private var floatingCaptures: [ScreenCapture] = []  // floating windows, panels after the monitors
     private(set) var floatingResolved: [FloatingWindow] = []  // with window ids and poses
+    // A monitor of its own per floating window (nil: captured where it is), placed in the
+    // macOS arrangement where the window floats, so the cursor reaches it like a monitor.
+    private var floatingDisplays: [RNVirtualDisplay?] = []
+    private var floatingArrangeWork: DispatchWorkItem?
     private var desktop: VirtualDesktop?
     private var patternWindows: [NSWindow] = []
     private var panelDisplays: [CGDirectDisplayID] = []  // left -> right
@@ -104,6 +108,18 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // Idle skip (render thread): with the head still and no monitor changing, the last
     // frame is still correct, so nothing is drawn. Settings changes force one redraw.
     private var redrawRequested = true  // guarded by statsLock
+
+    // Glasses in their pinned mode hold their image still in the world: nothing outside it can
+    // be seen. Turn and hold the head away from it and the image is anchored again where you
+    // look (follow, then pinned). The panels stay fixed in the world: they are drawn from the
+    // head orientation the image was anchored at, and from the live head while the glasses
+    // briefly follow it.
+    private let anchorLock = NSLock()
+    private var anchor = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)  // guarded by anchorLock
+    private var reanchoring = false                             // guarded by anchorLock
+    private var roamTimer: Timer?
+    private var roamSince: Date?
+    private var roaming: Bool { options.glassesPinned && !options.pinnedFit }
 
     init(options: ServerOptions) {
         self.options = options
@@ -290,7 +306,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(max(columns, options.layout == nil ? panels : 1)))
         }
         applyPinned(options)
-        log("tracking: " + (options.glassesPinned ? "by the glasses (pinned mode); panels fitted inside their image" : ["full head rotation", "left/right turn only (panels never move vertically)",
+        log("tracking: " + (options.glassesPinned ? (options.pinnedFit ? "by the glasses (pinned mode); panels fitted inside their image"
+                                                     : "by the glasses (pinned mode); their image is anchored again where you turn and hold") : ["full head rotation", "left/right turn only (panels never move vertically)",
                             "up/down only (panels never move sideways)"][max(0, min(2, ro.trackingAxes))]))
         log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
 
@@ -330,7 +347,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                                                                 object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
         }
-        if (options.gazeCursor && panelDisplays.count > 1) || physicalDisplay != nil {
+        roamTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in self?.checkRoam() }
+        if (options.gazeCursor && (panelDisplays.count > 1 || !floatingDisplays.isEmpty)) || physicalDisplay != nil {
             gazeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
                 self?.followGaze()
             }
@@ -412,6 +430,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.recenterGlasses = o.recenterGlasses
         options.brightness = o.brightness
         options.glassesPinned = o.glassesPinned
+        options.pinnedFit = o.pinnedFit
         applyPinned(o)  // last: it overrides the panel width
         requestRedraw()
     }
@@ -460,12 +479,16 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     // Starts (or restarts) the captures of the floating windows and makes them panels after
-    // the monitors. Windows given by text are looked up by title / app name.
+    // the monitors. Windows given by text are looked up by title / app name. With virtual
+    // monitors and Accessibility, each window moves to a monitor of its own (see
+    // floatingDisplays); otherwise it is captured wherever it is.
     @MainActor
     func setFloatingWindows(_ specs: [FloatingWindow]) async {
         let old = floatingCaptures
         floatingCaptures = []
         for c in old { await c.stop() }
+        let oldDisplays = floatingDisplays  // released last: windows staying afloat move straight to their new monitor
+        defer { withExtendedLifetime(oldDisplays) {} }
         var resolved: [FloatingWindow] = []
         let base = monitorPanels
         for spec in specs.prefix(8 - base) {
@@ -488,13 +511,58 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 w.title = info.app + (info.title.isEmpty ? "" : " — " + info.title)
             }
             if w.pose == nil { w.pose = defaultFloatingPose(above: resolved.count) }
-            let panel = UInt(base + resolved.count)
+            resolved.append(w)
+        }
+
+        // Monitors of their own.
+        var displays = [RNVirtualDisplay?](repeating: nil, count: resolved.count)
+        let ownMonitors = desktop != nil && !options.windowed && !resolved.isEmpty
+        if ownMonitors && !WindowGatherer.isTrusted(prompt: false) {
+            log("window: allow Nimbo in Privacy & Security > Accessibility so the cursor can reach floating windows")
+        } else if ownMonitors {
+            for (i, w) in resolved.enumerated() {
+                guard let frame = WindowGatherer.frame(windowID: CGWindowID(w.windowID)) else { continue }
+                let width = Int(max(640, min(2560, frame.width))) & ~7
+                let height = Int(max(360, min(1440, frame.height))) & ~7
+                let serial = UInt32(0x8000_0000) | UInt32((width / 16) << 16 | (height / 16) << 4) | UInt32(i & 7)
+                do {
+                    displays[i] = try RNVirtualDisplay(name: "Nimbo · \(w.app)", width: UInt(width), height: UInt(height),
+                                                       refreshRate: 60, hiDPI: options.hiDPI, serial: serial)
+                } catch {
+                    log("window: no monitor of its own for \(w.title): \(error.localizedDescription)")
+                }
+            }
+            if displays.contains(where: { $0 != nil }) {
+                floatingDisplays = displays
+                floatingResolved = resolved
+                try? await settle(1.0)  // NSScreen list catches up
+                arrangeFloatingDisplays()
+                try? await settle(0.5)
+                for (i, w) in resolved.enumerated() {
+                    guard let d = displays[i] else { continue }
+                    let target = Displays.visibleBounds(d.displayID) ?? CGDisplayBounds(d.displayID)
+                    if !WindowGatherer.move(windowID: CGWindowID(w.windowID), title: w.windowTitle, to: target) {
+                        log("window: could not move \(w.title) to its monitor")
+                    }
+                }
+                try? await settle(0.3)
+            }
+        }
+        floatingDisplays = displays
+
+        for (i, w) in resolved.enumerated() {
+            let panel = UInt(base + floatingCaptures.count)
             let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: panel) }
             do {
-                let (pw, ph) = try await cap.start(windowID: CGWindowID(w.windowID), fps: 60)
+                let (pw, ph): (Int, Int)
+                if let d = displays[i] {  // the whole monitor: the window and the cursor over it
+                    (pw, ph) = try await cap.start(displayID: d.displayID, fps: 60, excludeOwnApp: true,
+                                                   minScale: options.hiDPI ? 2 : 1)
+                } else {
+                    (pw, ph) = try await cap.start(windowID: CGWindowID(w.windowID), fps: 60)
+                }
                 floatingCaptures.append(cap)
-                resolved.append(w)
-                log("window: panel \(Int(panel) + 1) <- \(w.title) \(pw)x\(ph)")
+                log("window: panel \(Int(panel) + 1) <- \(w.title) \(pw)x\(ph)" + (displays[i].map { " on monitor \($0.displayID)" } ?? ""))
             } catch {
                 log("window: \(error.localizedDescription)")
             }
@@ -505,13 +573,57 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         applyFloatingPoses(resolved.map { $0.pose ?? PanelPos(yaw: 0, pitch: 0) })
     }
 
-    // Moving or resizing floating windows (editor), live.
+    // Moving or resizing floating windows (editor), live; their monitors follow once the
+    // dragging stops.
     func applyFloatingPoses(_ poses: [PanelPos]) {
         guard let renderer else { return }
         for (i, p) in poses.enumerated() where i < floatingResolved.count { floatingResolved[i].pose = p }
         renderer.setFloatingPosesYaw(poses.map { NSNumber(value: $0.yaw) }, pitch: poses.map { NSNumber(value: $0.pitch) },
                                      scale: poses.map { NSNumber(value: $0.scale) })
         requestRedraw()
+        floatingArrangeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.arrangeFloatingDisplays() }
+        floatingArrangeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    // A monitor's pose in degrees (yaw right, pitch up): hand-placed or its grid cell.
+    private func monitorPose(_ i: Int) -> PanelPos {
+        if let poses = options.panelPoses, poses.count == panelDisplays.count, poses.indices.contains(i) { return poses[i] }
+        let size = options.panelArcDeg, gap = options.gapDeg
+        let vArc = 2 * atan(tan(size * .pi / 360) / (16.0 / 9.0)) * 180 / .pi
+        guard let cells = options.layout, cells.count == panelDisplays.count, cells.indices.contains(i) else {
+            return PanelPos(yaw: Float(i) * (size + gap), pitch: 0, scale: 1)
+        }
+        return PanelPos(yaw: Float(cells[i].col - cells[0].col) * (size + gap),
+                        pitch: -Float(cells[i].row - cells[0].row) * (vArc + gap), scale: 1)
+    }
+
+    // Each floating window's monitor goes where the window floats relative to monitor 1, at
+    // monitor 1's points per degree: above the monitors, the cursor crosses up into it.
+    // macOS then snaps it against its neighbours.
+    private func arrangeFloatingDisplays() {
+        guard let first = panelDisplays.first, floatingDisplays.contains(where: { $0 != nil }) else { return }
+        let size = options.panelArcDeg
+        let vArc = 2 * atan(tan(size * .pi / 360) / (16.0 / 9.0)) * 180 / .pi
+        let b0 = CGDisplayBounds(first), m0 = monitorPose(0)
+        let ppdX = b0.width / CGFloat(size * m0.scale), ppdY = b0.height / CGFloat(vArc * m0.scale)
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success else { return }
+        for (i, d) in floatingDisplays.enumerated() {
+            guard let d, i < floatingResolved.count, let p = floatingResolved[i].pose else { continue }
+            let b = CGDisplayBounds(d.displayID)
+            let cx = b0.midX + CGFloat(p.yaw - m0.yaw) * ppdX, cy = b0.midY - CGFloat(p.pitch - m0.pitch) * ppdY
+            CGConfigureDisplayOrigin(config, d.displayID, Int32(cx - b.width / 2), Int32(cy - b.height / 2))
+        }
+        if CGCompleteDisplayConfiguration(config, .forAppOnly) != .success {
+            log("window: could not place the floating windows' monitors")
+        }
+    }
+
+    // Display behind a panel, monitors first, then floating windows (0: none of its own).
+    private var gazeDisplays: [CGDirectDisplayID] {
+        panelDisplays + floatingDisplays.map { $0?.displayID ?? 0 }
     }
 
     // Hand-placed monitors (layout editor), live.
@@ -530,7 +642,86 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func applyPinned(_ o: ServerOptions) {
         guard let renderer else { return }
         let ro = renderer.options
-        ro.staticHead = o.glassesPinned  // the renderer fits everything in the glasses' image
+        ro.staticHead = o.glassesPinned && o.pinnedFit  // the renderer fits everything in the glasses' image
+        // The glasses anchor their image on both axes: so do the panels, or one above could never
+        // be brought into view.
+        if roaming { ro.trackingAxes = 0 }
+    }
+
+    // MARK: pinned glasses
+
+    // The pose the panels are drawn from: with the glasses re-anchoring their image, the
+    // orientation it was anchored at (no prediction: the glasses hold it still).
+    private func drawnPose(_ p: PoseSample) -> PoseSample {
+        guard roaming else { return p }
+        anchorLock.lock()
+        defer { anchorLock.unlock() }
+        if reanchoring { return p }
+        return PoseSample(orientation: anchor, angularVelocity: .zero, hostTimeNs: p.hostTimeNs, tracking: p.tracking)
+    }
+
+    // The head turned away from the anchored image and holds there (reading, not glancing):
+    // anchor it again where it looks. A third of the image off centre, a little under half a
+    // second, slow head.
+    private func checkRoam() {
+        guard roaming, let renderer, let p = pose.latest(), p.tracking else {
+            roamSince = nil
+            return
+        }
+        anchorLock.lock()
+        let a = anchor, busy = reanchoring
+        anchorLock.unlock()
+        if busy { return }
+        let fwd = (a.inverse * p.orientation).act(simd_float3(1, 0, 0))  // core frame: X forward, Y left, Z up
+        let yaw = abs(atan2(fwd.y, fwd.x)), pitch = abs(asin(max(-1, min(1, fwd.z))))
+        let fovY = renderer.options.fovYDegrees * .pi / 180
+        let fovX = 2 * atan(tan(fovY / 2) * 16 / 9)
+        let away = yaw > fovX / 3 || pitch > fovY / 3
+        guard away, simd_length(p.angularVelocity) < 0.35 else {
+            roamSince = nil
+            return
+        }
+        if let since = roamSince {
+            if Date().timeIntervalSince(since) > 0.4 {
+                roamSince = nil
+                reanchor()
+            }
+        } else {
+            roamSince = Date()
+        }
+    }
+
+    // Follow, then pinned again 0.3 s later (setting pinned while pinned does nothing). While
+    // the glasses follow the head the panels are drawn from the live head, so they stay put.
+    private func reanchor() {
+        guard let imu = pose as? ImuPoseSource else {  // simulated head: no glasses to move
+            if let p = pose.latest() { setAnchor(p.orientation) }
+            requestRedraw()
+            return
+        }
+        anchorLock.lock()
+        reanchoring = true
+        anchorLock.unlock()
+        imu.setGlassesMode(0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            if let p = self.pose.latest() { self.setAnchor(p.orientation) }
+            imu.setGlassesMode(1)
+            // The glasses take the command a moment later: keep drawing the live head until then.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+                guard let self else { return }
+                self.anchorLock.lock()
+                self.reanchoring = false
+                self.anchorLock.unlock()
+                self.requestRedraw()
+            }
+        }
+    }
+
+    private func setAnchor(_ q: simd_quatf) {
+        anchorLock.lock()
+        anchor = q
+        anchorLock.unlock()
     }
 
     private func requestRedraw() {
@@ -565,8 +756,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             CGAssociateMouseAndMouseCursorPosition(1)
             return
         }
-        // Pinned: the glasses pan over the image, so where the head points says nothing reliable
-        // about which panel is in view.
         // --windowed: the cursor is on the Mac's own screen, the panels are only a preview.
         // Focus / cinema: a single panel is shown, the cursor stays put.
         guard focusMode == 0, options.gazeCursor, !options.windowed, let p = pose.latest(), p.tracking else { return }
@@ -590,11 +779,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let clickIdle = [CGEventType.leftMouseDown, .rightMouseDown].map(since).min() ?? .infinity
         if mouseIdle < 2.0 || clickIdle < 5.0 || since(.keyDown) < 3.0 { return }  // re-evaluated next tick
         lastGazePanel = panel
-        guard panel >= 0, panel < panelDisplays.count, let cursor = CGEvent(source: nil)?.location else { return }
-        let target = CGDisplayBounds(panelDisplays[panel])
+        let displays = gazeDisplays
+        guard panel >= 0, panel < displays.count, displays[panel] != 0, let cursor = CGEvent(source: nil)?.location else { return }
+        let target = CGDisplayBounds(displays[panel])
         if target.contains(cursor) { return }
         var rel = CGPoint(x: 0.5, y: 0.5)
-        if let from = panelDisplays.map(CGDisplayBounds).first(where: { $0.contains(cursor) }) {
+        if let from = displays.filter({ $0 != 0 }).map(CGDisplayBounds).first(where: { $0.contains(cursor) }) {
             rel = CGPoint(x: (cursor.x - from.minX) / from.width, y: (cursor.y - from.minY) / from.height)
         }
         log("cursor: gaze moved to panel \(panel + 1) -> cursor follows from \(Int(cursor.x)),\(Int(cursor.y))")
@@ -611,6 +801,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         HardwareCursor.show()
         statsTimer?.invalidate()
         gazeTimer?.invalidate()
+        roamTimer?.invalidate()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         displayLink?.invalidate()
         displayLink = nil
@@ -634,6 +825,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         patternWindows = []
         window?.orderOut(nil)
         window = nil
+        floatingDisplays = []
         desktop = nil  // virtual monitors disappear here
         // App-scoped display changes would otherwise last until the process exits.
         CGRestorePermanentDisplayConfiguration()
@@ -708,6 +900,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     func recenter() {
+        if roaming {  // the panels in front again, and the glasses' image anchored there
+            pose.recenter()
+            reanchor()
+            lastGazePanel = -2
+            log("recenter: panels in front, glasses' image anchored there")
+            return
+        }
         // Glasses in their own pinned mode hold an anchor too. Setting pinned while in pinned does
         // nothing; a mode change recentres it (both axes): follow, then pinned again a moment later.
         if options.recenterGlasses || options.glassesPinned, let imu = pose as? ImuPoseSource {
@@ -825,12 +1024,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let nowHost = RNSpatialEngine.hostNowNs()
         let targetHost = Int64(nowHost) + Int64((update.targetPresentationTimestamp - nowMedia) * 1e9)
 
-        guard let p = pose.latest() else {
+        guard let live = pose.latest() else {
             renderer.invalidateSkippedFrame()
             _ = renderer.render(to: update.drawable, orientation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
                                 angularVelocity: .zero, sampleHostNs: 0, targetHostNs: 0)
             return
         }
+        let p = drawnPose(live)
         if nothingChanged(p) {
             statsLock.lock()
             stats.idle += 1
@@ -880,6 +1080,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             renderer.setOverlayText(nil)
             overlayShown = false
             log("ready: tracking")
+            // The glasses anchored their image at start, maybe while lying on the table.
+            if roaming { reanchor() }
         } else if overlayShown {
             let left = max(1, 6 - calibSeconds)
             renderer.setOverlayText("Nimbo se está preparando\nDeja las gafas quietas · \(left) s")

@@ -24,7 +24,7 @@ struct SettingsView: View {
                     .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Mis gafas están en modo pinned", isOn: $model.glassesPinned)
-                    Text("El modo se cambia con el botón de las gafas. Actívalo si las usas en pinned: Nimbo coloca todo (monitores y ventanas) dentro de la imagen que fijan las gafas, así nada se corta, y ⌘⌥C las recentra. La distancia y el tamaño acercan y alejan.")
+                    Text("El modo se cambia con el botón de las gafas. Actívalo si las usas en pinned: los monitores y ventanas quedan fijos en el espacio y, al girar la cabeza y pararte un momento, Nimbo vuelve a anclar la imagen de las gafas donde miras. ⌘⌥C trae todo delante.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)

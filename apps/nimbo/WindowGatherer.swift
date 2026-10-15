@@ -39,6 +39,41 @@ enum WindowGatherer {
         return moved
     }
 
+    // A window's frame in global top-left coordinates (CGWindowList: no Accessibility needed).
+    static func frame(windowID: CGWindowID) -> CGRect? {
+        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
+              let b = list.first?[kCGWindowBounds as String] as? NSDictionary else { return nil }
+        return CGRect(dictionaryRepresentation: b as CFDictionary)
+    }
+
+    // Moves one window (found by its owner and title, or by its current frame) to fill `target`.
+    static func move(windowID: CGWindowID, title: String, to target: CGRect) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
+              let pid = list.first?[kCGWindowOwnerPID as String] as? pid_t else { return false }
+        let current = frame(windowID: windowID)
+        let axApp = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &value) == .success,
+              let windows = value as? [AXUIElement] else { return false }
+        let titled = windows.first { w in
+            var t: CFTypeRef?
+            return !title.isEmpty && AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &t) == .success && (t as? String) == title
+        }
+        let placed = windows.first { w in
+            guard let current, let p = point(w, kAXPositionAttribute), let s = size(w, kAXSizeAttribute) else { return false }
+            return abs(p.x - current.minX) < 2 && abs(p.y - current.minY) < 2 && abs(s.width - current.width) < 2
+        }
+        guard let w = placed ?? titled else { return false }
+        var pos = target.origin
+        var sz = target.size
+        guard let p = AXValueCreate(.cgPoint, &pos), let s = AXValueCreate(.cgSize, &sz) else { return false }
+        // Position first (onto the new monitor), then the size it allows, then position again
+        // in case the size was clamped on the way.
+        AXUIElementSetAttributeValue(w, kAXPositionAttribute as CFString, p)
+        AXUIElementSetAttributeValue(w, kAXSizeAttribute as CFString, s)
+        return AXUIElementSetAttributeValue(w, kAXPositionAttribute as CFString, p) == .success
+    }
+
     private static func point(_ e: AXUIElement, _ attr: String) -> CGPoint? {
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(e, attr as CFString, &v) == .success, let v,
