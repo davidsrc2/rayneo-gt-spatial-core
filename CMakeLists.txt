@@ -199,6 +199,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
   add_executable(nimbo
     ${NIMBO_DIR}/main.swift
     ${NIMBO_DIR}/SpatialServer.swift
+    ${NIMBO_DIR}/GlassesRecorder.swift
     ${NIMBO_DIR}/ScreenCapture.swift
     ${NIMBO_DIR}/Displays.swift
     ${NIMBO_DIR}/HotKeys.swift

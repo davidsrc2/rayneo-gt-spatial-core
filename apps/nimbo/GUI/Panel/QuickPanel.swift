@@ -126,6 +126,10 @@ struct QuickPanel: View {
             Button { server.toggleFocus(cinema: true) } label: {
                 Label("Cine  ⌘⌥P", systemImage: "film").font(.system(size: 12))
             }
+            Button { server.toggleRecording() } label: {
+                Label("Grabar  ⌘⌥R", systemImage: "record.circle").font(.system(size: 12))
+            }
+            .help("Graba lo que ves en las gafas y lo guarda en Descargas; otra vez para parar")
             Spacer()
         }
         .buttonStyle(.bordered)

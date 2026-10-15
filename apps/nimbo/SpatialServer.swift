@@ -30,6 +30,10 @@ struct LatencyStats {
     var targetErrSum = 0.0                      // presentedTime - targetPresentationTimestamp (ms)
     var tracking = false
     var idle = 0                                // frames skipped: nothing changed
+    // With the head still (< 1 deg/s): frame-to-frame change of the pose drawn, i.e. how much
+    // the panels wobble in the room (deg rms).
+    var stillN = 0
+    var stillSq = 0.0
 
     mutating func add(poseAge: Double, photon: Double, prediction: Double) {
         frames += 1
@@ -117,6 +121,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // How much later than its target a frame actually reaches the glasses (ms, smoothed): the
     // head pose is predicted for that real moment, or the panels lag and jerk while turning.
     private var presentLateMs = 0.0  // guarded by statsLock
+    private var lastDrawn: simd_quatf?  // render thread
 
     init(options: ServerOptions) {
         self.options = options
@@ -189,8 +194,15 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if options.displays > 0 {
             // The Mac's own screen as panel 1: one virtual monitor fewer.
             let builtIn = options.macScreen && !options.windowed && !options.includeMain ? Displays.builtIn() : nil
+            // Next to the Mac's screen, the virtual monitors take its shape (16:10 on a MacBook):
+            // at 16:9 the same width drew them shorter, as if cut top and bottom.
+            var vdHeight = options.vdHeight
+            if let builtIn {
+                let b = CGDisplayBounds(builtIn)
+                if b.width > 0 { vdHeight = Int((Double(options.vdWidth) * b.height / b.width).rounded()) & ~1 }
+            }
             let vd = try VirtualDesktop(count: options.displays - (builtIn != nil ? 1 : 0), width: options.vdWidth,
-                                        height: options.vdHeight, hiDPI: options.hiDPI, refresh: 60)
+                                        height: vdHeight, hiDPI: options.hiDPI, refresh: 60)
             desktop = vd
             try await settle(0.5)
             let anchor = builtIn ?? CGMainDisplayID()
@@ -857,6 +869,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        if isRecording { toggleRecording() }  // the file is finished, not lost
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil
         HardwareCursor.show()
@@ -999,6 +1012,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         hotKeys.register(keyCode: kVK_ANSI_J, modifiers: mods) { [weak self] in self?.jumpCursorToGaze() }
         hotKeys.register(keyCode: kVK_ANSI_O, modifiers: mods) { [weak self] in self?.toggleFocus(cinema: false) }
         hotKeys.register(keyCode: kVK_ANSI_P, modifiers: mods) { [weak self] in self?.toggleFocus(cinema: true) }
+        hotKeys.register(keyCode: kVK_ANSI_R, modifiers: mods) { [weak self] in self?.toggleRecording() }
         // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
         // turning, the render FOV is too large (Cmd+Opt+-); against it, too small (Cmd+Opt+=).
         hotKeys.register(keyCode: kVK_ANSI_Minus, modifiers: mods) { [weak self] in self?.adjustFov(-0.5) }
@@ -1071,6 +1085,65 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: render loop
 
+    // MARK: recording
+
+    // ⌘⌥R: what the glasses show, recorded to Downloads. The render window is hidden from
+    // captures (the monitors' captures exclude it by id anyway) except while recording.
+    private var recorder: AnyObject?
+    var isRecording: Bool { recorder != nil }
+
+    func toggleRecording() {
+        guard #available(macOS 15.0, *) else {
+            onNotice?("Grabar vídeo necesita macOS 15 o posterior")
+            return
+        }
+        guard let id = glassesID, let window else { return }
+        if let r = recorder as? GlassesRecorder {
+            recorder = nil
+            Task { @MainActor in
+                await r.stop()
+                window.sharingType = .none
+                self.log("record: saved \(r.url?.path ?? "")")
+                self.onNotice?("Vídeo guardado en Descargas")
+            }
+            return
+        }
+        let r = GlassesRecorder()
+        recorder = r
+        window.sharingType = .readOnly
+        Task { @MainActor in
+            do {
+                let url = try await r.start(displayID: id)
+                self.log("record: started \(url.path)")
+                self.onNotice?("Grabando lo que ves en las gafas (⌘⌥R para parar)")
+            } catch {
+                self.recorder = nil
+                window.sharingType = .none
+                self.log("record: \(error.localizedDescription)")
+                self.onNotice?("No se pudo grabar: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // The display link stops for good when macOS moves the glasses display to another Space
+    // (a window dragged to another desktop): the glasses froze. Bring the window back on the
+    // glasses and start a fresh link.
+    private var stalledSeconds = 0
+
+    private func recoverRenderLoop() {
+        stalledSeconds = 0
+        guard let window, let view else { return }
+        log("render: stalled (the glasses display changed Space?), restarting the render loop")
+        if let id = glassesID, let s = NSScreen.screens.first(where: { Displays.id(of: $0) == id }) {
+            window.setFrame(s.frame, display: true)
+        }
+        window.orderFrontRegardless()
+        displayLink?.invalidate()
+        renderThread?.cancel()
+        startRenderLoop(layer: view.metalLayer)
+        requestRedraw()
+    }
+
     private func startRenderLoop(layer: CAMetalLayer) {
         let link = CAMetalDisplayLink(metalLayer: layer)
         link.delegate = self
@@ -1131,9 +1204,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                                          sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))
         let poseAge = Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6
         let photon = Double(targetHost - Int64(p.hostTimeNs)) / 1e6
+        let still = simd_length(p.angularVelocity) < 0.0175
+        let step = still && lastDrawn != nil
+            ? Double(2 * acos(min(1, abs(simd_dot(lastDrawn!.vector, p.orientation.vector))))) * 180 / .pi : 0
+        lastDrawn = p.orientation
         statsLock.lock()
         stats.add(poseAge: poseAge, photon: photon, prediction: Double(prediction))
         stats.tracking = p.tracking
+        if still && step < 1 {
+            stats.stillN += 1
+            stats.stillSq += step * step
+        }
         statsLock.unlock()
         isTracking = p.tracking
     }
@@ -1148,8 +1229,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         lastCaptureFrames = capFrames
         guard s.frames + s.idle > 0 else {
             log("render: no frames")
+            stalledSeconds += 1
+            if stalledSeconds >= 2 { recoverRenderLoop() }
             return
         }
+        stalledSeconds = 0
         if overlayShown && s.tracking {
             renderer.setOverlayText(nil)
             overlayShown = false
@@ -1170,9 +1254,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let inN = Double(max(1, s.intervalN))
         let inMean = s.intervalSum / inN
         let inStd = (max(0, s.intervalSq / inN - inMean * inMean)).squareRoot()
-        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms",
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms%@",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
-                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax))
+                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax,
+                   s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) as NSString : "" as NSString))
     }
 
     // MARK: util
