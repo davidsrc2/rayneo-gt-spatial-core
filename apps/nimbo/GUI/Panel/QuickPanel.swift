@@ -39,6 +39,7 @@ struct QuickPanel: View {
                     BrightnessSlider(model: model)
                 }
             }
+            focusButtons
             footer
         }
         .padding(18)
@@ -91,6 +92,21 @@ struct QuickPanel: View {
         .disabled(!server.isRunning)
         .opacity(server.isRunning ? 1 : 0.6)
         .animation(.easeInOut(duration: 0.35), value: server.isRunning)
+    }
+
+    // Focus (only the monitor you look at) and cinema (that one centred and large).
+    private var focusButtons: some View {
+        HStack(spacing: 10) {
+            Button { server.toggleFocus(cinema: false) } label: {
+                Label("Enfoque  ⌘⌥O", systemImage: "scope").font(.system(size: 12))
+            }
+            Button { server.toggleFocus(cinema: true) } label: {
+                Label("Cine  ⌘⌥P", systemImage: "film").font(.system(size: 12))
+            }
+            Spacer()
+        }
+        .buttonStyle(.bordered)
+        .disabled(!server.isRunning)
     }
 
     private var footer: some View {

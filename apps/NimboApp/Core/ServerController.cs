@@ -113,6 +113,11 @@ internal sealed class ServerController : IDisposable
 
     public Task ToggleAsync() => IsRunning ? StopAsync() : StartAsync();
 
+    public void ToggleFocus(bool cinema)
+    {
+        if (IsRunning) NimboNative.nimbo_toggle_focus(_server, cinema ? (byte)1 : (byte)0);
+    }
+
     public void Recenter()
     {
         if (IsRunning) NimboNative.nimbo_recenter(_server);  // in pinned mode: the glasses' anchor

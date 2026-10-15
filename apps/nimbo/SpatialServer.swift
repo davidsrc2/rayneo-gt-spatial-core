@@ -304,6 +304,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         try await startCaptures(glasses: glasses)
         await setFloatingWindows(options.floatingWindows)
+        if options.startFocusPanel > 0, let ro = renderer?.options {
+            ro.focusPanel = options.startFocusPanel - 1
+            focusMode = options.startCinema ? 1 : 2  // toggled into the wanted mode below
+            toggleFocus(cinema: options.startCinema)
+        }
         try Task.checkCancellation()
         startRenderLoop(layer: layer)
         startMonitoring()
@@ -529,7 +534,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // Pinned: the glasses pan over the image, so where the head points says nothing reliable
         // about which panel is in view.
         // --windowed: the cursor is on the Mac's own screen, the panels are only a preview.
-        guard options.gazeCursor, !options.glassesPinned, !options.windowed, let p = pose.latest(), p.tracking else { return }
+        // Focus / cinema: a single panel is shown, the cursor stays put.
+        guard focusMode == 0, options.gazeCursor, !options.glassesPinned, !options.windowed, let p = pose.latest(), p.tracking else { return }
         let panel = renderer.panel(atGaze: p.orientation)
         guard panel != lastGazePanel else {
             gazeCandidate = panel
@@ -619,6 +625,34 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         return i >= 0 && i < panelDisplays.count ? i : nil
     }
 
+    // ⌘⌥O focus mode: only the monitor (or floating window) you look at stays; ⌘⌥P cinema: that
+    // one centred straight ahead and large. The same key again brings everything back; the
+    // other key switches mode keeping the panel.
+    private(set) var focusMode: Int = 0  // 0 all, 1 focus, 2 cinema
+
+    func toggleFocus(cinema: Bool) {
+        guard let renderer else { return }
+        let ro = renderer.options
+        let wanted = cinema ? 2 : 1
+        if focusMode == wanted {
+            focusMode = 0
+            ro.focusPanel = -1
+            ro.cinema = false
+            log("focus: all panels")
+            onNotice?("Todos los monitores")
+        } else {
+            if focusMode == 0 {
+                let gaze = pose.latest().map { renderer.panel(atGaze: $0.orientation) } ?? -1
+                ro.focusPanel = gaze >= 0 ? gaze : 0
+            }
+            focusMode = wanted
+            ro.cinema = cinema
+            log("focus: \(cinema ? "cinema" : "focus") on panel \(ro.focusPanel + 1)")
+            onNotice?(cinema ? "Modo cine (⌘⌥P para salir)" : "Modo enfoque (⌘⌥O para salir)")
+        }
+        requestRedraw()
+    }
+
     // ⌘⌥J: the cursor jumps to the centre of the monitor you are looking at (on demand, where
     // the gaze cursor would do it on its own).
     func jumpCursorToGaze() {
@@ -653,6 +687,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         hotKeys.register(keyCode: kVK_ANSI_C, modifiers: mods) { [weak self] in self?.recenter() }
         hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: mods) { [weak self] in self?.requestStop("stopped (⌘⌥Q)") }
         hotKeys.register(keyCode: kVK_ANSI_J, modifiers: mods) { [weak self] in self?.jumpCursorToGaze() }
+        hotKeys.register(keyCode: kVK_ANSI_O, modifiers: mods) { [weak self] in self?.toggleFocus(cinema: false) }
+        hotKeys.register(keyCode: kVK_ANSI_P, modifiers: mods) { [weak self] in self?.toggleFocus(cinema: true) }
         // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
         // turning, the render FOV is too large (Cmd+Opt+-); against it, too small (Cmd+Opt+=).
         hotKeys.register(keyCode: kVK_ANSI_Minus, modifiers: mods) { [weak self] in self?.adjustFov(-0.5) }

@@ -39,6 +39,7 @@ simd_float4x4 to_simd(const core::Mat4& m) {
 core::Quat from_simd(simd_quatf q) { return core::Quat{q.vector.w, q.vector.x, q.vector.y, q.vector.z}; }
 
 constexpr NSUInteger kMaxPanels = 8;
+constexpr float kCinemaScale = 1.6f;  // cinema mode: the panel this much larger than a monitor
 
 struct Panel {
     CVMetalTextureRef texture = nullptr;  // guarded by _sourceLock
@@ -81,6 +82,8 @@ struct Panel {
         _trackingAxes = 0;
         _staticHead = NO;
         _layoutArcDegrees = 0.0f;
+        _focusPanel = -1;
+        _cinema = NO;
     }
     return self;
 }
@@ -236,6 +239,10 @@ static float panel_arc(RNRenderOptions* o) {
     const float k = placed > 0.0f ? panel_arc(o) / placed : 1.0f;
     floating.resize(floats);
     for (const auto& pl : core::placements_from_poses(floating, k)) out.push_back(pl);
+    // Cinema: the focused panel straight ahead, large (the others are not drawn).
+    if (o.cinema && o.focusPanel >= 0 && static_cast<NSUInteger>(o.focusPanel) < out.size()) {
+        out[static_cast<size_t>(o.focusPanel)] = core::PanelPlacement{0.0f, 0.0f, kCinemaScale};
+    }
     return out;
 }
 
@@ -272,6 +279,7 @@ static float panel_arc(RNRenderOptions* o) {
 
 - (NSInteger)panelAtGaze:(simd_quatf)orientation {
     RNRenderOptions* o = _options;
+    if (o.focusPanel >= 0 && static_cast<NSUInteger>(o.focusPanel) < self.panelCount) return o.focusPanel;
     os_unfair_lock_lock(&_sourceLock);
     const float aspect = _panels[0].aspect;
     os_unfair_lock_unlock(&_sourceLock);
@@ -481,6 +489,7 @@ static float effective_curvature(RNRenderOptions* o) {
         [enc setVertexBytes:&u length:sizeof(u) atIndex:1];
         [enc setFragmentSamplerState:_sampler atIndex:0];
         for (NSUInteger i = 0; i < count; ++i) {
+            if (o.focusPanel >= 0 && static_cast<NSInteger>(i) != o.focusPanel) continue;  // focus / cinema
             const Panel& p = _panels[i];
             [enc setVertexBuffer:p.vertices offset:0 atIndex:0];
             [enc setFragmentBytes:&p.brightness length:sizeof(float) atIndex:0];

@@ -97,16 +97,18 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         let app: String
     }
 
-    // Windows worth floating: on screen, titled or app-owned, not tiny, not ours.
+    // Windows worth floating: titled app windows, not tiny, not ours. Windows on other Spaces or
+    // behind a full-screen app count too (capture works there); untitled ones only when on screen.
     static func windows() async -> [WindowInfo] {
-        guard let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
         else { return [] }
         let me = getpid()
         return content.windows
             .filter { $0.frame.width >= 200 && $0.frame.height >= 120 && $0.windowLayer == 0 }
             .filter { $0.owningApplication?.processID != me }
+            .filter { !($0.title ?? "").isEmpty || $0.isOnScreen }
             .map { WindowInfo(id: $0.windowID, title: $0.title ?? "", app: $0.owningApplication?.applicationName ?? "") }
-            .filter { !$0.title.isEmpty || !$0.app.isEmpty }
+            .filter { !$0.app.isEmpty }
     }
 
     // The first window whose title or app contains `text` (case-insensitive).

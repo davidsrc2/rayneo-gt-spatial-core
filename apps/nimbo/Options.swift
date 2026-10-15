@@ -42,6 +42,8 @@ struct ServerOptions {
     var layout: [GridPos]? = nil  // grid cell per monitor; nil = one row
     var panelPoses: [PanelPos]? = nil  // hand-placed monitors (same count as layout); nil = the grid
     var floatingWindows: [FloatingWindow] = []  // single windows as panels, after the monitors
+    var startFocusPanel = 0       // start in focus mode on this panel (1-based); 0 = all panels
+    var startCinema = false       // with startFocusPanel: cinema mode
     var vdWidth = 1152            // points; with hiDPI: large, sharp text
     var vdHeight = 648
     var hiDPI = true
@@ -85,6 +87,8 @@ struct ServerOptions {
       --poses Y,P,S;...    hand-placed monitors: degrees right, degrees up and size (1 = normal)
       --window TEXT[@Y,P,S] float the window whose title or app contains TEXT as a panel of its
                            own (default: centred above the monitors); repeatable
+      --focus-panel N      start showing only panel N (focus mode, Cmd+Opt+O)
+      --cinema             with --focus-panel: that panel centred and large (Cmd+Opt+P)
       --test-pattern       labelled grid on each virtual monitor
       --keep-main          keep the glasses display as macOS's main display, shown as the left
                            panel (two cursors: macOS draws one on the glasses surface)
@@ -151,6 +155,8 @@ struct ServerOptions {
                     w.pose = PanelPos(yaw: n[0], pitch: n[1], scale: n[2])
                 }
                 o.floatingWindows.append(w)
+            case "--focus-panel": guard let v = value().flatMap({ Int($0) }), (1...8).contains(v) else { return nil }; o.startFocusPanel = v
+            case "--cinema": o.startCinema = true
             case "--dead-zone": guard let v = float() else { return nil }; o.deadZoneDeg = v
             case "--vd-size":
                 let parts = value()?.split(separator: "x").compactMap { Int($0) } ?? []

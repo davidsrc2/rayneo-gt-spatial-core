@@ -184,6 +184,10 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
     }
     const std::vector<core::PanelPose> fl(floating_.begin(), floating_.begin() + floats);
     for (const auto& pl : core::placements_from_poses(fl, k)) out.push_back(pl);
+    // Cinema: the focused panel straight ahead, large (the others are not drawn).
+    if (options.cinema && options.focus_panel >= 0 && options.focus_panel < static_cast<int>(out.size())) {
+        out[static_cast<size_t>(options.focus_panel)] = core::PanelPlacement{0.0f, 0.0f, 1.6f};
+    }
     return out;
 }
 
@@ -193,6 +197,7 @@ float SpatialRenderer::fit_arc_deg(int columns) const {
 }
 
 int SpatialRenderer::panel_at_gaze(const core::Quat& head) const {
+    if (options.focus_panel >= 0 && options.focus_panel < count_) return options.focus_panel;
     const float aspect = panels_[0].aspect;
     return core::panel_at_gaze(core::track_axes(head, options.tracking_axes), placements(aspect), panel_arc(), vertical_arc(aspect),
                                options.gap_deg * kDegToRad);
@@ -415,6 +420,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         std::memcpy(su.view_projection, (proj * core::view_matrix(head, offset)).m, sizeof(su.view_projection));
         ctx_->UpdateSubresource(scene_cb_.Get(), 0, nullptr, &su, 0, 0);
         for (int i = 0; i < count_; ++i) {
+            if (options.focus_panel >= 0 && i != options.focus_panel) continue;  // focus / cinema
             const Panel& p = panels_[i];
             if (!p.vertices || !p.indices) continue;
             const PanelUniforms pu{p.brightness, {0, 0, 0}};

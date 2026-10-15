@@ -318,7 +318,7 @@ void save_fov(float fov) {
 // Server
 // ---------------------------------------------------------------------------------------
 
-enum HotKey { kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump };
+enum HotKey { kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema };
 
 
 struct LatencyStats {
@@ -366,6 +366,8 @@ private:
     void follow_gaze(uint64_t now);
     void apply_pinned(const Options& o);
     void jump_cursor_to_gaze();
+    void toggle_focus(bool cinema);
+    int focus_mode_ = 0;  // 0 all, 1 focus, 2 cinema
     void start_floating(std::vector<Options::Floating> specs);
     core::PanelPose default_floating_pose(int index) const;
     void apply_pending();
@@ -445,6 +447,9 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_APP + 1:  // nimbo_recenter
         if (server != nullptr) server->on_hotkey(kRecenter);
+        return 0;
+    case WM_APP + 3:  // nimbo_toggle_focus: wp = cinema
+        if (server != nullptr) server->on_hotkey(wp != 0 ? kCinema : kFocus);
         return 0;
     case WM_APP + 2:  // nimbo_adjust_fov: lp = delta in hundredths of a degree
         if (server != nullptr) server->adjust_fov(static_cast<float>(static_cast<int>(lp)) / 100.0f);
@@ -713,7 +718,7 @@ bool Server::start() {
     };
     std::vector<Key> keys = {{kRecenter, 'C', "Ctrl+Alt+C"}, {kQuit, 'Q', "Ctrl+Alt+Q"},
                              {kFovDown, VK_OEM_MINUS, "Ctrl+Alt+-"}, {kFovUp, VK_OEM_PLUS, "Ctrl+Alt+="},
-                             {kJump, 'J', "Ctrl+Alt+J"}};
+                             {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"}};
     if (opt_.sim) {
         keys.push_back({kLeft, VK_LEFT, "Ctrl+Alt+Left"});
         keys.push_back({kRight, VK_RIGHT, "Ctrl+Alt+Right"});
@@ -1008,6 +1013,29 @@ void Server::apply_pinned(const Options& o) {
     ro.arc_deg = core::arc_at_distance(seen, 2.0f, ro.distance_m) / kDeg;  // undo the render's distance scaling
 }
 
+// Ctrl+Alt+O focus mode: only the panel you look at stays; Ctrl+Alt+P cinema: that one centred
+// straight ahead and large. The same key brings everything back; the other switches mode.
+void Server::toggle_focus(bool cinema) {
+    auto& ro = renderer_.options;
+    const int wanted = cinema ? 2 : 1;
+    if (focus_mode_ == wanted) {
+        focus_mode_ = 0;
+        ro.focus_panel = -1;
+        ro.cinema = false;
+        logln("focus: all panels");
+    } else {
+        if (focus_mode_ == 0) {
+            const auto p = pose_->latest();
+            const int gaze = p ? renderer_.panel_at_gaze(p->orientation) : -1;
+            ro.focus_panel = gaze >= 0 ? gaze : 0;
+        }
+        focus_mode_ = wanted;
+        ro.cinema = cinema;
+        logln("focus: %s on panel %d", cinema ? "cinema" : "focus", ro.focus_panel + 1);
+    }
+    redraw_ = true;
+}
+
 // Ctrl+Alt+J: the cursor jumps to the centre of the monitor you are looking at.
 void Server::jump_cursor_to_gaze() {
     const auto p = pose_->latest();
@@ -1176,7 +1204,7 @@ void Server::follow_gaze(uint64_t now) {
         return;
     }
     // Pinned: the glasses pan over the image, so the head direction does not say which panel is in view.
-    if (!opt_.gaze_cursor || opt_.glasses_pinned || panel_rects_.size() < 2 || !p || !p->tracking) return;
+    if (!opt_.gaze_cursor || opt_.glasses_pinned || focus_mode_ != 0 || panel_rects_.size() < 2 || !p || !p->tracking) return;
     if (gaze == last_gaze_panel_) {
         gaze_candidate_ = gaze;
         return;
@@ -1244,6 +1272,8 @@ void Server::on_hotkey(int id) {
     case kUp: pose_->nudge(0, step); break;
     case kDown: pose_->nudge(0, -step); break;
     case kJump: jump_cursor_to_gaze(); break;
+    case kFocus: toggle_focus(false); break;
+    case kCinema: toggle_focus(true); break;
     default: break;
     }
 }
@@ -1274,7 +1304,7 @@ void Server::run() {
 void Server::shutdown() {
     if (shut_) return;
     shut_ = true;
-    for (int id = kRecenter; id <= kJump; ++id) UnregisterHotKey(hwnd_, id);
+    for (int id = kRecenter; id <= kCinema; ++id) UnregisterHotKey(hwnd_, id);
     for (auto& c : window_captures_) c->stop();
     window_captures_.clear();
     for (auto& c : captures_) c->stop();
@@ -1590,6 +1620,11 @@ void nimbo_recenter(nimbo_server* s) {
 void nimbo_adjust_fov(nimbo_server* s, float delta_deg) {
     std::lock_guard<std::mutex> lock(s->mutex);
     if (s->server) s->server->post(WM_APP + 2, 0, static_cast<LPARAM>(std::lround(delta_deg * 100.0f)));
+}
+
+void nimbo_toggle_focus(nimbo_server* s, bool cinema) {
+    std::lock_guard<std::mutex> lock(s->mutex);
+    if (s->server) s->server->post(WM_APP + 3, cinema ? 1 : 0);
 }
 
 void nimbo_get_status(nimbo_server* s, nimbo_status* out) {

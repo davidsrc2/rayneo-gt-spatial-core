@@ -26,6 +26,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) NSInteger trackingAxes; // core::TrackingAxes: 0 both, 1 left/right only, 2 up/down only
 @property(nonatomic) BOOL staticHead;        // glasses in their own pinned mode: they anchor the image, not us
 @property(nonatomic) float layoutArcDegrees; // panel size the hand-placed poses refer to (0 = arcDegrees)
+@property(nonatomic) NSInteger focusPanel;   // focus mode: only this panel is drawn (-1 = all)
+@property(nonatomic) BOOL cinema;            // with focusPanel: centred straight ahead and large
 @end
 
 @interface RNSpatialRenderer : NSObject

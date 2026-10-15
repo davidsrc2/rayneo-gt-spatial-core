@@ -193,6 +193,7 @@ internal static unsafe class NimboNative
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_apply(IntPtr s, Options* options);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_recenter(IntPtr s);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_adjust_fov(IntPtr s, float delta);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_toggle_focus(IntPtr s, byte cinema);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_get_status(IntPtr s, Status* status);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_set_log(IntPtr fn, IntPtr ctx);
 

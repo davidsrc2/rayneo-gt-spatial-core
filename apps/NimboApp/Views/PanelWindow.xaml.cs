@@ -230,6 +230,10 @@ public sealed partial class PanelWindow : Window
 
     private void Recenter_Click(object sender, RoutedEventArgs e) => _server.Recenter();
 
+    private void Focus_Click(object sender, RoutedEventArgs e) => _server.ToggleFocus(cinema: false);
+
+    private void Cinema_Click(object sender, RoutedEventArgs e) => _server.ToggleFocus(cinema: true);
+
     private void Slider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (_updating) return;

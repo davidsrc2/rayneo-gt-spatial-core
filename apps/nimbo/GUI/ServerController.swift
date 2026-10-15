@@ -96,6 +96,7 @@ final class ServerController: ObservableObject {
     func toggle() { isRunning ? stop() : start() }
 
     func recenter() { server?.recenter() }
+    func toggleFocus(cinema: Bool) { server?.toggleFocus(cinema: cinema) }
 
     // Live where possible; monitors, text size or the stabilizer need a restart.
     func settingsChanged() {

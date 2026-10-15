@@ -117,6 +117,9 @@ NIMBO_API void nimbo_stop(nimbo_server* s);
 NIMBO_API void nimbo_apply(nimbo_server* s, const nimbo_options* options);
 NIMBO_API void nimbo_recenter(nimbo_server* s);
 NIMBO_API void nimbo_adjust_fov(nimbo_server* s, float delta_deg);
+/* Focus mode (only the panel you look at) or, with cinema, that panel centred and large.
+ * The same call again brings every panel back (Ctrl+Alt+O / Ctrl+Alt+P). */
+NIMBO_API void nimbo_toggle_focus(nimbo_server* s, bool cinema);
 NIMBO_API void nimbo_get_status(nimbo_server* s, nimbo_status* out);
 
 /* Log lines of every server in the process (and the calibration), from any thread. NULL:

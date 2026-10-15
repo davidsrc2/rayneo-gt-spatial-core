@@ -35,6 +35,8 @@ struct RenderOptions {
     core::TrackingAxes tracking_axes = core::TrackingAxes::Both;  // head rotations that move the panels
     bool static_head = false;    // glasses in their own pinned mode: they anchor the image, not us
     float layout_arc_deg = 0.0f; // panel size the hand-placed poses refer to (0 = arc_deg)
+    int focus_panel = -1;        // focus mode: only this panel is drawn (-1 = all)
+    bool cinema = false;         // with focus_panel: centred straight ahead and large
 };
 
 // Render thread only, except where noted.

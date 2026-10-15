@@ -87,6 +87,11 @@
                 </StackPanel>
             </Border>
 
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Enfoque  Ctrl+Alt+O" FontSize="12" Click="Focus_Click" />
+                <Button Content="Cine  Ctrl+Alt+P" FontSize="12" Click="Cinema_Click" />
+            </StackPanel>
+
             <StackPanel x:Name="Profiles" Orientation="Horizontal" Spacing="8" />
 
             <ToggleSwitch x:Name="AutoStart" OnContent="Auto-iniciar al conectar las RayNeo GT"
