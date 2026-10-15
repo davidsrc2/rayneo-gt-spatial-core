@@ -373,6 +373,10 @@ private:
     bool create_swap_chain();
     bool create_back_buffer_view();
     uint64_t estimate_target(uint64_t now);
+    uint64_t estimate_vsync(uint64_t now);
+    // How much later than its target a frame reaches the glasses (ms, smoothed): the pose is
+    // predicted for that real moment, or the panels lag and jerk while turning (as on macOS).
+    double present_late_ms_ = 0.0;
     bool frame();
     void collect_presented();
     void periodic();
@@ -874,6 +878,11 @@ bool Server::create_back_buffer_view() {
 // Scanout time of the frame about to be queued: the next vblank after the render budget,
 // from the last vblank DXGI reported (or one refresh from now until it reports one).
 uint64_t Server::estimate_target(uint64_t now) {
+    const auto late = static_cast<uint64_t>(std::clamp(present_late_ms_, 0.0, 25.0) * 1e6);
+    return estimate_vsync(now) + late;
+}
+
+uint64_t Server::estimate_vsync(uint64_t now) {
     const double period = 1e9 / std::max(1, refresh_hz_);
     DXGI_FRAME_STATISTICS fs{};
     if (SUCCEEDED(swap_chain_->GetFrameStatistics(&fs)) && fs.SyncQPCTime.QuadPart != 0) {
@@ -902,7 +911,9 @@ void Server::collect_presented() {
     stats_.presented_n += 1;
     stats_.presented_sum += latency;
     stats_.presented_max = std::max(stats_.presented_max, latency);
-    stats_.target_err_sum += (static_cast<double>(shown) - static_cast<double>(s.target_ns)) / 1e6;
+    const double late = (static_cast<double>(shown) - static_cast<double>(s.target_ns)) / 1e6;
+    stats_.target_err_sum += late;
+    present_late_ms_ += (std::clamp(late, -10.0, 40.0) - present_late_ms_) * 0.03;
 }
 
 // Renders and presents one frame. False when it was skipped (nothing changed).
