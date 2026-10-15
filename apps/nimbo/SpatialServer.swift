@@ -717,10 +717,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if o.glassesPinned { ro.trackingAxes = 0 }
         if !(o.glassesPinned && o.growFocused) { renderer.growPanel = -1 }
         // Space at real size (glasses in follow): every panel as large as the glasses' own image,
-        // as the Mac's screen looks without Nimbo, fixed in the room on both axes; turning the
-        // head brings the next one in. The arc is set so the distance scaling cancels out.
+        // as the Mac's screen looks without Nimbo, fixed in the room on the axes chosen in
+        // "Las pantallas siguen"; turning the head brings the next one in. The arc is set so
+        // the distance scaling cancels out.
         if !o.glassesPinned && o.realSize {
-            ro.trackingAxes = 0
             let fw = 2 * atan(tan(ro.fovYDegrees * .pi / 360) * ro.eyeAspect)
             ro.arcDegrees = 2 * atan(tan(fw / 2) * ro.distanceMeters / 2) * 180 / .pi
         }
