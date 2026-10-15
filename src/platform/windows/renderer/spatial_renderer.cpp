@@ -174,7 +174,7 @@ float SpatialRenderer::fit_arc_deg(int columns) const {
 
 int SpatialRenderer::panel_at_gaze(const core::Quat& head) const {
     const float aspect = panels_[0].aspect;
-    return core::panel_at_gaze(options.yaw_only ? core::yaw_only(head) : head, placements(aspect), options.arc_deg * kDegToRad, vertical_arc(aspect),
+    return core::panel_at_gaze(core::track_axes(head, options.tracking_axes), placements(aspect), options.arc_deg * kDegToRad, vertical_arc(aspect),
                                options.gap_deg * kDegToRad);
 }
 
@@ -345,7 +345,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     // in with angular speed.
     horizon_s *= core::prediction_gain(angular_velocity.norm());
     core::Quat head = core::predict_orientation(orientation, angular_velocity, horizon_s);
-    if (options.yaw_only) head = core::yaw_only(head);
+    head = core::track_axes(head, options.tracking_axes);
 
     for (int i = 0; i < count_; ++i) compose(panels_[i]);
     // One layout for all panels (they share a size); per-panel aspect only shapes its mesh.

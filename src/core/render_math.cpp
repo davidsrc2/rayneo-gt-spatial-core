@@ -82,6 +82,21 @@ Quat yaw_only(const Quat& q) {
     return Quat{std::cos(half), 0.0f, 0.0f, std::sin(half)};
 }
 
+Quat pitch_only(const Quat& q) {
+    const Vec3 f = q.rotate({1.0f, 0.0f, 0.0f});
+    const float elevation = std::asin(std::fmax(-1.0f, std::fmin(1.0f, f.z)));
+    return Quat::from_axis_angle({0.0f, -1.0f, 0.0f}, elevation);  // looking up = about -Y
+}
+
+Quat track_axes(const Quat& q, TrackingAxes axes) {
+    switch (axes) {
+        case TrackingAxes::Horizontal: return yaw_only(q);
+        case TrackingAxes::Vertical: return pitch_only(q);
+        case TrackingAxes::Both: break;
+    }
+    return q;
+}
+
 Quat predict_orientation(const Quat& q, const Vec3& omega_rads, float dt_s) {
     const float angle = omega_rads.norm() * dt_s;
     if (angle < 1e-9f) return q;

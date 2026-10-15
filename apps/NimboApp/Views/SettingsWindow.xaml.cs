@@ -62,7 +62,7 @@ public sealed partial class SettingsWindow : Window
         StartupToggle.IsOn = Startup.Enabled;
         DrawLayout();
         DimToggle.IsOn = _model.DimOthers;
-        YawOnlyToggle.IsOn = _model.YawOnly;
+        TrackingChoice.SelectedIndex = _model.Tracking switch { 1 => 0, 2 => 1, _ => 2 };
         FovSlider.Value = _model.Fov;
         IpdSlider.Value = _model.Ipd;
         DeadZoneSlider.Value = _model.DeadZone;
@@ -83,7 +83,7 @@ public sealed partial class SettingsWindow : Window
     {
         if (_updating) return;
         _model.DimOthers = DimToggle.IsOn;
-        _model.YawOnly = YawOnlyToggle.IsOn;
+        _model.Tracking = TrackingChoice.SelectedIndex switch { 0 => 1, 1 => 2, _ => 0 };
         _model.Fov = (float)FovSlider.Value;
         _model.Ipd = (float)IpdSlider.Value;
         _model.DeadZone = (float)DeadZoneSlider.Value;
@@ -99,6 +99,8 @@ public sealed partial class SettingsWindow : Window
     private void Changed(object sender, RoutedEventArgs e) => Save();
 
     private void SliderChanged(object sender, RangeBaseValueChangedEventArgs e) => Save();
+
+    private void TrackingChanged(object sender, Microsoft.UI.Xaml.Controls.SelectionChangedEventArgs e) => Save();
 
     private void OpenLog_Click(object sender, RoutedEventArgs e)
     {

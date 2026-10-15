@@ -60,7 +60,7 @@ typedef struct {
     char source[32];                    /* displays == 0: "auto" | "glasses" | "primary" | index */
     bool refresh120;                    /* glasses at 120 Hz */
     bool hotkeys;                       /* Ctrl+Alt+C / Q / - / = (and arrows with sim) */
-    bool yaw_only;                      /* panels follow only the left/right turn (single-row layouts) */
+    int tracking_axes;                  /* head rotations that move the panels: 0 both, 1 left/right, 2 up/down */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -137,7 +137,7 @@ typedef struct {
     bool gaze_cursor, dim_others, gather_windows;
     float k1, k2;
     bool onboarding_done;
-    bool yaw_only;
+    int tracking;   /* 0 both, 1 left/right only, 2 up/down only */
 } nimbo_settings;
 
 NIMBO_API nimbo_settings nimbo_default_settings(void);

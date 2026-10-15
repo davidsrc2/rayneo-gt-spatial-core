@@ -22,9 +22,17 @@ struct SettingsView: View {
             Section(title: "Pantallas") {
                 Toggle("Atenuar los monitores que no miras", isOn: $model.dimOthers)
                     .font(Theme.body).foregroundStyle(Theme.text)
-                Toggle("Solo seguir el giro horizontal (las pantallas no se mueven al mirar arriba o abajo)",
-                       isOn: $model.yawOnly)
-                    .font(Theme.body).foregroundStyle(Theme.text)
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("Las pantallas siguen", selection: $model.tracking) {
+                        Text("Solo horizontal").tag(1)
+                        Text("Solo vertical").tag(2)
+                        Text("Ambos").tag(0)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("Horizontal: monitores en fila, quietos al mirar arriba o abajo. Vertical: monitores uno encima de otro.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                }
+                .font(Theme.body).foregroundStyle(Theme.text)
             }
 
             DisclosureGroup(isExpanded: $advancedBox.value) {
@@ -68,7 +76,7 @@ struct SettingsView: View {
         .onChange(of: model.stereo) { server.settingsChanged() }
         .onChange(of: model.gazeCursor) { server.settingsChanged() }
         .onChange(of: model.dimOthers) { server.settingsChanged() }
-        .onChange(of: model.yawOnly) { server.settingsChanged() }
+        .onChange(of: model.tracking) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }

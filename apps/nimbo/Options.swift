@@ -32,7 +32,7 @@ struct ServerOptions {
     var gatherWindows = true      // move windows off the glasses display (Accessibility)
     var gazeCursor = true         // cursor jumps to the panel you look at
     var dimOthers: Float = 1      // brightness of the panels you are not looking at (1 = off)
-    var yawOnly = true            // panels follow only the left/right turn (single-row layouts)
+    var trackingAxes = 1          // head rotations that move the panels: 0 both, 1 left/right, 2 up/down
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
     var calibrationPath = "calibration.json"
@@ -65,8 +65,8 @@ struct ServerOptions {
       --no-gather          do not move windows from the glasses display to panel 1
       --no-gaze-cursor     keep the cursor where it is when you look at another panel
       --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
-      --full-tracking      panels also follow nodding (default: only the left/right turn, which
-                           keeps them perfectly still vertically; multi-row layouts always track fully)
+      --track AXES         head rotations that move the panels: h (left/right, default: still
+                           vertically), v (up/down, for stacked monitors) or both
     optics
       --mono / --sbs       single view (glasses 2D) / half side-by-side (glasses 3D)
       --ipd MM             interpupillary distance (63)
@@ -125,8 +125,10 @@ struct ServerOptions {
             case "--no-gather": o.gatherWindows = false
             case "--fit": o.fit = true
             case "--no-gaze-cursor": o.gazeCursor = false
-            case "--full-tracking": o.yawOnly = false
-            case "--yaw-only": o.yawOnly = true
+            case "--track":
+                guard let v = value(), let axes = ["both": 0, "h": 1, "v": 2][v] else { return nil }
+                o.trackingAxes = axes
+            case "--full-tracking": o.trackingAxes = 0
             case "--dim": guard let v = float() else { return nil }; o.dimOthers = max(0, min(1, v))
             case "--mono": o.sideBySide = false
             case "--sbs": o.sideBySide = true

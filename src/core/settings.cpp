@@ -1,5 +1,6 @@
 #include "rayneo/core/settings.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -157,7 +158,7 @@ std::string settings_to_json(const Settings& s) {
     put(out, "gazeCursor", s.gaze_cursor);
     put(out, "dimOthers", s.dim_others);
     put(out, "gatherWindows", s.gather_windows);
-    put(out, "yawOnly", s.yaw_only);
+    out += "  \"tracking\": " + std::to_string(s.tracking) + ",\n";
     put(out, "k1", s.k1);
     put(out, "k2", s.k2);
     put(out, "onboardingDone", s.onboarding_done, true);
@@ -179,8 +180,8 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         bool* value;
     } bools[] = {{"autoStart", &s.auto_start},       {"stereo", &s.stereo},
                  {"gazeCursor", &s.gaze_cursor},     {"dimOthers", &s.dim_others},
-                 {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done},
-                 {"yawOnly", &s.yaw_only}};
+                 {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done}};
+    bool has_tracking = false, legacy_yaw_only = true, has_legacy = false;
 
     while (!r.done() && !r.eat('}')) {
         const auto key = r.string();
@@ -189,6 +190,16 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         if (*key == "layoutCells") {
             if (const auto cells = read_cells(r)) s.cells = *cells;
             handled = true;  // malformed: reading stops below, keeping the keys before it
+        } else if (*key == "tracking") {
+            if (const auto v = r.number()) {
+                s.tracking = std::max(0, std::min(2, static_cast<int>(*v)));
+                has_tracking = handled = true;
+            }
+        } else if (*key == "yawOnly") {  // earlier builds: a switch for left/right only
+            if (const auto v = r.boolean()) {
+                legacy_yaw_only = *v;
+                has_legacy = handled = true;
+            }
         } else if (*key == "textSize") {
             if (const auto v = r.number()) {
                 s.text_size = static_cast<int>(*v);
@@ -213,8 +224,9 @@ std::optional<Settings> settings_from_json(std::string_view json) {
             }
         }
         if (!handled) r.skip();
-        if (!r.eat(',') && !r.peek('}')) return s;  // garbage: keep what was read
+        if (!r.eat(',') && !r.peek('}')) break;  // garbage: keep what was read
     }
+    if (!has_tracking && has_legacy) s.tracking = legacy_yaw_only ? 1 : 0;
     return s;
 }
 

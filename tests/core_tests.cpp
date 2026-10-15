@@ -807,6 +807,10 @@ void test_yaw_only() {
     CHECK(near(level.w, 1.0f, 1e-6f) && near(level.z, 0.0f, 1e-6f));
     const Vec3 fwd = y.rotate({1, 0, 0});  // forward stays on the horizon
     CHECK(near(fwd.z, 0.0f, 1e-5f));
+    const Quat v = pitch_only(yaw * pitch);  // up/down only: forward keeps its elevation, no turn
+    const Vec3 vf = v.rotate({1, 0, 0}), hf = (yaw * pitch).rotate({1, 0, 0});
+    CHECK(near(vf.z, hf.z, 1e-5f) && near(vf.y, 0.0f, 1e-6f));
+    CHECK(track_axes(yaw, TrackingAxes::Both).z == yaw.z);
 }
 
 void test_slerp() {
@@ -935,15 +939,16 @@ void test_settings_json() {
     s.stereo = true;
     s.dim_others = false;
     s.fov_y_deg = 23.5f;
-    s.yaw_only = false;
+    s.tracking = 2;
     const std::string json = settings_to_json(s);
     CHECK(json.find("\"layoutCells\"") != std::string::npos && json.find("\"fovY\": 23.5") != std::string::npos);
     const auto back = settings_from_json(json);
     CHECK(back.has_value());
     CHECK(back->cells.size() == 3 && back->cells[1].col == 0 && back->cells[1].row == 1);
     CHECK(back->text_size == 1 && near(back->distance_m, 1.5f, 1e-6f) && back->stereo && !back->dim_others);
-    CHECK(near(back->fov_y_deg, 23.5f, 1e-6f) && back->gaze_cursor && !back->yaw_only);
-    CHECK(settings_from_json("{}")->yaw_only);  // default on
+    CHECK(near(back->fov_y_deg, 23.5f, 1e-6f) && back->gaze_cursor && back->tracking == 2);
+    CHECK(settings_from_json("{}")->tracking == 1);                    // default: left/right only
+    CHECK(settings_from_json(R"({"yawOnly": false})")->tracking == 0);  // earlier builds' switch
 
     const auto partial = settings_from_json(R"({"distance": 3, "unknown": {"a": [1, {"b": "}"}]}, "stereo": true})");
     CHECK(partial && near(partial->distance_m, 3.0f, 1e-6f) && partial->stereo && partial->cells.size() == 2);

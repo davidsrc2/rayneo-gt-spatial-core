@@ -75,7 +75,7 @@ struct Options {
     bool sim = false;
     float sim_sweep_deg = 0;
     bool hotkeys = true;
-    bool yaw_only = true;
+    int tracking_axes = 1;  // 0 both, 1 left/right, 2 up/down
 
     int displays = 2;                      // virtual monitors; 0 = show an existing display
     std::vector<core::GridCell> layout;    // grid cell per monitor; empty = one row
@@ -88,15 +88,6 @@ struct Options {
 
     float panel_arc_deg() const { return arc_deg.value_or(displays > 0 ? 38.0f : 50.0f); }
 };
-
-// Yaw-only tracking would leave the upper or lower row of a grid out of reach.
-bool yaw_only_applies(const Options& o) {
-    if (!o.yaw_only) return false;
-    for (const auto& c : o.layout) {
-        if (c.row != o.layout.front().row) return false;
-    }
-    return true;
-}
 
 Options from_c(const nimbo_options& c) {
     Options o;
@@ -134,7 +125,7 @@ Options from_c(const nimbo_options& c) {
     if (o.source.empty()) o.source = "auto";
     o.refresh120 = c.refresh120;
     o.hotkeys = c.hotkeys;
-    o.yaw_only = c.yaw_only;
+    o.tracking_axes = std::clamp(c.tracking_axes, 0, 2);
     return o;
 }
 
@@ -616,7 +607,7 @@ bool Server::start() {
     ro.k1 = opt_.k1;
     ro.k2 = opt_.k2;
     ro.dim_others = opt_.dim_others;
-    ro.yaw_only = yaw_only_applies(opt_);
+    ro.tracking_axes = static_cast<core::TrackingAxes>(opt_.tracking_axes);
     renderer_.set_panel_count(panels);
     if (static_cast<int>(opt_.layout.size()) == panels) renderer_.set_grid(opt_.layout);
     if (opt_.fit && !opt_.arc_deg) {
@@ -630,7 +621,9 @@ bool Server::start() {
         }
         ro.arc_deg = renderer_.fit_arc_deg(columns);
     }
-    logln("tracking: %s", ro.yaw_only ? "left/right turn only (panels never move vertically)" : "full head rotation");
+    static const char* kTracking[] = {"full head rotation", "left/right turn only (panels never move vertically)",
+                                      "up/down only (panels never move sideways)"};
+    logln("tracking: %s", kTracking[opt_.tracking_axes]);
     logln("render: %s, %d %s panel(s) of %.1f deg gap %.1f deg at %.1f m, ipd %.0f mm, fov %.1f deg, k1 %.3f k2 %.3f",
           ro.side_by_side ? "half-SBS" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
           ro.distance_m, opt_.ipd_mm, ro.fov_y_deg, ro.k1, ro.k2);
@@ -1210,7 +1203,7 @@ void Server::apply_pending() {
     ro.k1 = o->k1;
     ro.k2 = o->k2;
     ro.dim_others = o->dim_others;
-    ro.yaw_only = yaw_only_applies(*o);
+    ro.tracking_axes = static_cast<core::TrackingAxes>(o->tracking_axes);
     opt_.gaze_cursor = o->gaze_cursor;
     opt_.gather_windows = o->gather_windows;
     redraw_ = true;
@@ -1272,7 +1265,7 @@ core::Settings to_core(const nimbo_settings& c) {
     s.k1 = c.k1;
     s.k2 = c.k2;
     s.onboarding_done = c.onboarding_done;
-    s.yaw_only = c.yaw_only;
+    s.tracking = std::clamp(c.tracking, 0, 2);
     return s;
 }
 
@@ -1299,7 +1292,7 @@ nimbo_settings to_c(const core::Settings& s) {
     c.k1 = s.k1;
     c.k2 = s.k2;
     c.onboarding_done = s.onboarding_done;
-    c.yaw_only = s.yaw_only;
+    c.tracking = s.tracking;
     return c;
 }
 
@@ -1337,7 +1330,7 @@ nimbo_options nimbo_default_options(void) {
     copy_str(o.source, sizeof(o.source), "auto");
     o.refresh120 = true;
     o.hotkeys = true;
-    o.yaw_only = true;
+    o.tracking_axes = 1;
     return o;
 }
 
@@ -1484,7 +1477,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.gaze_cursor = s.gaze_cursor;
     o.dim_others = s.dim_others ? 0.55f : 1.0f;  // linear light: ~80 % perceived brightness
     o.gather_windows = s.gather_windows;
-    o.yaw_only = s.yaw_only;
+    o.tracking_axes = s.tracking;
     o.k1 = s.k1;
     o.k2 = s.k2;
     *out = o;

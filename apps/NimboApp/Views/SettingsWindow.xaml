@@ -33,9 +33,11 @@
             <StackPanel Spacing="8">
                 <TextBlock Text="Pantallas" FontSize="13" Opacity="0.7" />
                 <ToggleSwitch x:Name="DimToggle" Header="Atenuar los monitores que no miras" Toggled="Changed" />
-                <ToggleSwitch x:Name="YawOnlyToggle"
-                              Header="Solo seguir el giro horizontal (las pantallas no se mueven al mirar arriba o abajo)"
-                              Toggled="Changed" />
+                <RadioButtons x:Name="TrackingChoice" Header="Las pantallas siguen" SelectionChanged="TrackingChanged">
+                    <x:String>Solo horizontal (monitores en fila, quietos al mirar arriba o abajo)</x:String>
+                    <x:String>Solo vertical (monitores uno encima de otro)</x:String>
+                    <x:String>Ambos</x:String>
+                </RadioButtons>
             </StackPanel>
 
             <Expander Header="Avanzado" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">

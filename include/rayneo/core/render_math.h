@@ -46,6 +46,14 @@ Quat predict_orientation(const Quat& q, const Vec3& omega_rads, float dt_s);
 // vertical head motion can never shake them.
 Quat yaw_only(const Quat& q);
 
+// The head's nod only (elevation of its forward axis): for stacked panels, turning left and
+// right leaves them where they are.
+Quat pitch_only(const Quat& q);
+
+// Which head rotations move the panels.
+enum class TrackingAxes { Both = 0, Horizontal = 1, Vertical = 2 };
+Quat track_axes(const Quat& q, TrackingAxes axes);
+
 // Inside of a vertical cylinder section centred on the viewer, in render space.
 struct ScreenVertex {
     float px, py, pz;

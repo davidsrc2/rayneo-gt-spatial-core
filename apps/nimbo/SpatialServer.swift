@@ -264,7 +264,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k1 = options.k1
         ro.k2 = options.k2
         ro.dimOthers = options.dimOthers
-        ro.yawOnly = yawOnlyApplies(options)
+        ro.trackingAxes = options.trackingAxes
         let panels = max(1, panelDisplays.count)
         renderer.panelCount = UInt(panels)
         if let layout = options.layout, layout.count == panels {
@@ -274,7 +274,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let columns = Set((options.layout ?? []).map(\.col)).count
             ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(max(columns, options.layout == nil ? panels : 1)))
         }
-        log("tracking: " + (ro.yawOnly ? "left/right turn only (panels never move vertically)" : "full head rotation"))
+        log("tracking: " + ["full head rotation", "left/right turn only (panels never move vertically)",
+                            "up/down only (panels never move sideways)"][max(0, min(2, ro.trackingAxes))])
         log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
@@ -356,7 +357,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k1 = o.k1
         ro.k2 = o.k2
         ro.dimOthers = o.dimOthers
-        ro.yawOnly = yawOnlyApplies(o)
+        ro.trackingAxes = o.trackingAxes
         if let arc = o.arcDeg { ro.arcDegrees = arc }
         options.distanceM = o.distanceM
         options.gapDeg = o.gapDeg
@@ -370,13 +371,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.k2 = o.k2
         options.gazeCursor = o.gazeCursor
         options.dimOthers = o.dimOthers
-        options.yawOnly = o.yawOnly
+        options.trackingAxes = o.trackingAxes
         requestRedraw()
-    }
-
-    // Yaw-only tracking would leave the upper or lower row of a grid out of reach.
-    private func yawOnlyApplies(_ o: ServerOptions) -> Bool {
-        o.yawOnly && Set((o.layout ?? []).map(\.row)).count <= 1
     }
 
     private func requestRedraw() {
