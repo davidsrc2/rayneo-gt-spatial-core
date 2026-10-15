@@ -56,7 +56,7 @@ int run_list() {
 
 // Experiment: sends one 0x66 <cmd> frame with the stream running and prints every reply for
 // a few seconds (e.g. 0x08, the code the glasses report when their mode button is pressed).
-int run_send(uint8_t cmd, int times) {
+int run_send(uint8_t cmd, int times, int interval_ms) {
     if (!hal::hal_init()) {
         std::fprintf(stderr, "hid_init failed\n");
         return 1;
@@ -87,7 +87,7 @@ int run_send(uint8_t cmd, int times) {
             const int w = t->write(frame.data(), frame.size());
             std::printf("sent 0x66 0x%02x (#%d) -> %d\n", cmd, sent + 1, w);
             ++sent;
-            if (sent < times) next_send += std::chrono::seconds(3);
+            if (sent < times) next_send += std::chrono::milliseconds(interval_ms);
         }
         const int n = t->read(buf, sizeof(buf), 50);
         if (n <= 0) continue;
@@ -381,7 +381,8 @@ int main(int argc, char** argv) {
     if (mode == "--raw") return run_raw(argc > 2 ? std::atof(argv[2]) : 5.0);
     if (mode == "--calibrate") return run_calibrate(argc > 2 ? argv[2] : kDefaultCalibPath);
     if (mode == "--send" && argc > 2) {
-        return run_send(static_cast<uint8_t>(std::strtoul(argv[2], nullptr, 0)), argc > 3 ? std::atoi(argv[3]) : 1);
+        return run_send(static_cast<uint8_t>(std::strtoul(argv[2], nullptr, 0)), argc > 3 ? std::atoi(argv[3]) : 1,
+                        argc > 4 ? std::atoi(argv[4]) : 3000);
     }
     if (mode == "--calib") {
         if (argc < 3) {
@@ -391,7 +392,7 @@ int main(int argc, char** argv) {
         return run_stream(argv[2], true);
     }
     if (!mode.empty()) {
-        std::fprintf(stderr, "usage: imu_probe [--list | --raw [secs] | --calibrate [out.json] | --calib file | --send cmd [times]]\n");
+        std::fprintf(stderr, "usage: imu_probe [--list | --raw [secs] | --calibrate [out.json] | --calib file | --send cmd [times [interval_ms]]]\n");
         return 1;
     }
     return run_stream(kDefaultCalibPath, false);
