@@ -1293,6 +1293,9 @@ bool Server::setup_virtual_displays() {
     }
     if (static_cast<int>(panels.size()) < n) {
         logln("virtual monitors: %zu of %d appeared (are they off in Settings > Display?)", panels.size(), n);
+        logln("virtual monitors: the driver says: %s", backend_->state().substr(0, 600).c_str());
+        logln("display devices Windows knows:");
+        for (const auto& line : win::describe_display_devices()) logln("  %s", line.c_str());
         if (panels.empty()) return false;
     }
     std::sort(panels.begin(), panels.end(),

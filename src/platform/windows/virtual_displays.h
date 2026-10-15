@@ -32,6 +32,8 @@ public:
     virtual bool set_monitors(int count, int width, int height, std::string* error) = 0;
     // Removes Nimbo's monitors (VDD keeps one, which DisplayArrangement::restore detaches).
     virtual void remove_monitors() = 0;
+    // What the driver says it has, for the log when monitors do not show up.
+    virtual std::string state() const { return ""; }
 };
 
 // The first driver that answers: Virtual Display Driver, then virtual-display-rs. nullptr if none.
@@ -81,6 +83,10 @@ private:
                        std::string* error);
     std::vector<SavedDisplay> saved_;
 };
+
+// Every display device Windows knows, attached to the desktop or not, with its monitors: one
+// line each, for the log when monitors do not show up.
+std::vector<std::string> describe_display_devices();
 
 // Per-monitor scaling (Settings > Display > Scale) of a display, in percent. Uses the same
 // DisplayConfig call as the Settings app; Windows remembers it per monitor.

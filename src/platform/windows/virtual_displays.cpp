@@ -226,6 +226,14 @@ public:
 
     void remove_monitors() override { notify("", nullptr); }
 
+    std::string state() const override {
+        HANDLE h = open_vdrs();
+        if (h == INVALID_HANDLE_VALUE) return "pipe not answering";
+        std::string s = vdrs_state(h);
+        CloseHandle(h);
+        return s.empty() ? "(empty state)" : s;
+    }
+
 private:
     // Replaces Nimbo's monitors with `ours` (JSON objects, comma separated), keeping the user's.
     static bool notify(const std::string& ours, std::string* error) {
@@ -459,6 +467,30 @@ bool DisplayArrangement::arrange_after(const std::vector<const OutputInfo*>& pan
         return false;
     }
     return true;
+}
+
+std::vector<std::string> describe_display_devices() {
+    std::vector<std::string> out;
+    DISPLAY_DEVICEW dev{};
+    dev.cb = sizeof(dev);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dev, 0); ++i) {
+        std::string line = narrow(dev.DeviceName) + " '" + narrow(dev.DeviceString) + "'";
+        if (dev.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) line += " [on desktop]";
+        if (dev.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) line += " [primary]";
+        if (dev.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER) line += " [mirroring]";
+        DISPLAY_DEVICEW mon{};
+        mon.cb = sizeof(mon);
+        for (DWORD j = 0; EnumDisplayDevicesW(dev.DeviceName, j, &mon, 0); ++j) {
+            line += " | monitor '" + narrow(mon.DeviceString) + "'";
+            if (mon.StateFlags & DISPLAY_DEVICE_ACTIVE) line += " active";
+            mon = DISPLAY_DEVICEW{};
+            mon.cb = sizeof(mon);
+        }
+        out.push_back(line);
+        dev = DISPLAY_DEVICEW{};
+        dev.cb = sizeof(dev);
+    }
+    return out;
 }
 
 bool set_display_scale(const std::wstring& gdi_name, int percent, std::string* error) {
