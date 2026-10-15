@@ -25,6 +25,12 @@ struct ImuPipelineConfig {
     bool body_frame_relative = false;
 };
 
+// Madgwick gain for panels fixed in the room. The default 0.033 takes the accelerometer's
+// word quickly, and breathing or a millimetre of body sway reads as tilt: simulated, the
+// panels rocked 0.44 deg rms (0.76 max) with the head still; 0.01 trusts the gyro more,
+// 0.16 deg. Lower lets the gyro's residual bias tilt them instead (0.002: 0.30).
+inline constexpr float kWorldLockedMadgwickBeta = 0.01f;
+
 // The head's rotation since `reference`, in head axes (X forward, Y left, Z up): content
 // fixed in the room is seen at body_frame_delta^-1 * x, for any reference posture.
 Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head);

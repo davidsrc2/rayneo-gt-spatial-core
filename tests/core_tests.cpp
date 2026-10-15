@@ -935,6 +935,39 @@ void test_stabilizer_world_locked() {
     CHECK(moving < 0.16f && moving < 0.5f * world_lock_error_deg(plain, true));
 }
 
+// Head still but breathing (5 mm fore-aft, 3 mm side sway): the accelerometer reads that as
+// tilt. With the world-locked gain the estimated "up" rocks far less.
+float breathing_tilt_error_deg(float beta) {
+    const float dt = kRefDt, pi = 3.14159265f, d2r = 0.0174533f;
+    MadgwickFilter f(beta);
+    f.initialize_from_accel({0, 0, 9.81f});
+    Lcg rng;
+    const auto gauss = [&] { return (rng.uni() + rng.uni() + rng.uni() + rng.uni()) * 0.866f; };
+    const Vec3 bias{0.05f * d2r, -0.03f * d2r, 0.02f * d2r};  // left after bias estimation
+    double sum = 0;
+    int n = 0;
+    for (int i = 0; i < static_cast<int>(30 / dt); ++i) {
+        const float t = static_cast<float>(i) * dt;
+        const float p = 0.2f * d2r * std::sin(2 * pi * 0.25f * t), wp = 0.2f * d2r * 2 * pi * 0.25f * std::cos(2 * pi * 0.25f * t);
+        const Quat q = Quat::from_axis_angle({0, 1, 0}, p);
+        const Vec3 lin{-0.005f * std::pow(2 * pi * 0.25f, 2.0f) * std::sin(2 * pi * 0.25f * t),
+                       -0.003f * std::pow(2 * pi * 1.2f, 2.0f) * std::sin(2 * pi * 1.2f * t), 0};
+        const Vec3 accel = q.conjugate().rotate(lin + Vec3{0, 0, 9.81f}) + Vec3{gauss(), gauss(), gauss()} * 0.02f;
+        f.update_imu(Vec3{0, wp, 0} + bias + Vec3{gauss(), gauss(), gauss()} * 0.003f, accel, dt);
+        if (t < 5) continue;
+        const Vec3 u1 = f.quaternion().conjugate().rotate({0, 0, 1}), u2 = q.conjugate().rotate({0, 0, 1});
+        const float e = std::acos(std::fmin(1.0f, u1.x * u2.x + u1.y * u2.y + u1.z * u2.z)) * 57.29578f;
+        sum += e * e;
+        ++n;
+    }
+    return static_cast<float>(std::sqrt(sum / n));
+}
+
+void test_world_locked_madgwick() {
+    const float locked = breathing_tilt_error_deg(kWorldLockedMadgwickBeta);
+    CHECK(locked < 0.2f && locked < 0.5f * breathing_tilt_error_deg(0.033f));
+}
+
 // Recentered with the head pitched down and rolled, then turned about the vertical: content
 // fixed in the room must be seen where the real head sees it.
 void test_body_frame_delta() {
@@ -1145,6 +1178,7 @@ int main() {
     test_stabilizer_holds_still();
     test_stabilizer_world_locked();
     test_body_frame_delta();
+    test_world_locked_madgwick();
     test_stabilizer_follows_turns();
     test_stabilizer_dead_zone();
     test_prediction_gain();
