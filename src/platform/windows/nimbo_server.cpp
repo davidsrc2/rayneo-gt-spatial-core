@@ -957,9 +957,6 @@ void Server::periodic() {
         overlay_shown_ = false;
         logln("ready: tracking");
         redraw_ = true;
-        // Pinned: the glasses anchored their image at start, maybe on the table. Once, here:
-        // anchor it in front and line the gaze up with it.
-        if (opt_.glasses_pinned) on_hotkey(kRecenter);
     } else if (overlay_shown_) {
         renderer_.set_overlay_text(L"Nimbo se está preparando\nDeja las gafas quietas · " +
                                    std::to_wstring(std::max(1, 6 - calib_s_)) + L" s");

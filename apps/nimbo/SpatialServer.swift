@@ -988,9 +988,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             renderer.setOverlayText(nil)
             overlayShown = false
             log("ready: tracking")
-            // Pinned: the glasses anchored their image at start, maybe while lying on the table.
-            // Once, here: anchor it in front and line the gaze up with it.
-            if options.glassesPinned { recenter() }
         } else if overlayShown {
             let left = max(1, 6 - calibSeconds)
             renderer.setOverlayText("Nimbo se está preparando\nDeja las gafas quietas · \(left) s")
