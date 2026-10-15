@@ -68,6 +68,7 @@ final class AppModel: ObservableObject {
     // How the panels are seen: true = one panel large in the glasses' pinned image, false = the
     // space at real size with the glasses in follow. Nimbo sets the glasses' mode to match.
     @Published var glassesPinned: Bool { didSet { d.set(glassesPinned ? 1 : 0, forKey: "glassesMode") } }
+    @Published var anchorAtRest: Bool { didSet { d.set(anchorAtRest, forKey: "anchorAtRest") } }  // panels frozen while the head is still
     @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
     @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
@@ -103,6 +104,7 @@ final class AppModel: ObservableObject {
         glassesPinned = false
         growFocused = d.object(forKey: "growFocused") as? Bool ?? true
         macScreen = d.object(forKey: "macScreen") as? Bool ?? true
+        anchorAtRest = d.bool(forKey: "anchorAtRest")
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
         brightness = d.object(forKey: "brightness") as? Int ?? 0
         k1 = d.object(forKey: "k1") as? Double ?? 0
@@ -343,7 +345,8 @@ final class AppModel: ObservableObject {
         o.sideBySide = stereo
         // Space at real size: the panels never move with the head, not even a little (the dead
         // zone would hold them on the head while it moves less than it, then let go).
-        o.deadZoneDeg = glassesPinned ? Float(deadZone) : -1
+        // Anchor at rest: frozen while the head holds within 0.3 deg (-1 - 0.3, see rayneo_config).
+        o.deadZoneDeg = glassesPinned ? Float(deadZone) : (anchorAtRest ? -1.3 : -1)
         o.gazeCursor = gazeCursor
         o.dimOthers = dimOthers ? 0.55 : 1  // linear light: ~80 % perceived brightness
         o.gatherWindows = gatherWindows

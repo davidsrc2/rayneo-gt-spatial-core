@@ -130,6 +130,7 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
             e->cfg.stabilizer = rayneo::core::world_locked_stabilizer();
             e->cfg.body_frame_relative = true;  // exact on both axes whatever the posture at the recenter
             e->cfg.madgwick_beta = rayneo::core::kWorldLockedMadgwickBeta;  // breathing no longer rocks the panels
+            if (cfg->dead_zone_deg < -1.0f) e->cfg.stabilizer.enter_deg = -1.0f - cfg->dead_zone_deg;  // anchor at rest
         }
     }
     return e;

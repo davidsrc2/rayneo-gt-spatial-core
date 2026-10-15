@@ -958,6 +958,36 @@ void test_stabilizer_world_locked() {
     CHECK(knocked < 0.06f && knocked < 0.5f * world_lock_error_deg(no_tap_rejection, false, true));
 }
 
+// Anchor at rest (world-locked with a 0.3 deg hold): still head with tremor, breathing and
+// noise -> the panels do not move at all; a real turn is still followed.
+void test_world_locked_anchor() {
+    auto c = world_locked_stabilizer();
+    c.enter_deg = 0.3f;
+    PoseStabilizer s(c);
+    Lcg rng;
+    const float dt = kRefDt, d2r = 0.0174533f, pi = 3.14159265f;
+    Quat first;
+    float moved = 0.0f;
+    for (int i = 0; i < 457 * 6; ++i) {
+        const float t = static_cast<float>(i) * dt;
+        const float pitch = 0.05f * d2r * std::sin(2 * pi * 8 * t) + 0.1f * d2r * std::sin(2 * pi * 0.25f * t) + rng.uni() * 0.02f * d2r;
+        const Quat out = s.update(Quat::from_axis_angle({0, 1, 0}, pitch), {0, rng.uni() * 0.01f, 0}, dt);
+        if (t < 1) continue;
+        if (t < 1 + dt) first = out;
+        moved = std::fmax(moved, angle_between_deg(out, first));
+        CHECK(s.omega().norm() == 0.0f);  // nothing for the renderer to predict
+    }
+    CHECK(moved == 0.0f);
+    float lag = 0.0f;
+    for (int i = 0; i < 457; ++i) {  // then a 40 deg/s turn
+        const float t = static_cast<float>(i) * dt;
+        const Quat q = Quat::from_axis_angle({0, 0, 1}, t * 40 * d2r);
+        const Quat out = s.update(q, {0, 0, 40 * d2r}, dt);
+        if (t > 0.5f) lag = std::fmax(lag, angle_between_deg(out, q));
+    }
+    CHECK(lag < 1.0f);
+}
+
 // Head still but breathing (5 mm fore-aft, 3 mm side sway): the accelerometer reads that as
 // tilt. With the world-locked gain the estimated "up" rocks far less.
 float breathing_tilt_error_deg(float beta) {
@@ -1202,6 +1232,7 @@ int main() {
     test_stabilizer_world_locked();
     test_body_frame_delta();
     test_world_locked_madgwick();
+    test_world_locked_anchor();
     test_stabilizer_follows_turns();
     test_stabilizer_dead_zone();
     test_prediction_gain();

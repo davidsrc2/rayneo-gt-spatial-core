@@ -37,6 +37,7 @@ struct SettingsView: View {
         .onChange(of: model.tracking) { server.settingsChanged() }
         .onChange(of: model.focusWindows) { server.settingsChanged() }
         .onChange(of: model.macScreen) { server.settingsChanged() }
+        .onChange(of: model.anchorAtRest) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }
@@ -62,6 +63,12 @@ struct SettingsView: View {
                     .font(Theme.body).foregroundStyle(Theme.text)
                 Text("Cada pantalla mide lo que la imagen de las gafas y queda quieta en la habitación: gira la cabeza para pasar de una a otra. Nimbo pone las gafas en follow y, al parar, las devuelve a pinned. ⌘⌥C las vuelve a poner delante.")
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Anclar las pantallas con la cabeza quieta", isOn: $model.anchorAtRest)
+                    Text("Con la cabeza quieta, las pantallas no se mueven nada, ni un píxel. Al moverla más de 0,3° vuelven a seguir el espacio con suavidad. Prueba: si notas que se pegan a la cabeza al empezar a moverla, desactívalo.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                }
+                .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("La pantalla del Mac es una de las de Nimbo", isOn: $model.macScreen)
                     Text("Con la tapa abierta, la pantalla del Mac es la pantalla 1 y las demás son virtuales a su lado: con 2 pantallas, la del Mac y una más; con 1, solo la del Mac.")

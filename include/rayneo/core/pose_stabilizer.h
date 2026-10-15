@@ -67,7 +67,7 @@ public:
     bool holding() const { return holding_; }
     // See predict_cutoff_hz; the slow one right after a knock (tap_accel_rads2).
     Vec3 omega() const {
-        if (cfg_.predict_cutoff_hz <= 0.0f) return omega_out_;
+        if (cfg_.predict_cutoff_hz <= 0.0f || (holding_ && cfg_.enter_deg > 0.0f)) return omega_out_;  // anchored: nothing to predict
         return tap_left_s_ > 0.0f ? omega_slow_ : omega_fast_;
     }
     float speed() const { return speed_; }            // |low-passed omega|, rad/s
