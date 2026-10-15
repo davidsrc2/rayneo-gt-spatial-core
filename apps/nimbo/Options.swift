@@ -56,8 +56,7 @@ struct ServerOptions {
     var gazeCursor = true         // cursor jumps to the panel you look at
     var dimOthers: Float = 1      // brightness of the panels you are not looking at (1 = off)
     var trackingAxes = 1          // head rotations that move the panels: 0 both, 1 left/right, 2 up/down
-    var glassesPinned = false     // glasses in their own pinned mode: their image is re-anchored where you look
-    var pinnedFit = false         // --pinned-fit: pinned without re-anchoring, everything shrunk into the one image
+    var glassesPinned = false     // glasses in their own pinned mode: panels fixed in the image, fitted inside it
     var glassesMode = -1          // set the glasses' mode at start: 0 follow, 1 pinned, 2 steady; -1 = leave
     var brightness = 0            // set the glasses' brightness 1..8 at start; 0 = leave
     var recenterGlasses = false   // ⌘⌥C also recentres the glasses' own pinned mode (0x08 pinned)
@@ -98,9 +97,8 @@ struct ServerOptions {
       --no-gather          do not move windows from the glasses display to panel 1
       --no-gaze-cursor     keep the cursor where it is when you look at another panel
       --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
-      --pinned             the glasses are in their pinned mode: they anchor the image; Nimbo
-                           anchors it again where you look when you turn and hold (sets that mode)
-      --pinned-fit         pinned without re-anchoring: everything shrunk into the one image
+      --pinned             the glasses are in their pinned mode: they anchor the image, so the
+                           panels stay put in it and are sized to fit inside it (sets that mode)
       --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
       --brightness N       glasses' brightness 1..8 (8 = factory level)
       --recenter-glasses   Cmd+Opt+C also recentres the glasses' own pinned mode
@@ -190,7 +188,6 @@ struct ServerOptions {
                 o.glassesMode = m
                 o.glassesPinned = m == 1
             case "--recenter-glasses": o.recenterGlasses = true
-            case "--pinned-fit": o.pinnedFit = true
             case "--brightness": guard let v = value().flatMap({ Int($0) }), (1...8).contains(v) else { return nil }; o.brightness = v
             case "--dim": guard let v = float() else { return nil }; o.dimOthers = max(0, min(1, v))
             case "--mono": o.sideBySide = false

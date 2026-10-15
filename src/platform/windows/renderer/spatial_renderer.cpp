@@ -195,7 +195,8 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
 // Glasses in their own pinned mode anchor the image we send and let the eyes roam over it:
 // nothing outside it can ever be seen. The whole arrangement (monitors and floating windows,
 // both axes; only the focused panel in focus / cinema) is centred and scaled to fit in it.
-// Distance and size still zoom: a 38° panel at 2 m fits exactly, closer or larger grows.
+// Distance and size still zoom out, but never past the image: closer or larger than a 38°
+// panel at 2 m stays fitted, or the edges would be cut.
 void SpatialRenderer::fit_in_glasses_image(std::vector<core::PanelPlacement>& out) const {
     const float arc = panel_arc();
     float y0 = 1e9f, y1 = -1e9f, p0 = 1e9f, p1 = -1e9f;
@@ -210,7 +211,7 @@ void SpatialRenderer::fit_in_glasses_image(std::vector<core::PanelPlacement>& ou
     if (y1 <= y0 || p1 <= p0) return;
     const float fw = core::horizontal_fov(options.fov_y_deg * kDegToRad, options.eye_aspect);
     const float fh = options.fov_y_deg * kDegToRad;
-    const float zoom = arc / (38.0f * kDegToRad);
+    const float zoom = std::min(1.0f, arc / (38.0f * kDegToRad));
     const float s = 0.94f * std::min(fw * zoom / (y1 - y0), fh * zoom / (p1 - p0));
     const float yc = 0.5f * (y0 + y1), pc = 0.5f * (p0 + p1);
     for (auto& pl : out) {

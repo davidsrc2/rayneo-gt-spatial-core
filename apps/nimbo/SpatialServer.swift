@@ -109,18 +109,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // frame is still correct, so nothing is drawn. Settings changes force one redraw.
     private var redrawRequested = true  // guarded by statsLock
 
-    // Glasses in their pinned mode hold their image still in the world: nothing outside it can
-    // be seen. Turn and hold the head away from it and the image is anchored again where you
-    // look (follow, then pinned). The panels stay fixed in the world: they are drawn from the
-    // head orientation the image was anchored at, and from the live head while the glasses
-    // briefly follow it.
-    private let anchorLock = NSLock()
-    private var anchor = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)  // guarded by anchorLock
-    private var reanchoring = false                             // guarded by anchorLock
-    private var roamTimer: Timer?
-    private var roamSince: Date?
-    private var roaming: Bool { options.glassesPinned && !options.pinnedFit }
-
     init(options: ServerOptions) {
         self.options = options
     }
@@ -306,8 +294,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(max(columns, options.layout == nil ? panels : 1)))
         }
         applyPinned(options)
-        log("tracking: " + (options.glassesPinned ? (options.pinnedFit ? "by the glasses (pinned mode); panels fitted inside their image"
-                                                     : "by the glasses (pinned mode); their image is anchored again where you turn and hold") : ["full head rotation", "left/right turn only (panels never move vertically)",
+        log("tracking: " + (options.glassesPinned ? "by the glasses (pinned mode); panels fitted inside their image" : ["full head rotation", "left/right turn only (panels never move vertically)",
                             "up/down only (panels never move sideways)"][max(0, min(2, ro.trackingAxes))]))
         log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
 
@@ -347,7 +334,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                                                                 object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
         }
-        roamTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in self?.checkRoam() }
         if (options.gazeCursor && (panelDisplays.count > 1 || !floatingDisplays.isEmpty)) || physicalDisplay != nil {
             gazeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
                 self?.followGaze()
@@ -430,7 +416,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.recenterGlasses = o.recenterGlasses
         options.brightness = o.brightness
         options.glassesPinned = o.glassesPinned
-        options.pinnedFit = o.pinnedFit
         applyPinned(o)  // last: it overrides the panel width
         requestRedraw()
     }
@@ -642,86 +627,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func applyPinned(_ o: ServerOptions) {
         guard let renderer else { return }
         let ro = renderer.options
-        ro.staticHead = o.glassesPinned && o.pinnedFit  // the renderer fits everything in the glasses' image
-        // The glasses anchor their image on both axes: so do the panels, or one above could never
-        // be brought into view.
-        if roaming { ro.trackingAxes = 0 }
-    }
-
-    // MARK: pinned glasses
-
-    // The pose the panels are drawn from: with the glasses re-anchoring their image, the
-    // orientation it was anchored at (no prediction: the glasses hold it still).
-    private func drawnPose(_ p: PoseSample) -> PoseSample {
-        guard roaming else { return p }
-        anchorLock.lock()
-        defer { anchorLock.unlock() }
-        if reanchoring { return p }
-        return PoseSample(orientation: anchor, angularVelocity: .zero, hostTimeNs: p.hostTimeNs, tracking: p.tracking)
-    }
-
-    // The head turned away from the anchored image and holds there (reading, not glancing):
-    // anchor it again where it looks. A third of the image off centre, a little under half a
-    // second, slow head.
-    private func checkRoam() {
-        guard roaming, let renderer, let p = pose.latest(), p.tracking else {
-            roamSince = nil
-            return
-        }
-        anchorLock.lock()
-        let a = anchor, busy = reanchoring
-        anchorLock.unlock()
-        if busy { return }
-        let fwd = (a.inverse * p.orientation).act(simd_float3(1, 0, 0))  // core frame: X forward, Y left, Z up
-        let yaw = abs(atan2(fwd.y, fwd.x)), pitch = abs(asin(max(-1, min(1, fwd.z))))
-        let fovY = renderer.options.fovYDegrees * .pi / 180
-        let fovX = 2 * atan(tan(fovY / 2) * 16 / 9)
-        let away = yaw > fovX / 3 || pitch > fovY / 3
-        guard away, simd_length(p.angularVelocity) < 0.35 else {
-            roamSince = nil
-            return
-        }
-        if let since = roamSince {
-            if Date().timeIntervalSince(since) > 0.4 {
-                roamSince = nil
-                reanchor()
-            }
-        } else {
-            roamSince = Date()
-        }
-    }
-
-    // Follow, then pinned again 0.3 s later (setting pinned while pinned does nothing). While
-    // the glasses follow the head the panels are drawn from the live head, so they stay put.
-    private func reanchor() {
-        guard let imu = pose as? ImuPoseSource else {  // simulated head: no glasses to move
-            if let p = pose.latest() { setAnchor(p.orientation) }
-            requestRedraw()
-            return
-        }
-        anchorLock.lock()
-        reanchoring = true
-        anchorLock.unlock()
-        imu.setGlassesMode(0)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self else { return }
-            if let p = self.pose.latest() { self.setAnchor(p.orientation) }
-            imu.setGlassesMode(1)
-            // The glasses take the command a moment later: keep drawing the live head until then.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-                guard let self else { return }
-                self.anchorLock.lock()
-                self.reanchoring = false
-                self.anchorLock.unlock()
-                self.requestRedraw()
-            }
-        }
-    }
-
-    private func setAnchor(_ q: simd_quatf) {
-        anchorLock.lock()
-        anchor = q
-        anchorLock.unlock()
+        ro.staticHead = o.glassesPinned  // the renderer fits everything in the glasses' image
+        // Which panel you look at: the image is anchored on both axes, so a window above is
+        // reached by looking up.
+        if o.glassesPinned { ro.trackingAxes = 0 }
     }
 
     private func requestRedraw() {
@@ -801,7 +710,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         HardwareCursor.show()
         statsTimer?.invalidate()
         gazeTimer?.invalidate()
-        roamTimer?.invalidate()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         displayLink?.invalidate()
         displayLink = nil
@@ -900,21 +808,22 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     func recenter() {
-        if roaming {  // the panels in front again, and the glasses' image anchored there
-            pose.recenter()
-            reanchor()
-            lastGazePanel = -2
-            log("recenter: panels in front, glasses' image anchored there")
-            return
-        }
         // Glasses in their own pinned mode hold an anchor too. Setting pinned while in pinned does
         // nothing; a mode change recentres it (both axes): follow, then pinned again a moment later.
         if options.recenterGlasses || options.glassesPinned, let imu = pose as? ImuPoseSource {
             imu.setGlassesMode(0)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { imu.setGlassesMode(1) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                imu.setGlassesMode(1)
+                // Pinned: nothing of ours moves (the image is fitted), but the head's zero must
+                // match the new anchor so the gaze finds the panel you look at.
+                if self?.options.glassesPinned == true {
+                    self?.pose.recenter()
+                    self?.lastGazePanel = -2
+                }
+            }
             log("recenter: glasses' pinned anchor (follow -> pinned)")
         }
-        if options.glassesPinned { return }  // Nimbo's own pinned behaviour: nothing of ours to move
+        if options.glassesPinned { return }
         pose.recenter()
         lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
         log("recenter")
@@ -1024,13 +933,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let nowHost = RNSpatialEngine.hostNowNs()
         let targetHost = Int64(nowHost) + Int64((update.targetPresentationTimestamp - nowMedia) * 1e9)
 
-        guard let live = pose.latest() else {
+        guard let p = pose.latest() else {
             renderer.invalidateSkippedFrame()
             _ = renderer.render(to: update.drawable, orientation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
                                 angularVelocity: .zero, sampleHostNs: 0, targetHostNs: 0)
             return
         }
-        let p = drawnPose(live)
         if nothingChanged(p) {
             statsLock.lock()
             stats.idle += 1
@@ -1080,8 +988,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             renderer.setOverlayText(nil)
             overlayShown = false
             log("ready: tracking")
-            // The glasses anchored their image at start, maybe while lying on the table.
-            if roaming { reanchor() }
+            // Pinned: the glasses anchored their image at start, maybe while lying on the table.
+            // Once, here: anchor it in front and line the gaze up with it.
+            if options.glassesPinned { recenter() }
         } else if overlayShown {
             let left = max(1, 6 - calibSeconds)
             renderer.setOverlayText("Nimbo se está preparando\nDeja las gafas quietas · \(left) s")

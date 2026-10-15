@@ -300,8 +300,8 @@ static float panel_arc(RNRenderOptions* o) {
 // Glasses in their own pinned mode anchor the image we send and let the eyes roam over it:
 // nothing outside it can ever be seen. The whole arrangement (monitors and floating windows,
 // both axes; only the focused panel in focus / cinema) is centred and scaled to fit in it.
-// Distance and size still zoom: with a 38° panel at 2 m it fits exactly, closer or larger
-// grows from there.
+// Distance and size still zoom out (farther or smaller shrinks it), but never past the
+// image: closer or larger than a 38° panel at 2 m stays fitted, or the edges would be cut.
 - (void)fitInGlassesImage:(std::vector<core::PanelPlacement>&)out {
     RNRenderOptions* o = _options;
     float aspects[kMaxPanels];
@@ -320,7 +320,7 @@ static float panel_arc(RNRenderOptions* o) {
     }
     if (y1 <= y0 || p1 <= p0) return;
     const float fw = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect), fh = o.fovYDegrees * kDegToRad;
-    const float zoom = arc / (kReferenceArcDeg * kDegToRad);
+    const float zoom = std::min(1.0f, arc / (kReferenceArcDeg * kDegToRad));
     const float s = 0.94f * std::min(fw * zoom / (y1 - y0), fh * zoom / (p1 - p0));
     const float yc = 0.5f * (y0 + y1), pc = 0.5f * (p0 + p1);
     for (auto& pl : out) {

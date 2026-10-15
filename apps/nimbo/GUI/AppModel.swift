@@ -339,7 +339,7 @@ final class AppModel: ObservableObject {
         o.gatherWindows = gatherWindows
         o.trackingAxes = tracking
         // The mode itself is the glasses' business (their button). Pinned: they anchor the image,
-        // and Nimbo anchors it again where you turn and hold; ⌘⌥C brings the panels in front.
+        // so Nimbo fits everything in it and ⌘⌥C recentres them.
         o.glassesPinned = glassesPinned
         o.recenterGlasses = glassesPinned
         o.brightness = brightness
