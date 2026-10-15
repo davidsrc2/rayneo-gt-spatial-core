@@ -712,7 +712,16 @@ bool Server::start() {
         }
         logln("calibration: %s", calibrated ? opt_.calibration_path.c_str() : "none (identity)");
         std::string error;
-        if (!imu->start(&error)) {
+        // Right after the displays change the glasses can miss the stream-on: a few tries.
+        bool streaming = false;
+        for (int attempt = 1; attempt <= 4 && !streaming; ++attempt) {
+            streaming = imu->start(&error);
+            if (!streaming && attempt < 4) {
+                logln("imu: %s, trying again (%d/3)", error.c_str(), attempt);
+                Sleep(1500);
+            }
+        }
+        if (!streaming) {
             logln("imu: %s", error.c_str());
             return false;
         }
@@ -1317,7 +1326,25 @@ bool Server::setup_virtual_displays() {
             // After Extend a screen of yours may switch on too: only the drivers' monitors then.
             if (!o.glasses && (win::is_virtual_panel(o) || (is_new && !extended))) panels.push_back(&o);
         }
-        if (static_cast<int>(panels.size()) >= n) break;
+        if (static_cast<int>(panels.size()) >= n) {
+            // The Virtual Display Driver reloads its adapter after a count change: a monitor
+            // seen mid-reload (the one it had before) vanishes a moment later. Keep them only
+            // if they are still there after a pause.
+            std::vector<std::wstring> seen;
+            for (const auto* p : panels) seen.push_back(p->gdi_name);
+            Sleep(1500);
+            outputs_ = win::enumerate_outputs();
+            int still = 0;
+            for (const auto& name : seen) still += find_output(name) != nullptr ? 1 : 0;
+            if (still == static_cast<int>(seen.size())) {
+                panels.clear();
+                for (const auto& name : seen) panels.push_back(find_output(name));
+                break;
+            }
+            logln("virtual monitors: %d of %zu gone again (driver reloading), waiting", static_cast<int>(seen.size()) - still,
+                  seen.size());
+            panels.clear();
+        }
     }
     if (static_cast<int>(panels.size()) < n) {
         logln("virtual monitors: %zu of %d appeared (are they off in Settings > Display?)", panels.size(), n);
