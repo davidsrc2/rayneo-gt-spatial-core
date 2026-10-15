@@ -187,13 +187,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
         // Virtual monitors before the window, so the layout is settled when we draw.
         if options.displays > 0 {
-            let vd = try VirtualDesktop(count: options.displays, width: options.vdWidth, height: options.vdHeight,
-                                        hiDPI: options.hiDPI, refresh: 60)
+            // The Mac's own screen as panel 1: one virtual monitor fewer.
+            let builtIn = options.macScreen && !options.windowed && !options.includeMain ? Displays.builtIn() : nil
+            let vd = try VirtualDesktop(count: options.displays - (builtIn != nil ? 1 : 0), width: options.vdWidth,
+                                        height: options.vdHeight, hiDPI: options.hiDPI, refresh: 60)
             desktop = vd
             try await settle(0.5)
-            let anchor = CGMainDisplayID()
+            let anchor = builtIn ?? CGMainDisplayID()
             let virtualMain = !options.includeMain && !options.windowed
-            if virtualMain {
+            if let builtIn {
+                vd.arrange(after: builtIn, cells: options.layout, tucking: screenID)
+            } else if virtualMain {
                 vd.arrangeAsMain(tucking: screenID, cells: options.layout)
             } else {
                 vd.arrange(rightOf: anchor, cells: options.layout)
@@ -202,11 +206,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             log("virtual monitors: " + vd.ids.map { id in
                 let b = CGDisplayBounds(id)
                 return "\(id)@\(Int(b.minX)),\(Int(b.minY)) \(Int(b.width))x\(Int(b.height))"
-            }.joined(separator: "  ") + (virtualMain ? "  (panel 1 is the main display; glasses surface tucked away)"
+            }.joined(separator: "  ") + (builtIn != nil ? "  (panel 1 is the Mac's own screen; glasses surface tucked away)"
+                                         : virtualMain ? "  (panel 1 is the main display; glasses surface tucked away)"
                                                        : "  (right of display \(anchor))"))
             if virtualMain {
                 physicalDisplay = screenID
-                let target = CGDisplayBounds(vd.ids[0])
+                let target = CGDisplayBounds(builtIn ?? vd.ids[0])
                 CGWarpMouseCursorPosition(CGPoint(x: target.midX, y: target.midY))
                 if options.gatherWindows {
                     if WindowGatherer.isTrusted(prompt: true) {
@@ -220,8 +225,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             }
             // The main display (your real desktop) sits left of the virtual row, matching
             // where the cursor goes when it leaves it to the right.
-            panelDisplays = (options.includeMain ? [anchor] : []) + vd.ids
-            let offset = options.includeMain ? 1 : 0
+            panelDisplays = (options.includeMain || builtIn != nil ? [anchor] : []) + vd.ids
+            let offset = options.includeMain || builtIn != nil ? 1 : 0
             if options.testPattern {
                 for (i, id) in vd.ids.enumerated() {
                     guard let s = vd.screen(for: id) else { continue }

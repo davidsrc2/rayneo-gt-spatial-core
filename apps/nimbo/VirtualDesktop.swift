@@ -48,9 +48,14 @@ final class VirtualDesktop {
     }
 
     private func apply(_ points: [CGPoint], tucking physical: CGDirectDisplayID?) -> Bool {
+        apply(Array(zip(ids, points)), tucking: physical)
+    }
+
+    private func apply(_ placed: [(CGDirectDisplayID, CGPoint)], tucking physical: CGDirectDisplayID?) -> Bool {
+        let ids = placed.map(\.0), points = placed.map(\.1)
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success else { return false }
-        for (id, p) in zip(ids, points) { CGConfigureDisplayOrigin(config, id, Int32(p.x), Int32(p.y)) }
+        for (id, p) in placed { CGConfigureDisplayOrigin(config, id, Int32(p.x), Int32(p.y)) }
         if let physical {
             // Below-left of the row, touching it only at a corner: the glasses first, then every
             // other display (the Mac's own screen, externals) further left, touching only the one
@@ -75,6 +80,28 @@ final class VirtualDesktop {
     @discardableResult
     func arrangeAsMain(tucking physical: CGDirectDisplayID, cells: [GridPos]? = nil) -> Bool {
         apply(origins(cells: cellsOrRow(cells), origin: .zero), tucking: physical)
+    }
+
+    // App-scoped: `first` (the Mac's own screen) is panel 1 and the main display, at the origin;
+    // the virtual monitors take the other cells (`cells` covers all panels, `first` included),
+    // sized by their own monitors past it. The glasses and anything else are tucked away.
+    @discardableResult
+    func arrange(after first: CGDirectDisplayID, cells: [GridPos]?, tucking physical: CGDirectDisplayID) -> Bool {
+        let n = ids.count + 1
+        let grid = cells.flatMap { $0.count == n ? $0 : nil } ?? (0..<n).map { GridPos(col: $0, row: 0) }
+        let f = CGDisplayBounds(first)
+        let w = ids.first.map { CGDisplayBounds($0).width } ?? f.width
+        let h = ids.first.map { CGDisplayBounds($0).height } ?? f.height
+        // Cells past the first one start at its far edge; cells before it, one monitor each.
+        let coord = { (d: Int, firstSize: CGFloat, size: CGFloat) -> CGFloat in
+            d == 0 ? 0 : (d > 0 ? firstSize + CGFloat(d - 1) * size : CGFloat(d) * size)
+        }
+        let c0 = grid[0]
+        var placed: [(CGDirectDisplayID, CGPoint)] = [(first, .zero)]
+        for (id, c) in zip(ids, grid.dropFirst()) {
+            placed.append((id, CGPoint(x: coord(c.col - c0.col, f.width, w), y: coord(c.row - c0.row, f.height, h))))
+        }
+        return apply(placed, tucking: physical)
     }
 
     // Active displays that are not these and not mirroring another (a mirror follows its source).

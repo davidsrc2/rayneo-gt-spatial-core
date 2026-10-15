@@ -68,6 +68,7 @@ final class AppModel: ObservableObject {
     // How the panels are seen: true = one panel large in the glasses' pinned image, false = the
     // space at real size with the glasses in follow. Nimbo sets the glasses' mode to match.
     @Published var glassesPinned: Bool { didSet { d.set(glassesPinned ? 1 : 0, forKey: "glassesMode") } }
+    @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
     @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
     @Published var brightness: Int { didSet { d.set(brightness, forKey: "brightness") } }  // 1..8, 0 = leave
@@ -99,6 +100,7 @@ final class AppModel: ObservableObject {
         tracking = d.object(forKey: "tracking") as? Int ?? ((d.object(forKey: "yawOnly") as? Bool ?? true) ? 1 : 0)
         glassesPinned = (d.object(forKey: "glassesMode") as? Int).map { $0 == 1 } ?? d.bool(forKey: "glassesPinned")
         growFocused = d.object(forKey: "growFocused") as? Bool ?? true
+        macScreen = d.object(forKey: "macScreen") as? Bool ?? true
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
         brightness = d.object(forKey: "brightness") as? Int ?? 0
         k1 = d.object(forKey: "k1") as? Double ?? 0
@@ -351,6 +353,7 @@ final class AppModel: ObservableObject {
         o.glassesMode = glassesPinned ? 1 : 0
         o.realSize = !glassesPinned
         o.growFocused = growFocused
+        o.macScreen = macScreen
         o.focusWindows = focusWindows
         o.brightness = brightness
         o.unmirror = true  // mirrored glasses run at the Mac's resolution and composited (reverted on exit)

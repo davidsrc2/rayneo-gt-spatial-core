@@ -27,6 +27,15 @@ enum Displays {
         return CGRect(x: v.minX, y: primary.frame.height - v.maxY, width: v.width, height: v.height)
     }
 
+    // The Mac's own screen when it is on (lid open) and not just mirroring another display.
+    static func builtIn() -> CGDirectDisplayID? {
+        var n: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &n) == .success, n > 0 else { return nil }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(n))
+        guard CGGetActiveDisplayList(n, &ids, &n) == .success else { return nil }
+        return ids.prefix(Int(n)).first { CGDisplayIsBuiltin($0) != 0 && CGDisplayMirrorsDisplay($0) == kCGNullDirectDisplay }
+    }
+
     static func isMirrored(_ display: CGDirectDisplayID) -> Bool {
         CGDisplayIsInMirrorSet(display) != 0
     }

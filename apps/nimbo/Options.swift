@@ -52,6 +52,7 @@ struct ServerOptions {
     var testPattern = false
     var fit = false               // size panels so all of them are visible at once
     var includeMain = false       // --keep-main: glasses display stays main, shown as a panel
+    var macScreen = false         // --mac-screen: the Mac's own screen is panel 1 (lid open), the rest virtual
     var gatherWindows = true      // move windows off the glasses display (Accessibility)
     var gazeCursor = true         // cursor jumps to the panel you look at
     var dimOthers: Float = 1      // brightness of the panels you are not looking at (1 = off)
@@ -95,6 +96,8 @@ struct ServerOptions {
       --focus-panel N      start showing only panel N (focus mode, Cmd+Opt+O)
       --cinema             with --focus-panel: that panel centred and large (Cmd+Opt+P)
       --test-pattern       labelled grid on each virtual monitor
+      --mac-screen         the Mac's own screen is panel 1 (when the lid is open); the other
+                           panels are virtual monitors next to it
       --keep-main          keep the glasses display as macOS's main display, shown as the left
                            panel (two cursors: macOS draws one on the glasses surface)
       --no-gather          do not move windows from the glasses display to panel 1
@@ -181,6 +184,7 @@ struct ServerOptions {
             case "--distance": guard let v = float() else { return nil }; o.distanceM = v
             case "--test-pattern": o.testPattern = true
             case "--keep-main": o.includeMain = true
+            case "--mac-screen": o.macScreen = true
             case "--no-main": o.includeMain = false
             case "--no-gather": o.gatherWindows = false
             case "--fit": o.fit = true

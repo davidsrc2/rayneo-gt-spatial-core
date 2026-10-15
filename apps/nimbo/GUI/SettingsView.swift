@@ -38,6 +38,7 @@ struct SettingsView: View {
         .onChange(of: model.glassesPinned) { server.settingsChanged() }
         .onChange(of: model.growFocused) { server.settingsChanged() }
         .onChange(of: model.focusWindows) { server.settingsChanged() }
+        .onChange(of: model.macScreen) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }
@@ -76,6 +77,12 @@ struct SettingsView: View {
                         Text("La pantalla que miras un segundo, o a la que llevas el ratón, ocupa toda la imagen de las gafas, grande y nítida como sin Nimbo. Las demás quedan justo fuera de los bordes: mira hacia ellas un segundo para pasar a otra. Desactivado: se ve todo junto, más pequeño.")
                             .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     }
+                }
+                .font(Theme.body).foregroundStyle(Theme.text)
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("La pantalla del Mac es una de las de Nimbo", isOn: $model.macScreen)
+                    Text("Con la tapa abierta, la pantalla del Mac es la pantalla 1 y las demás son virtuales a su lado: con 2 pantallas, la del Mac y una más; con 1, solo la del Mac.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
