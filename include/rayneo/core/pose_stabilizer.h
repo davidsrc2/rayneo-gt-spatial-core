@@ -25,14 +25,14 @@ struct PoseStabilizerConfig {
 
 // Panels fixed in the room at every moment (no dead zone, nothing frozen): sensor noise and
 // tremor smoothed hard while the head is nearly still, released with speed so turns stay
-// tight. Simulated (tests/core_tests.cpp): ~3x less shake at rest than an 8 Hz floor, under
-// 1 deg of lag at 60 deg/s.
+// tight. Simulated (tests/core_tests.cpp): ~2x less shake at rest than an 8 Hz floor, ~0.7
+// deg of lag at 60 deg/s.
 inline PoseStabilizerConfig world_locked_stabilizer() {
     PoseStabilizerConfig c;
     c.enter_deg = 0.0f;
     c.follow_min_cutoff_hz = 0.3f;
     c.follow_beta = 40.0f;
-    c.speed_cutoff_hz = 1.5f;
+    c.speed_cutoff_hz = 3.0f;  // 1.5 noticed turns late: the panels dragged with the head first
     return c;
 }
 

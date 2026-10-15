@@ -914,8 +914,8 @@ void test_stabilizer_world_locked() {
     PoseStabilizerConfig plain;
     plain.enter_deg = 0.0f;
     const auto locked = world_locked_stabilizer();
-    CHECK(shake(locked) < 0.4 * shake(plain));
-    // A 60 deg/s turn after a second of rest: under 1.2 deg behind.
+    CHECK(shake(locked) < 0.55 * shake(plain));
+    // A 60 deg/s turn after a second of rest: under 0.8 deg behind.
     PoseStabilizer s(locked);
     float lag = 0.0f;
     for (int i = 0; i < 457 * 2; ++i) {
@@ -924,7 +924,7 @@ void test_stabilizer_world_locked() {
         const Quat out = s.update(q, {0, 0, t > 1 ? 60 * d2r : 0.0f}, dt);
         if (t > 1) lag = std::fmax(lag, angle_between_deg(out, q));
     }
-    CHECK(lag < 1.2f);
+    CHECK(lag < 0.8f);
 }
 
 // Recentered with the head pitched down and rolled, then turned about the vertical: content

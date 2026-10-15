@@ -717,13 +717,18 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if o.glassesPinned { ro.trackingAxes = 0 }
         if !(o.glassesPinned && o.growFocused) { renderer.growPanel = -1 }
         // Space at real size (glasses in follow): every panel nearly as large as the glasses' own
-        // image, fixed in the room on both axes; turning the head brings the next one in. 92 %
-        // of the image: a panel exactly as wide, curved, came closer at its edges and its corners
-        // fell outside the image and into the soft edge of the lenses. The arc is set so the
-        // distance scaling cancels out.
+        // image, fixed in the room on both axes; turning the head brings the next one in. It
+        // must fit both ways: the Mac's own screen (3024x1964) is taller than the image, and at
+        // the image's full width its top and bottom were cut. 94 % of what fits, clear of the
+        // lenses' soft edge. The arc is set so the distance scaling cancels out.
         if !o.glassesPinned && o.realSize {
             ro.trackingAxes = 0
-            let fw = 0.92 * 2 * atan(tan(ro.fovYDegrees * .pi / 360) * ro.eyeAspect)
+            let fovY = ro.fovYDegrees * .pi / 180
+            let tallest = panelDisplays.map { CGDisplayBounds($0) }.filter { $0.height > 0 }
+                .map { Float($0.width / $0.height) }.min() ?? ro.eyeAspect
+            let wide = 2 * atan(tan(fovY / 2) * ro.eyeAspect)   // the image's width
+            let tall = 2 * atan(tan(fovY / 2) * tallest)        // width at which the tallest panel fills its height
+            let fw = 0.94 * min(wide, tall)
             ro.arcDegrees = 2 * atan(tan(fw / 2) * ro.distanceMeters / 2) * 180 / .pi
         }
     }
