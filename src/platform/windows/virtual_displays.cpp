@@ -129,8 +129,16 @@ public:
     // detached, and the count is left as is on exit.
     static constexpr int kPool = 6;
     bool set_monitors(int count, int, int, std::string* error) override {
-        if (VirtualDisplayDriver::live_monitors() >= count) return true;
-        if (VirtualDisplayDriver::set_count(std::max(count, kPool), error)) return true;
+        const int live = VirtualDisplayDriver::live_monitors();
+        // While it answers, fill the pool now (one reload), so later layouts never need one.
+        if (live < std::max(count, kPool) && VirtualDisplayDriver::available() &&
+            VirtualDisplayDriver::set_count(std::max(count, kPool), error)) {
+            return true;
+        }
+        if (live >= count) {
+            if (error != nullptr) error->clear();
+            return true;
+        }
         if (error != nullptr) {
             *error = "the Virtual Display Driver has fewer monitors than needed and does not answer to add more: "
                      "restart Windows once (afterwards Nimbo keeps " + std::to_string(kPool) + " ready)";
