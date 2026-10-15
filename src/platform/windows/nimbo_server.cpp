@@ -197,6 +197,7 @@ public:
     virtual void recenter() = 0;
     virtual std::optional<PoseSample> latest() = 0;
     virtual void nudge(float, float) {}
+    virtual void set_glasses_mode(int) {}  // the glasses' own display mode (IMU only)
 };
 
 class ImuPose final : public PoseSource {
@@ -226,6 +227,7 @@ public:
         return false;
     }
     void recenter() override { rayneo_engine_recenter(engine_); }
+    void set_glasses_mode(int mode) override { rayneo_engine_set_glasses_mode(engine_, mode); }
     std::optional<PoseSample> latest() override {
         rayneo_pose p;
         if (!rayneo_engine_latest_pose(engine_, &p)) return std::nullopt;
@@ -573,6 +575,10 @@ bool Server::start() {
         logln("imu: streaming, leave the glasses still on the table ~6 s until TRACK");
         pose_ = std::move(imu);
         imu_ = true;
+        if (opt_.glasses_pinned) {
+            pose_->set_glasses_mode(1);  // the glasses switch to pinned themselves, centred in front of you
+            logln("glasses: pinned mode");
+        }
     }
 
     // Windows left on the glasses surface would be invisible (it shows the render): bring
@@ -1106,8 +1112,9 @@ void Server::on_hotkey(int id) {
     constexpr float step = 10;
     switch (id) {
     case kRecenter:
-        if (opt_.glasses_pinned) {  // the glasses hold the anchor in their pinned mode
-            logln("recenter: the glasses are in pinned mode, recenter with their own control");
+        if (opt_.glasses_pinned) {  // the glasses hold the anchor; setting pinned again recentres it
+            pose_->set_glasses_mode(1);
+            logln("recenter: glasses' pinned anchor");
             break;
         }
         pose_->recenter();
@@ -1235,6 +1242,7 @@ void Server::apply_pending() {
     ro.k2 = o->k2;
     ro.dim_others = o->dim_others;
     ro.tracking_axes = static_cast<core::TrackingAxes>(o->tracking_axes);
+    if (o->glasses_pinned && !opt_.glasses_pinned) pose_->set_glasses_mode(1);
     opt_.glasses_pinned = o->glasses_pinned;
     apply_pinned(*o);  // after the width above: it overrides it
     opt_.gaze_cursor = o->gaze_cursor;

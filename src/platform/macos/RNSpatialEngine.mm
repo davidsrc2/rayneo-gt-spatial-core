@@ -64,6 +64,7 @@
 
 - (void)stop { rayneo_engine_stop(_engine); }
 - (void)recenter { rayneo_engine_recenter(_engine); }
+- (void)setGlassesMode:(NSInteger)mode { rayneo_engine_set_glasses_mode(_engine, static_cast<int>(mode)); }
 
 - (BOOL)loadCalibrationFromFile:(NSString*)path error:(NSError**)error {
     std::ifstream f(path.fileSystemRepresentation);

@@ -24,7 +24,7 @@ struct SettingsView: View {
                     .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Gafas en modo pinned (fijo)", isOn: $model.glassesPinned)
-                    Text("Actívalo si usas el modo pinned de las RayNeo: ellas fijan la imagen y Nimbo coloca los monitores dentro, enteros.")
+                    Text("Nimbo pone las gafas en su modo pinned al empezar: ellas fijan la imagen y Nimbo coloca los monitores dentro, enteros. ⌘⌥C recentra.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)

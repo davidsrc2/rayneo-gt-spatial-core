@@ -13,14 +13,18 @@ Fuente: `docs/PROTOCOL-NOTES.md` de Rayneo-Spatial-App (verificado en Windows 11
 
 ## Comandos (output report, 64 B + report id)
 
-`[0x00 report id][0x66][cmd][0x00 ...]`
+`[0x00 report id][0x66][cmd][valor][0x00 ...]`
 
 | cmd | Significado |
 |---|---|
 | `00` | device info |
 | `01` | stream on |
 | `02` | stream off (el stream persiste tras cerrar el proceso) |
+| `08` | modo de imagen: valor `00` follow, `01` pinned, `02` steady. Cambiar de modo recentra el ancla de pinned (medido 2026-10-15, firmware "Sep 22 2026") |
+| `09` | brillo: valor = nivel (`08` el de fábrica medido; `00` casi apagado). El device info lo refleja en el byte 41 |
 | `3c` / `3e` | bias de fábrica / tabla térmica — sin respuesta en este firmware |
+
+El botón de modo de las gafas envía por su cuenta un `99 c8` con `08` en el byte 8 (sin el modo elegido). `07` no tiene efecto visible.
 
 ACK: `99 c8`, opcode reflejado en byte 8.
 

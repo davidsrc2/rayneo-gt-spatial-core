@@ -13,6 +13,7 @@
 #include <windows.h>
 #endif
 
+#include "rayneo/core/gt_protocol.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/tick_monitor.h"
 #include "rayneo/hal/hid_transport.h"
@@ -203,6 +204,11 @@ bool rayneo_engine_stats(rayneo_engine* e, rayneo_stats* out) {
 
 void rayneo_engine_recenter(rayneo_engine* e) {
     if (e != nullptr) e->recenter.store(true, std::memory_order_release);
+}
+
+void rayneo_engine_set_glasses_mode(rayneo_engine* e, int mode) {
+    if (e == nullptr || !e->reader || mode < 0 || mode > 2) return;
+    e->reader->send_command(rayneo::core::gt::kCmdSetDisplayMode, static_cast<uint8_t>(mode));
 }
 
 void rayneo_engine_set_sensor_to_head(rayneo_engine* e, float qw, float qx, float qy, float qz) {

@@ -66,6 +66,10 @@ bool rayneo_engine_stats(rayneo_engine* e, rayneo_stats* out);
 
 void rayneo_engine_recenter(rayneo_engine* e);
 
+/* Glasses' own display mode (0 follow, 1 pinned, 2 steady). Setting a mode recentres the
+ * glasses' pinned anchor, so setting pinned while in pinned recentres it. While running. */
+void rayneo_engine_set_glasses_mode(rayneo_engine* e, int mode);
+
 /* Sensor -> head mounting quaternion (calibration.json). Applied on the fusion thread at
  * the next sample; implies a recenter. Identity by default. */
 void rayneo_engine_set_sensor_to_head(rayneo_engine* e, float qw, float qx, float qy, float qz);

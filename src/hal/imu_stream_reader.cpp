@@ -121,6 +121,11 @@ void ImuStreamReader::run() {
     [[maybe_unused]] const TimerResolution timer;
     RawReport rr{};
     while (running_.load(std::memory_order_acquire)) {
+        const int pending = pending_command_.exchange(-1, std::memory_order_acq_rel);
+        if (pending >= 0) {
+            const auto frame = gt::build_command(static_cast<uint8_t>(pending >> 8), static_cast<uint8_t>(pending & 0xFF));
+            transport_->write(frame.data(), frame.size());
+        }
         const int n = transport_->read(rr.data, sizeof(rr.data), kReadTimeoutMs);
         if (n < 0) {
             device_lost_.store(true, std::memory_order_release);

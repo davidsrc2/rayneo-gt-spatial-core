@@ -47,6 +47,12 @@ CommandFrame build_command(uint8_t cmd) {
     return f;
 }
 
+CommandFrame build_command(uint8_t cmd, uint8_t value) {
+    CommandFrame f = build_command(cmd);
+    f[3] = value;
+    return f;
+}
+
 Report decode_report(const uint8_t* data, size_t length) {
     Report r;
     if (data == nullptr) return r;

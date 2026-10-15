@@ -23,6 +23,10 @@ inline constexpr uint8_t kCmdTag = 0x66;
 inline constexpr uint8_t kCmdDeviceInfo = 0x00;
 inline constexpr uint8_t kCmdStreamOn = 0x01;
 inline constexpr uint8_t kCmdStreamOff = 0x02;
+// Measured on the reference unit (Oct 2026, firmware "Sep 22 2026"), value in the first payload byte:
+inline constexpr uint8_t kCmdSetDisplayMode = 0x08;  // also sent by the glasses when their mode button is pressed
+inline constexpr uint8_t kCmdSetBrightness = 0x09;   // level, 8 = factory default
+enum class DisplayMode : uint8_t { Follow = 0, Pinned = 1, Steady = 2 };  // a mode change recentres pinned
 
 inline constexpr uint8_t kBoardGt = 0x40;
 inline constexpr uint8_t kBoardGtMax = 0x41;
@@ -35,6 +39,7 @@ inline constexpr double kNominalRateHz = 1.0 / (kNominalTickStep * 100e-6);  // 
 // Output report: [0x00 report id][0x66][cmd][0x00 x 62] -> 65 bytes for hid_write.
 using CommandFrame = std::array<uint8_t, kReportSize + 1>;
 CommandFrame build_command(uint8_t cmd);
+CommandFrame build_command(uint8_t cmd, uint8_t value);
 
 enum class ReportKind { Imu, Ack, Unknown };
 

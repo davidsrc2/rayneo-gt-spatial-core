@@ -115,13 +115,7 @@ internal sealed class ServerController : IDisposable
 
     public void Recenter()
     {
-        if (!IsRunning) return;
-        if (_model.GlassesPinned)
-        {
-            Say("En modo pinned el centro lo fijan las gafas: recentra desde las gafas");
-            return;
-        }
-        NimboNative.nimbo_recenter(_server);
+        if (IsRunning) NimboNative.nimbo_recenter(_server);  // in pinned mode: the glasses' anchor
     }
 
     // Settings changed in the UI: saved, then applied live or by rebuilding the monitors.

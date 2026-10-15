@@ -154,6 +154,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             pose = imu
         }
         try pose.start()
+        if options.glassesPinned, let imu = pose as? ImuPoseSource {
+            imu.setGlassesMode(1)  // the glasses switch to pinned themselves, centred in front of you
+            log("glasses: pinned mode")
+        }
         if let imu = pose as? ImuPoseSource {
             log("calibration: " + (imu.calibrationLoaded ? options.calibrationPath : "none (identity)"))
             log("imu: streaming, leave the glasses still on the table ~6 s until TRACK")
@@ -374,6 +378,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.gazeCursor = o.gazeCursor
         options.dimOthers = o.dimOthers
         options.trackingAxes = o.trackingAxes
+        if o.glassesPinned && !options.glassesPinned, let imu = pose as? ImuPoseSource { imu.setGlassesMode(1) }
         options.glassesPinned = o.glassesPinned
         applyPinned(o)  // last: it overrides the panel width
         requestRedraw()
@@ -519,9 +524,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     func recenter() {
         if options.glassesPinned {
-            // The glasses hold the anchor in their pinned mode and offer no command to move it.
-            log("recenter: the glasses are in pinned mode, recenter with their own control")
-            onNotice?("En modo pinned el centro lo fijan las gafas: recentra desde las gafas")
+            // The glasses hold the anchor in their pinned mode; setting pinned again recentres it.
+            if let imu = pose as? ImuPoseSource {
+                imu.setGlassesMode(1)
+                log("recenter: glasses' pinned anchor")
+            }
             return
         }
         pose.recenter()

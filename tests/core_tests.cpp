@@ -68,6 +68,11 @@ void test_build_command() {
     CHECK(f[0] == 0x00 && f[1] == 0x66 && f[2] == 0x01 && f[3] == 0x00);
 }
 
+void test_build_command_value() {
+    const auto f = gt::build_command(gt::kCmdSetDisplayMode, static_cast<uint8_t>(gt::DisplayMode::Pinned));
+    CHECK(f[1] == 0x66 && f[2] == 0x08 && f[3] == 0x01 && f[4] == 0x00);
+}
+
 void test_decode_imu() {
     for (bool rid : {false, true}) {
         const auto r = make_imu_report({0.1f, 0.2f, 9.81f}, {1.0f, -2.0f, 0.5f}, 123456, rid);
@@ -1008,6 +1013,7 @@ void test_frame_skipper() {
 
 int main() {
     test_build_command();
+    test_build_command_value();
     test_decode_imu();
     test_decode_ack_and_garbage();
     test_tick_wrap();
