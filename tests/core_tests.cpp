@@ -927,6 +927,25 @@ void test_stabilizer_world_locked() {
     CHECK(lag < 1.2f);
 }
 
+// Recentered with the head pitched down and rolled, then turned about the vertical: content
+// fixed in the room must be seen where the real head sees it.
+void test_body_frame_delta() {
+    const float d2r = 0.0174533f;
+    const Quat mount = Quat::from_axis_angle({0.3f, -0.8f, 0.5f}, 1.1f);  // any sensor mounting
+    const Quat head_ref = Quat::from_axis_angle({0, 1, 0}, 20 * d2r) * Quat::from_axis_angle({1, 0, 0}, 8 * d2r);
+    const Quat head_now = Quat::from_axis_angle({0, 0, 1}, 35 * d2r) * head_ref;  // turned 35 deg
+    // Sensor orientation (sensor -> earth) from the head's: v_head = mount v_sensor.
+    const auto sensor = [&](const Quat& head) { return head * mount; };
+    const Quat d = body_frame_delta(sensor(head_ref), sensor(head_now), mount);
+    for (const Vec3 x : {Vec3{1, 0, 0}, Vec3{0.7f, 0.5f, 0.3f}, Vec3{0.8f, -0.2f, -0.4f}}) {
+        // x: a direction fixed in the room, given in the head frame at the recenter.
+        const Vec3 world = head_ref.rotate(x);
+        const Vec3 truth = head_now.conjugate().rotate(world);
+        const Vec3 shown = d.conjugate().rotate(x);
+        CHECK(near(truth.x, shown.x, 1e-4f) && near(truth.y, shown.y, 1e-4f) && near(truth.z, shown.z, 1e-4f));
+    }
+}
+
 void test_stabilizer_follows_turns() {
     PoseStabilizer s;
     const float dt = kRefDt, rate = 60.0f * 0.0174533f;
@@ -1117,6 +1136,7 @@ int main() {
     test_slerp();
     test_stabilizer_holds_still();
     test_stabilizer_world_locked();
+    test_body_frame_delta();
     test_stabilizer_follows_turns();
     test_stabilizer_dead_zone();
     test_prediction_gain();

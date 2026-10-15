@@ -128,6 +128,7 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
         if (cfg->dead_zone_deg > 0.0f) e->cfg.stabilizer.enter_deg = cfg->dead_zone_deg;
         if (cfg->dead_zone_deg < 0.0f) {  // never frozen: always world-locked
             e->cfg.stabilizer = rayneo::core::world_locked_stabilizer();
+            e->cfg.body_frame_relative = true;  // exact on both axes whatever the posture at the recenter
         }
     }
     return e;

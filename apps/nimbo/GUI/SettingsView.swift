@@ -79,19 +79,6 @@ struct SettingsView: View {
                     }
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
-                if !model.glassesPinned {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Picker("Las pantallas siguen", selection: $model.tracking) {
-                            Text("Solo horizontal").tag(1)
-                            Text("Solo vertical").tag(2)
-                            Text("Ambos").tag(0)
-                        }
-                        .pickerStyle(.segmented)
-                        Text("Solo horizontal: las pantallas solo se quedan quietas al girar a los lados; al mirar arriba o abajo van contigo, sin movimientos en diagonal. Para llegar a una ventana puesta arriba, elige Ambos.")
-                            .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                    }
-                    .font(Theme.body).foregroundStyle(Theme.text)
-                }
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("La pantalla del Mac es una de las de Nimbo", isOn: $model.macScreen)
                     Text("Con la tapa abierta, la pantalla del Mac es la pantalla 1 y las demás son virtuales a su lado: con 2 pantallas, la del Mac y una más; con 1, solo la del Mac.")

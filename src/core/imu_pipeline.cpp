@@ -36,6 +36,10 @@ void ImuPipeline::reset() {
     stabilizer_.reset();
 }
 
+Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head) {
+    return (sensor_to_head * (reference.conjugate() * current) * sensor_to_head.conjugate()).normalized();
+}
+
 std::optional<Pose> ImuPipeline::process_report(const uint8_t* data, size_t length) {
     const gt::Report r = gt::decode_report(data, length);
     if (r.kind != gt::ReportKind::Imu) return std::nullopt;
@@ -89,11 +93,18 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     }
     // Earth-frame delta (q_ref^-1 * q would leak yaw into pitch/roll when recentered with a
     // tilted head), conjugated by a pure yaw so its axes read as head forward/left/up.
-    const Quat delta = p.absolute * reference_.conjugate();
-    p.relative = (heading_ref_.conjugate() * delta * heading_ref_).normalized();
-    // d(relative)/dt = 1/2 * w_rel * relative with w_rel = H^-1 * w_earth.
-    const Vec3 w_earth = p.absolute.rotate(gyro_corr_degs * kDegToRad);
-    p.angular_velocity_rads = p.tracking ? heading_ref_.conjugate().rotate(w_earth) : Vec3{};
+    if (cfg_.body_frame_relative) {
+        p.relative = body_frame_delta(reference_, p.absolute, sensor_to_head_);
+        // d(relative)/dt = 1/2 * relative * w_head = 1/2 * (relative w_head relative^-1) * relative.
+        const Vec3 w_head = sensor_to_head_.rotate(gyro_corr_degs * kDegToRad);
+        p.angular_velocity_rads = p.tracking ? p.relative.rotate(w_head) : Vec3{};
+    } else {
+        const Quat delta = p.absolute * reference_.conjugate();
+        p.relative = (heading_ref_.conjugate() * delta * heading_ref_).normalized();
+        // d(relative)/dt = 1/2 * w_rel * relative with w_rel = H^-1 * w_earth.
+        const Vec3 w_earth = p.absolute.rotate(gyro_corr_degs * kDegToRad);
+        p.angular_velocity_rads = p.tracking ? heading_ref_.conjugate().rotate(w_earth) : Vec3{};
+    }
     p.relative_raw = p.relative;
     if (cfg_.stabilize && p.tracking) {
         p.relative = stabilizer_.update(p.relative, p.angular_velocity_rads, dt);

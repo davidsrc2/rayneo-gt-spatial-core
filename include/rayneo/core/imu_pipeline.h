@@ -18,7 +18,16 @@ struct ImuPipelineConfig {
     PoseStabilizerConfig stabilizer;
     GyroBiasConfig bias;
     float recenter_glide_s = 0.3f;  // recenter(true): ease into the new center instead of jumping
+    // `relative` as the head's rotation in its own axes since the recenter (exact world lock on
+    // both axes whatever the posture then) instead of the earth-frame delta (right for
+    // left/right-only or up/down-only tracking, but with a head tilted at the recenter, turning
+    // swept the panels diagonally).
+    bool body_frame_relative = false;
 };
+
+// The head's rotation since `reference`, in head axes (X forward, Y left, Z up): content
+// fixed in the room is seen at body_frame_delta^-1 * x, for any reference posture.
+Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head);
 
 // Raw HID payload -> stabilized Pose. Single-threaded, allocation-free, OS-agnostic.
 class ImuPipeline {
