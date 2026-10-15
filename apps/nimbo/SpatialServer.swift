@@ -1147,7 +1147,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func startRenderLoop(layer: CAMetalLayer) {
         let link = CAMetalDisplayLink(metalLayer: layer)
         link.delegate = self
-        link.preferredFrameLatency = 1
+        // Two frames: with one, frames reached the glasses 26 or 35 ms after the sample, in
+        // streaks, and the pose predicted for one moment was shown at the other (the panels
+        // jittered while the head moved). Steady 35 ms predicts right every frame: simulated,
+        // 0.18 -> 0.15 deg rms moving, peaks 0.49 -> 0.34.
+        link.preferredFrameLatency = 2
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         displayLink = link
         let thread = Thread {
