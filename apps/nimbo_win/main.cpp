@@ -27,7 +27,7 @@ const char* kUsage = R"(usage: nimbo_win [options]
                        calibration.json), as Nimbo.exe would; options after it change them
 space at real size (the app's mode)
   --space              glasses put in follow, every panel as large as their image, fixed in the
-                       room on both axes (back to pinned on exit)
+                       room on both axes (back to pinned on exit); mono unless --sbs
   --anchor             with --space: panels frozen while the head holds still
   --tilt K             panels above / below: 1 face you (default) .. 0 upright
   --laptop-screen      the computer's own (primary) screen is panel 1, the rest virtual
@@ -102,6 +102,7 @@ bool copy_arg(char* dst, size_t size, const char* src) {
 
 bool parse(int argc, char** argv, Cli* cli) {
     nimbo_options& o = cli->options;
+    bool optics_chosen = false;  // --mono / --sbs given
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         auto value = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
@@ -208,8 +209,8 @@ bool parse(int argc, char** argv, Cli* cli) {
         else if (a == "--curved") o.curvature = 1;
         else if (a == "--curvature" && number(&f) && f >= 0 && f <= 1) o.curvature = f;
         else if (a == "--distance" && number(&f)) o.distance_m = f;
-        else if (a == "--mono") o.side_by_side = 0;
-        else if (a == "--sbs") o.side_by_side = 1;
+        else if (a == "--mono") { o.side_by_side = 0; optics_chosen = true; }
+        else if (a == "--sbs") { o.side_by_side = 1; optics_chosen = true; }
         else if (a == "--ipd" && number(&f)) o.ipd_mm = f;
         else if (a == "--fov" && number(&f) && f > 0) o.fov_y_deg = f;
         else if (a == "--k1" && number(&f)) o.k1 = f;
@@ -239,6 +240,8 @@ bool parse(int argc, char** argv, Cli* cli) {
         else if (a == "--laptop-screen") o.laptop_screen = true;
         else return false;
     }
+    // The space at real size is the app's mode, with the glasses in 2D: mono unless --sbs.
+    if (o.real_size && !optics_chosen) o.side_by_side = 0;
     return true;
 }
 

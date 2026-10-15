@@ -788,7 +788,8 @@ bool Server::start() {
     static const char* kTracking[] = {"full head rotation", "left/right turn only (panels never move vertically)",
                                       "up/down only (panels never move sideways)"};
     logln("tracking: %s", opt_.glasses_pinned ? "by the glasses (pinned mode); panels fitted inside their image"
-                                              : kTracking[opt_.tracking_axes]);
+                          : opt_.real_size ? "space at real size: full head rotation, panels fixed in the room"
+                                           : kTracking[opt_.tracking_axes]);
     logln("render: %s, %d %s panel(s) of %.1f deg gap %.1f deg at %.1f m, ipd %.0f mm, fov %.1f deg, k1 %.3f k2 %.3f",
           ro.side_by_side ? "half-SBS" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
           ro.distance_m, opt_.ipd_mm, ro.fov_y_deg, ro.k1, ro.k2);
