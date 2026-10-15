@@ -469,6 +469,38 @@ bool DisplayArrangement::arrange_after(const std::vector<const OutputInfo*>& pan
     return true;
 }
 
+int attach_detached_virtual(int width, int height) {
+    int right = 0, count = 0;
+    std::vector<std::wstring> loose;
+    DISPLAY_DEVICEW dev{};
+    dev.cb = sizeof(dev);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dev, 0); ++i) {
+        const std::wstring name = dev.DeviceName, kind = dev.DeviceString;
+        if (dev.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) {
+            DEVMODEW dm{};
+            dm.dmSize = sizeof(dm);
+            if (EnumDisplaySettingsW(name.c_str(), ENUM_CURRENT_SETTINGS, &dm)) {
+                right = std::max(right, static_cast<int>(dm.dmPosition.x + static_cast<LONG>(dm.dmPelsWidth)));
+            }
+        } else if (kind.find(L"Virtual Display Driver") != std::wstring::npos || kind.find(L"VirtuDisplay") != std::wstring::npos) {
+            DISPLAY_DEVICEW mon{};
+            mon.cb = sizeof(mon);
+            if (EnumDisplayDevicesW(name.c_str(), 0, &mon, 0)) loose.push_back(name);  // has a monitor
+        }
+        dev = DISPLAY_DEVICEW{};
+        dev.cb = sizeof(dev);
+    }
+    for (const auto& name : loose) {
+        if (place(name, right, 0, width, height, 60) == DISP_CHANGE_SUCCESSFUL ||
+            place(name, right, 0, width, height, 0) == DISP_CHANGE_SUCCESSFUL) {
+            right += width;
+            ++count;
+        }
+    }
+    if (count > 0) apply();
+    return count;
+}
+
 std::vector<std::string> describe_display_devices() {
     std::vector<std::string> out;
     DISPLAY_DEVICEW dev{};

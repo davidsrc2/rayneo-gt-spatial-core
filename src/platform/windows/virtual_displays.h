@@ -84,6 +84,10 @@ private:
     std::vector<SavedDisplay> saved_;
 };
 
+// Virtual monitors the driver created but Windows left off the desktop (after a topology
+// change it does): attached to the right of everything at width x height. Returns how many.
+int attach_detached_virtual(int width, int height);
+
 // Every display device Windows knows, attached to the desktop or not, with its monitors: one
 // line each, for the log when monitors do not show up.
 std::vector<std::string> describe_display_devices();
