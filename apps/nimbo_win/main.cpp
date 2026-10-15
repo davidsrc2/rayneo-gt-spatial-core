@@ -168,11 +168,11 @@ bool parse(int argc, char** argv, Cli* cli) {
                 std::printf("--window: no window matches \"%s\"\n", text.c_str());
                 return false;
             }
-            const int i = o.floating_count++;
-            o.floating_window[i] = list[found].hwnd;
-            o.floating_scale[i] = 0;  // centred above the monitors
+            const int slot = o.floating_count++;
+            o.floating_window[slot] = list[found].hwnd;
+            o.floating_scale[slot] = 0;  // centred above the monitors
             if (!pose.empty()) {  // Y,P,S
-                float* dst[3] = {&o.floating_yaw[i], &o.floating_pitch[i], &o.floating_scale[i]};
+                float* dst[3] = {&o.floating_yaw[slot], &o.floating_pitch[slot], &o.floating_scale[slot]};
                 const char* c = pose.c_str();
                 for (int k = 0; k < 3; ++k) {
                     char* end = nullptr;

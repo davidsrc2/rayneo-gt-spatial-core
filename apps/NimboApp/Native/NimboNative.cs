@@ -50,6 +50,19 @@ internal static unsafe class NimboNative
         public int GlassesMode;  // 0 follow, 1 pinned, 2 steady; -1 leave
         public int Brightness;   // 1..8; 0 leave
         public byte RecenterGlasses;
+        public int FloatingCount;
+        public fixed ulong FloatingWindow[MaxPanels];  // HWND
+        public fixed float FloatingYaw[MaxPanels];
+        public fixed float FloatingPitch[MaxPanels];
+        public fixed float FloatingScale[MaxPanels];   // <= 0: centred above the monitors
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Window
+    {
+        public ulong Hwnd;
+        public fixed byte Title[256];
+        public fixed byte App[64];
     }
 
     public enum State
@@ -191,6 +204,20 @@ internal static unsafe class NimboNative
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern byte nimbo_load_settings(byte* path, Settings* settings);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern byte nimbo_save_settings(byte* path, Settings* settings);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_options_from_settings(Settings* settings, Options* options);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern int nimbo_list_windows(Window* out_, int max);
+
+    public static List<(ulong Hwnd, string Title, string App)> ListWindows()
+    {
+        var buf = new Window[64];
+        var list = new List<(ulong, string, string)>();
+        fixed (Window* p = buf)
+        {
+            int n = nimbo_list_windows(p, buf.Length);
+            for (int i = 0; i < n; ++i) list.Add((p[i].Hwnd, GetField(p[i].Title, 256), GetField(p[i].App, 64)));
+        }
+        return list;
+    }
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern int nimbo_layout_count();
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern byte nimbo_layout_at(int index, Layout* layout);

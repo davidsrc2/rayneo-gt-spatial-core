@@ -41,6 +41,30 @@
             </StackPanel>
 
             <StackPanel Spacing="8">
+                <TextBlock Text="Ventanas flotantes" FontSize="13" Opacity="0.7" />
+                <StackPanel x:Name="FloatList" Spacing="6" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <ComboBox x:Name="FloatChoice" Width="320" PlaceholderText="Elige una ventana abierta" />
+                    <Button Content="Añadir" Click="FloatAdd_Click" />
+                    <Button Content="Actualizar" Click="FloatRefresh_Click" />
+                </StackPanel>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
+                           Text="Una sola ventana como panel propio (un vídeo encima de los monitores, un chat a un lado). Aparece encima de los monitores; muévela en «Colocar a mano». La ventana real sigue donde está: el panel la muestra. Dura hasta que cierres Nimbo." />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Perfiles por app" FontSize="13" Opacity="0.7" />
+                <StackPanel x:Name="RuleList" Spacing="6" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <ComboBox x:Name="RuleApp" Width="220" PlaceholderText="Elige una app" />
+                    <ComboBox x:Name="RuleProfile" Width="140" />
+                    <Button Content="Añadir" Click="RuleAdd_Click" />
+                </StackPanel>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
+                           Text="Mientras esa app está delante, Nimbo usa la distancia, la curvatura y el tamaño de su perfil; al cambiar de app vuelve a los tuyos. El número de monitores no cambia." />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
                 <TextBlock Text="Inicio" FontSize="13" Opacity="0.7" />
                 <ToggleSwitch x:Name="StartupToggle" Header="Abrir Nimbo al iniciar Windows" Toggled="Startup_Toggled" />
             </StackPanel>

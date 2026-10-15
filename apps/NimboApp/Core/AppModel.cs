@@ -131,6 +131,51 @@ internal sealed unsafe class AppModel
 
     public PanelPos[] EffectivePoses => HasPlacement ? Poses : GridPoses();
 
+    // --- floating windows (this session: window handles do not survive the app) ------------
+
+    public sealed class FloatingWin
+    {
+        public ulong Hwnd;
+        public string Title = "";
+        public PanelPos Pose;
+    }
+
+    public List<FloatingWin> Floating { get; } = new();
+
+    // Where a new floating window goes: centred above the monitors, one monitor wide.
+    public PanelPos DefaultFloatingPose()
+    {
+        float v = VerticalArc(Size);
+        var monitors = EffectivePoses;
+        float top = monitors.Length > 0 ? monitors.Max(p => p.Pitch + v * p.Scale / 2) : v / 2;
+        float above = Floating.Count == 0 ? 0 : Floating.Max(f => f.Pose.Pitch + v * f.Pose.Scale / 2) - top + Gap;
+        return new PanelPos(0, top + Gap + v / 2 + Math.Max(0, above));
+    }
+
+    // --- per-app profiles (app_profiles.json) ------------------------------------------------
+
+    public sealed record AppRule(string App, string Name, string Profile);
+
+    public static string AppRulesPath => Path.Combine(DataDirectory, "app_profiles.json");
+    public List<AppRule> AppRules { get; private set; } = LoadRules();
+    public string? ActiveAppProfile { get; set; }  // profile id applied for the front app
+
+    private static List<AppRule> LoadRules()
+    {
+        try
+        {
+            return File.Exists(AppRulesPath)
+                ? System.Text.Json.JsonSerializer.Deserialize<List<AppRule>>(File.ReadAllText(AppRulesPath)) ?? new()
+                : new();
+        }
+        catch (Exception e) when (e is IOException or System.Text.Json.JsonException)
+        {
+            return new();
+        }
+    }
+
+    public void SaveRules() => File.WriteAllText(AppRulesPath, System.Text.Json.JsonSerializer.Serialize(AppRules));
+
     public void ResetPlacement() => _s.PoseCount = 0;
 
     // --- layouts and profiles -------------------------------------------------------------
@@ -235,6 +280,22 @@ internal sealed unsafe class AppModel
         var s = _s;
         NimboNative.nimbo_options_from_settings(&s, &o);
         NimboNative.SetField(o.CalibrationPath, 260, CalibrationPath);
+        o.FloatingCount = Math.Min(Floating.Count, NimboNative.MaxPanels);
+        for (int i = 0; i < o.FloatingCount; ++i)
+        {
+            o.FloatingWindow[i] = Floating[i].Hwnd;
+            o.FloatingYaw[i] = Floating[i].Pose.Yaw;
+            o.FloatingPitch[i] = Floating[i].Pose.Pitch;
+            o.FloatingScale[i] = Floating[i].Pose.Scale;
+        }
+        // Per-app profile on top (transient: the saved settings stay as they are).
+        var active = Profiles.FirstOrDefault(p => p.Id == ActiveAppProfile);
+        if (active != null)
+        {
+            o.DistanceM = active.Distance;
+            if (active.Curvature is float c) o.Curvature = c;
+            if (active.Size is float sz) o.ArcDeg = sz;
+        }
         o.Hotkeys = 1;
         if (Environment.GetEnvironmentVariable("NIMBO_SIM") != null)  // development without the glasses
         {

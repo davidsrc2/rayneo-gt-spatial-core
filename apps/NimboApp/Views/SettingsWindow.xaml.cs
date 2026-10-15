@@ -165,6 +165,21 @@ public sealed partial class SettingsWindow : Window
         return (hfov, fovY);
     }
 
+    // Monitors first, then floating windows: one list for drawing, snapping and sizing.
+    private PanelPos[] PlaceItems() => _model.EffectivePoses.Concat(_model.Floating.Select(f => f.Pose)).ToArray();
+
+    private int MonitorCount => _model.EffectivePoses.Length;
+
+    private string PlaceLabel(int i) => i < MonitorCount ? (i + 1).ToString() : $"V{i - MonitorCount + 1}";
+
+    // Monitors back to the settings, windows to the floating list.
+    private void PlaceWrite(PanelPos[] poses, int i)
+    {
+        int m = MonitorCount;
+        if (i < m) _model.Poses = poses.Take(m).ToArray();
+        else if (i - m < _model.Floating.Count) _model.Floating[i - m].Pose = poses[i];
+    }
+
     private void DrawPlacement()
     {
         PlaceCanvas.Children.Clear();
@@ -184,7 +199,7 @@ public sealed partial class SettingsWindow : Window
         Microsoft.UI.Xaml.Controls.Canvas.SetTop(frame, c.Y - frame.Height / 2);
         PlaceCanvas.Children.Add(frame);
 
-        var poses = _model.EffectivePoses;
+        var poses = PlaceItems();
         _placeSelected = Math.Clamp(_placeSelected, 0, Math.Max(0, poses.Length - 1));
         for (int i = 0; i < poses.Length; ++i)
         {
@@ -195,7 +210,7 @@ public sealed partial class SettingsWindow : Window
                 BorderThickness = new Thickness(1.5),
                 Child = new TextBlock
                 {
-                    Text = (i + 1).ToString(),
+                    Text = PlaceLabel(i),
                     FontSize = 18,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
@@ -208,7 +223,7 @@ public sealed partial class SettingsWindow : Window
             _placeViews.Add(b);
             PositionView(i, poses[i]);
         }
-        PlaceSelected.Text = poses.Length > 0 ? $"Monitor {_placeSelected + 1}" : "";
+        PlaceSelected.Text = poses.Length == 0 ? "" : _placeSelected < MonitorCount ? $"Monitor {_placeSelected + 1}" : $"Ventana {PlaceLabel(_placeSelected)}";
         PlaceScale.Value = poses.Length > 0 ? poses[_placeSelected].Scale : 1;
         PlaceReset.IsEnabled = _model.HasPlacement;
     }
@@ -218,8 +233,10 @@ public sealed partial class SettingsWindow : Window
         var b = _placeViews[i];
         b.Width = _model.Size * p.Scale * Ppd;
         b.Height = AppModel.VerticalArc(_model.Size * p.Scale) * Ppd;
-        bool selected = i == _placeSelected;
-        b.Background = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(selected ? (byte)230 : (byte)160, 120, 160, 156));
+        bool selected = i == _placeSelected, window = i >= MonitorCount;
+        b.Background = new SolidColorBrush(window
+            ? Microsoft.UI.ColorHelper.FromArgb(selected ? (byte)230 : (byte)170, 150, 120, 190)
+            : Microsoft.UI.ColorHelper.FromArgb(selected ? (byte)230 : (byte)160, 120, 160, 156));
         b.BorderBrush = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(selected ? (byte)230 : (byte)0, 140, 220, 200));
         var c = ToCanvas(p.Yaw, p.Pitch);
         Microsoft.UI.Xaml.Controls.Canvas.SetLeft(b, c.X - b.Width / 2);
@@ -231,11 +248,11 @@ public sealed partial class SettingsWindow : Window
         _dragging = i;
         _placeSelected = i;
         _dragStart = e.GetCurrentPoint(PlaceCanvas).Position;
-        _dragPoses = _model.EffectivePoses;
+        _dragPoses = PlaceItems();
         view.CapturePointer(e.Pointer);
-        var poses = _model.EffectivePoses;
+        var poses = PlaceItems();
         for (int k = 0; k < poses.Length; ++k) PositionView(k, poses[k]);
-        PlaceSelected.Text = $"Monitor {i + 1}";
+        PlaceSelected.Text = i < MonitorCount ? $"Monitor {i + 1}" : $"Ventana {PlaceLabel(i)}";
         _updating = true;
         PlaceScale.Value = poses[i].Scale;
         _updating = false;
@@ -256,7 +273,7 @@ public sealed partial class SettingsWindow : Window
         bool free = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
         if (!free) p = Snap(p, i, poses);
         poses[i] = p;
-        _model.Poses = poses;
+        PlaceWrite(poses, i);
         PositionView(i, p);
         _server.SettingsChanged();  // live on the glasses
         e.Handled = true;
@@ -300,10 +317,10 @@ public sealed partial class SettingsWindow : Window
     private void PlaceScale_Changed(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (_updating) return;
-        var poses = _model.EffectivePoses;
+        var poses = PlaceItems();
         if (_placeSelected >= poses.Length) return;
         poses[_placeSelected] = poses[_placeSelected] with { Scale = (float)PlaceScale.Value };
-        _model.Poses = poses;
+        PlaceWrite(poses, _placeSelected);
         PositionView(_placeSelected, poses[_placeSelected]);
         PlaceReset.IsEnabled = true;
         _server.SettingsChanged();
