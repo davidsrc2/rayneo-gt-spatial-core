@@ -708,10 +708,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     func recenter() {
-        // Glasses in their own pinned mode hold an anchor too: setting pinned again recentres it.
+        // Glasses in their own pinned mode hold an anchor too. Setting pinned while in pinned does
+        // nothing; a mode change recentres it (both axes): follow, then pinned again a moment later.
         if options.recenterGlasses || options.glassesPinned, let imu = pose as? ImuPoseSource {
-            imu.setGlassesMode(1)
-            log("recenter: glasses' pinned anchor")
+            imu.setGlassesMode(0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { imu.setGlassesMode(1) }
+            log("recenter: glasses' pinned anchor (follow -> pinned)")
         }
         if options.glassesPinned { return }  // Nimbo's own pinned behaviour: nothing of ours to move
         pose.recenter()

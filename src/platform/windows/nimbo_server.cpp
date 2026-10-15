@@ -318,6 +318,8 @@ void save_fov(float fov) {
 // Server
 // ---------------------------------------------------------------------------------------
 
+constexpr UINT_PTR kRepinTimer = 1;  // recentre in the glasses' pinned mode: back to pinned
+
 enum HotKey { kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema };
 
 
@@ -343,6 +345,7 @@ public:
     void on_hotkey(int id);
     void on_display_change() { display_changed_ = true; }
     void adjust_fov(float delta);
+    void repin() { pose_->set_glasses_mode(1); }
 
     // Any thread.
     void request_stop(const std::string& reason);
@@ -448,6 +451,10 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_APP + 1:  // nimbo_recenter
         if (server != nullptr) server->on_hotkey(kRecenter);
+        return 0;
+    case WM_TIMER:
+        if (wp == kRepinTimer && server != nullptr) server->repin();
+        KillTimer(hwnd, wp);
         return 0;
     case WM_APP + 3:  // nimbo_toggle_focus: wp = cinema
         if (server != nullptr) server->on_hotkey(wp != 0 ? kCinema : kFocus);
@@ -1258,10 +1265,12 @@ void Server::on_hotkey(int id) {
     constexpr float step = 10;
     switch (id) {
     case kRecenter:
-        // Glasses in their own pinned mode hold an anchor too: setting pinned again recentres it.
+        // Glasses in their own pinned mode hold an anchor too. Setting pinned while in pinned does
+        // nothing; a mode change recentres it (both axes): follow, then pinned again a moment later.
         if (opt_.recenter_glasses || opt_.glasses_pinned) {
-            pose_->set_glasses_mode(1);
-            logln("recenter: glasses' pinned anchor");
+            pose_->set_glasses_mode(0);
+            SetTimer(hwnd_, kRepinTimer, 300, nullptr);
+            logln("recenter: glasses' pinned anchor (follow -> pinned)");
         }
         if (opt_.glasses_pinned) break;  // Nimbo's own pinned behaviour: nothing of ours to move
         pose_->recenter();
