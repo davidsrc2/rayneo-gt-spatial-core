@@ -617,6 +617,27 @@ bool Server::start() {
             logln("glasses mode: unchanged");
         }
         if (const auto m = win::current_mode(glasses_gdi_)) refresh_hz_ = m->hz;
+        // The glasses' mode change can take a virtual monitor off the desktop again (Windows
+        // re-applies its own idea of the layout): put it back and lay everything out again.
+        if (virtual_) {
+            bool missing = false;
+            for (const auto& name : panel_names_) missing = missing || find_output(name) == nullptr;
+            if (missing) {
+                const int n = win::attach_detached_virtual(opt_.vd_width, opt_.vd_height);
+                Sleep(500);
+                outputs_ = win::enumerate_outputs();
+                rearrange_displays();
+                glasses = find_output(glasses_gdi_);
+                if (glasses == nullptr) {
+                    logln("glasses display lost after restoring the virtual monitors");
+                    return false;
+                }
+                int found = 0;
+                for (const auto& name : panel_names_) found += find_output(name) != nullptr ? 1 : 0;
+                logln("virtual monitors: %d dropped by the glasses' mode change, re-attached (%d of %zu panels there)", n,
+                      found, panel_names_.size());
+            }
+        }
     } else if (const auto m = win::current_mode(L"")) {
         refresh_hz_ = m->hz;  // primary display
     }
