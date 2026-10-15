@@ -130,13 +130,18 @@ int run_raw(double secs) {
         const auto r = gt::decode_report(buf, static_cast<size_t>(n));
         if (r.kind == gt::ReportKind::Ack) {
             ++acks;
+            const double ms =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             if (r.ack_cmd == gt::kCmdStreamOn && !ack_seen) {
                 ack_seen = true;
-                const double ms =
-                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
                 std::printf("ACK 99 c8 for stream-on after %.1f ms (report #%llu)\n", ms,
                             static_cast<unsigned long long>(total));
                 hexdump("ack", buf, n);
+            } else {
+                // Not ours: the glasses report something on their own (e.g. the mode button).
+                char label[64];
+                std::snprintf(label, sizeof(label), "99 c8 not requested at %.0f ms, cmd byte 0x%02x", ms, buf[8]);
+                hexdump(label, buf, n);
             }
         } else if (r.kind == gt::ReportKind::Imu) {
             ++imu;
