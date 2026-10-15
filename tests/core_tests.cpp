@@ -904,11 +904,16 @@ void test_stabilizer_holds_still() {
 // World-locked (space mode), measured on the whole chain: a head looking around (or still)
 // with tremor, sensor noise, frames reaching the glasses 30 ms after the sample and predicted
 // for then as the renderers do. Error = where a panel is shown vs where it is in the room.
-float world_lock_error_deg(const PoseStabilizerConfig& c, bool moving) {
+float world_lock_error_deg(const PoseStabilizerConfig& c, bool moving, bool taps = false) {
     const float dt = kRefDt, d2r = 0.0174533f, pi = 3.14159265f, latency = 0.030f;
     const auto head = [&](float t) {
         float yaw = 0.05f * d2r * std::sin(2 * pi * 8 * t), pitch = 0.2f * d2r * std::sin(2 * pi * 0.25f * t);
         float wy = 0.05f * d2r * 2 * pi * 8 * std::cos(2 * pi * 8 * t), wp = 0.2f * d2r * 2 * pi * 0.25f * std::cos(2 * pi * 0.25f * t);
+        if (taps) {  // a knock on the frame every 2 s: 0.4 deg at 25 Hz, gone in ~40 ms
+            const float tt = std::fmod(t, 2.0f), a = 0.4f * d2r * std::exp(-tt / 0.04f);
+            yaw += a * std::sin(2 * pi * 25 * tt);
+            wy += a * (2 * pi * 25 * std::cos(2 * pi * 25 * tt) - std::sin(2 * pi * 25 * tt) / 0.04f);
+        }
         if (moving) {
             yaw += 20 * d2r * std::sin(2 * pi * 0.25f * t) + 6 * d2r * std::sin(2 * pi * 0.9f * t + 1);
             wy += 20 * d2r * 2 * pi * 0.25f * std::cos(2 * pi * 0.25f * t) + 6 * d2r * 2 * pi * 0.9f * std::cos(2 * pi * 0.9f * t + 1);
@@ -946,6 +951,11 @@ void test_stabilizer_world_locked() {
     const float rest = world_lock_error_deg(locked, false), moving = world_lock_error_deg(locked, true);
     CHECK(rest < 0.04f && rest < world_lock_error_deg(plain, false));
     CHECK(moving < 0.16f && moving < 0.5f * world_lock_error_deg(plain, true));
+    // Knocks on the frame: not amplified by the prediction (it tripled them).
+    auto no_tap_rejection = locked;
+    no_tap_rejection.tap_accel_rads2 = 0.0f;
+    const float knocked = world_lock_error_deg(locked, false, true);
+    CHECK(knocked < 0.06f && knocked < 0.5f * world_lock_error_deg(no_tap_rejection, false, true));
 }
 
 // Head still but breathing (5 mm fore-aft, 3 mm side sway): the accelerometer reads that as

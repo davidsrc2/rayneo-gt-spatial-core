@@ -60,7 +60,14 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
         if (!attitude_init_) {
             filter_.initialize_from_accel(s.accel_mps2);
             attitude_init_ = true;
+            attitude_s_ = 0.0f;
         } else if (dt > 0.0f && dt < cfg_.bias.gap_reset_s) {
+            attitude_s_ += dt;
+            if (cfg_.startup_beta > cfg_.madgwick_beta) {
+                const float span = std::max(1e-3f, cfg_.startup_beta_end_s - cfg_.startup_beta_hold_s);
+                const float k = std::clamp((attitude_s_ - cfg_.startup_beta_hold_s) / span, 0.0f, 1.0f);
+                filter_.set_beta(cfg_.startup_beta + (cfg_.madgwick_beta - cfg_.startup_beta) * k);
+            }
             const Vec3 g = gyro_corr_degs * kDegToRad;
             if (cfg_.use_magnetometer) {
                 filter_.update_marg(g, s.accel_mps2, s.mag_ut, dt);

@@ -49,7 +49,14 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
     // Speed of the low-passed vector: tremor is zero-mean and cancels, a real turn persists.
     omega_slow_ = omega_slow_ + (omega - omega_slow_) * alpha(cfg_.speed_cutoff_hz, dt);
     speed_ = omega_slow_.norm();
-    if (cfg_.predict_cutoff_hz > 0.0f) omega_fast_ = omega_fast_ + (omega - omega_fast_) * alpha(cfg_.predict_cutoff_hz, dt);
+    if (cfg_.predict_cutoff_hz > 0.0f) {
+        const Vec3 before = omega_fast_;
+        omega_fast_ = omega_fast_ + (omega - omega_fast_) * alpha(cfg_.predict_cutoff_hz, dt);
+        tap_left_s_ = std::fmax(0.0f, tap_left_s_ - dt);
+        if (cfg_.tap_accel_rads2 > 0.0f && (omega_fast_ - before).norm() / dt > cfg_.tap_accel_rads2) {
+            tap_left_s_ = cfg_.tap_hold_s;
+        }
+    }
 
     if (holding_) {
         const float d = std::fabs(out_.w * q.w + out_.x * q.x + out_.y * q.y + out_.z * q.z);

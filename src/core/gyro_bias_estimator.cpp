@@ -89,7 +89,8 @@ void GyroBiasEstimator::track_worn(const Vec3& g, float dt) {
     const float m = worn_ema_.norm();
     worn_hold_time_ = m < cfg_.worn_hold_degs ? worn_hold_time_ + dt : 0.0f;
     if (worn_hold_time_ < cfg_.worn_hold_s || m > cfg_.worn_residual_max_degs) return;
-    bias_ = clamp_norm(bias_ + worn_ema_ * (dt / (cfg_.worn_tau_s + dt)), cfg_.bias_clamp_degs);
+    const float tau = tracking_s_ < cfg_.worn_startup_s ? cfg_.worn_startup_tau_s : cfg_.worn_tau_s;
+    bias_ = clamp_norm(bias_ + worn_ema_ * (dt / (tau + dt)), cfg_.bias_clamp_degs);
 }
 
 void GyroBiasEstimator::update_worn_block(const Vec3& g, float dt) {
@@ -199,6 +200,7 @@ Vec3 GyroBiasEstimator::update(const Vec3& g, const Vec3& a, float dt) {
             return g;
 
         case State::Tracking: {
+            tracking_s_ += dt;
             update_rest_detector(g, a, dt);
             verify_left_s_ = std::max(0.0f, verify_left_s_ - dt);
             if (still_) {

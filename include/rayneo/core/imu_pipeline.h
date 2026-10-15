@@ -23,6 +23,12 @@ struct ImuPipelineConfig {
     // left/right-only or up/down-only tracking, but with a head tilted at the recenter, turning
     // swept the panels diagonally).
     bool body_frame_relative = false;
+    // Right after the attitude is initialised (from one accelerometer sample, maybe while the
+    // head moves) a low gain takes many seconds to settle it: start at this gain and ease down
+    // to madgwick_beta between startup_beta_hold_s and startup_beta_end_s.
+    float startup_beta = 0.1f;
+    float startup_beta_hold_s = 2.0f;
+    float startup_beta_end_s = 6.0f;
 };
 
 // Madgwick gain for panels fixed in the room. The default 0.033 takes the accelerometer's
@@ -73,6 +79,7 @@ private:
     bool have_prev_tick_ = false;
     uint32_t prev_tick_ = 0;
     bool attitude_init_ = false;
+    float attitude_s_ = 0.0f;  // since the attitude was initialised
     bool recenter_pending_ = true;
     bool glide_requested_ = false;
     Quat glide_from_;          // output offset at the recenter, eased to identity

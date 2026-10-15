@@ -27,6 +27,12 @@ struct PoseStabilizerConfig {
     // The output is advanced by the follow filter's own delay (1 / (2 pi cutoff)) along omega(),
     // ramped in with speed: the smoothing then costs no lag while the head turns.
     bool compensate_lag = false;
+    // > 0: an angular acceleration above this (rad/s^2; a tap on the frame is ~170, a brisk
+    // head turn under 20) is a knock, not a movement: for tap_hold_s the prediction and the
+    // lag compensation use the slow angular velocity, which barely sees it. Predicting the
+    // knock from the quick one tripled it.
+    float tap_accel_rads2 = 0.0f;
+    float tap_hold_s = 0.12f;
 };
 
 // Panels fixed in the room at every moment (no dead zone, nothing frozen). Tuned on a
@@ -42,6 +48,7 @@ inline PoseStabilizerConfig world_locked_stabilizer() {
     c.speed_cutoff_hz = 3.0f;
     c.predict_cutoff_hz = 15.0f;
     c.compensate_lag = true;
+    c.tap_accel_rads2 = 60.0f;
     return c;
 }
 
@@ -58,7 +65,11 @@ public:
     Quat update(const Quat& q, const Vec3& omega, float dt);
 
     bool holding() const { return holding_; }
-    const Vec3& omega() const { return cfg_.predict_cutoff_hz > 0.0f ? omega_fast_ : omega_out_; }  // see predict_cutoff_hz
+    // See predict_cutoff_hz; the slow one right after a knock (tap_accel_rads2).
+    Vec3 omega() const {
+        if (cfg_.predict_cutoff_hz <= 0.0f) return omega_out_;
+        return tap_left_s_ > 0.0f ? omega_slow_ : omega_fast_;
+    }
     float speed() const { return speed_; }            // |low-passed omega|, rad/s
 
 private:
@@ -69,6 +80,7 @@ private:
     Vec3 omega_slow_;
     Vec3 omega_out_;
     Vec3 omega_fast_;
+    float tap_left_s_ = 0.0f;
     Quat finish() const;  // out_, advanced by the filter's delay when compensating lag
     float speed_ = 0.0f;
     float slow_time_ = 0.0f;

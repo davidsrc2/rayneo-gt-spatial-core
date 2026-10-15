@@ -51,6 +51,11 @@ struct GyroBiasConfig {
     float worn_hold_s = 1.5f;
     float worn_residual_max_degs = 0.5f;
     float worn_tau_s = 20.0f;
+    // The first bias, taken worn in a second or two, is rough: for this long after tracking
+    // starts the worn residual is chased faster, so the panels stop creeping within seconds
+    // (with 20 s they crept for about that long after every start).
+    float worn_startup_s = 30.0f;
+    float worn_startup_tau_s = 10.0f;
 
     float escape_persist_s = 10.0f;
     float escape_stability_degs = 0.15f;  // candidate EMA must stay this close to its anchor
@@ -93,6 +98,7 @@ private:
     State state_ = State::Warmup;
 
     float elapsed_s_ = 0.0f;
+    float tracking_s_ = 0.0f;  // since the state became Tracking
     int samples_ = 0;
 
     // Rest detector (EMA low-pass + deviation from it).
