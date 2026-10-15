@@ -32,6 +32,7 @@ struct RenderOptions {
     float k2 = 0.0f;
     float max_prediction_ms = 50.0f;
     float dim_others = 1.0f;     // brightness of the panels you are not looking at, 1 = off
+    bool yaw_only = false;       // follow only the left/right turn: nodding never moves the panels
 };
 
 // Render thread only, except where noted.

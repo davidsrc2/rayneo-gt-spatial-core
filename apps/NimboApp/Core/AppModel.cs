@@ -77,6 +77,7 @@ internal sealed unsafe class AppModel
     public float K1 { get => _s.K1; set => _s.K1 = value; }
     public float K2 { get => _s.K2; set => _s.K2 = value; }
     public bool OnboardingDone { get => _s.OnboardingDone != 0; set => _s.OnboardingDone = B(value); }
+    public bool YawOnly { get => _s.YawOnly != 0; set => _s.YawOnly = B(value); }
 
     public bool HasCalibration => File.Exists(CalibrationPath);
 

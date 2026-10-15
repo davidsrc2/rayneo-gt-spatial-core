@@ -796,6 +796,19 @@ float angle_between_deg(const Quat& a, const Quat& b) {
     return 2.0f * std::acos(std::fmin(1.0f, d)) * 57.29578f;
 }
 
+// Yaw-only head: keeps the turn, drops nod and tilt.
+void test_yaw_only() {
+    const Quat yaw = Quat::from_axis_angle({0, 0, 1}, 0.6f);
+    const Quat pitch = Quat::from_axis_angle({0, -1, 0}, 0.4f);
+    const Quat roll = Quat::from_axis_angle({1, 0, 0}, 0.2f);
+    const Quat y = yaw_only(yaw * pitch * roll);  // turn, then nod and tilt in the head frame
+    CHECK(near(y.w, yaw.w, 1e-4f) && near(y.z, yaw.z, 1e-4f) && y.x == 0.0f && y.y == 0.0f);
+    const Quat level = yaw_only(pitch);  // looking up: no turn
+    CHECK(near(level.w, 1.0f, 1e-6f) && near(level.z, 0.0f, 1e-6f));
+    const Vec3 fwd = y.rotate({1, 0, 0});  // forward stays on the horizon
+    CHECK(near(fwd.z, 0.0f, 1e-5f));
+}
+
 void test_slerp() {
     const Quat a{}, b = Quat::from_axis_angle({0, 0, 1}, 1.0f);
     CHECK(quat_near(slerp(a, b, 0.0f), a, 1e-6f) && quat_near(slerp(a, b, 1.0f), b, 1e-6f));
@@ -922,13 +935,15 @@ void test_settings_json() {
     s.stereo = true;
     s.dim_others = false;
     s.fov_y_deg = 23.5f;
+    s.yaw_only = false;
     const std::string json = settings_to_json(s);
     CHECK(json.find("\"layoutCells\"") != std::string::npos && json.find("\"fovY\": 23.5") != std::string::npos);
     const auto back = settings_from_json(json);
     CHECK(back.has_value());
     CHECK(back->cells.size() == 3 && back->cells[1].col == 0 && back->cells[1].row == 1);
     CHECK(back->text_size == 1 && near(back->distance_m, 1.5f, 1e-6f) && back->stereo && !back->dim_others);
-    CHECK(near(back->fov_y_deg, 23.5f, 1e-6f) && back->gaze_cursor);
+    CHECK(near(back->fov_y_deg, 23.5f, 1e-6f) && back->gaze_cursor && !back->yaw_only);
+    CHECK(settings_from_json("{}")->yaw_only);  // default on
 
     const auto partial = settings_from_json(R"({"distance": 3, "unknown": {"a": [1, {"b": "}"}]}, "stereo": true})");
     CHECK(partial && near(partial->distance_m, 3.0f, 1e-6f) && partial->stereo && partial->cells.size() == 2);
@@ -1013,6 +1028,7 @@ int main() {
     test_stabilizer_follows_turns();
     test_stabilizer_dead_zone();
     test_prediction_gain();
+    test_yaw_only();
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();

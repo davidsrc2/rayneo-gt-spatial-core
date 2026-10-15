@@ -77,6 +77,7 @@ struct Panel {
         _k2 = 0.0f;
         _maxPredictionMs = 50.0f;
         _dimOthers = 1.0f;
+        _yawOnly = NO;
     }
     return self;
 }
@@ -216,7 +217,8 @@ struct Panel {
     const float aspect = _panels[0].aspect;
     os_unfair_lock_unlock(&_sourceLock);
     const float arc = o.arcDegrees * kDegToRad;
-    return core::panel_at_gaze(from_simd(orientation), [self placements:self.panelCount aspect:aspect], arc,
+    const core::Quat head = o.yawOnly ? core::yaw_only(from_simd(orientation)) : from_simd(orientation);
+    return core::panel_at_gaze(head, [self placements:self.panelCount aspect:aspect], arc,
                                core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
 }
 
@@ -346,7 +348,8 @@ static float effective_curvature(RNRenderOptions* o) {
     // in with angular speed.
     const core::Vec3 w{angularVelocity.x, angularVelocity.y, angularVelocity.z};
     horizon_s *= core::prediction_gain(w.norm());
-    const core::Quat head = core::predict_orientation(from_simd(orientation), w, horizon_s);
+    core::Quat head = core::predict_orientation(from_simd(orientation), w, horizon_s);
+    if (o.yawOnly) head = core::yaw_only(head);
 
     // Snapshot the panels' latest frames; each stays retained until the GPU is done.
     CVMetalTextureRef textures[kMaxPanels] = {};

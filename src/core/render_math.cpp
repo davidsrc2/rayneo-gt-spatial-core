@@ -69,6 +69,19 @@ Mat4 perspective_lh(float fovy_rad, float aspect, float near_z, float far_z) {
     return p;
 }
 
+Quat yaw_only(const Quat& q) {
+    // Heading of the forward axis on the horizon. Looking straight up or down the heading is
+    // undefined: the up axis' horizontal direction (where the top of the head points) stands in.
+    Vec3 f = q.rotate({1.0f, 0.0f, 0.0f});
+    if (f.x * f.x + f.y * f.y < 1e-6f) {
+        const Vec3 u = q.rotate({0.0f, 0.0f, 1.0f});
+        f = {-u.x * f.z, -u.y * f.z, 0.0f};
+        if (f.x * f.x + f.y * f.y < 1e-12f) return Quat{};
+    }
+    const float half = 0.5f * std::atan2(f.y, f.x);
+    return Quat{std::cos(half), 0.0f, 0.0f, std::sin(half)};
+}
+
 Quat predict_orientation(const Quat& q, const Vec3& omega_rads, float dt_s) {
     const float angle = omega_rads.norm() * dt_s;
     if (angle < 1e-9f) return q;

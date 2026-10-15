@@ -157,6 +157,7 @@ std::string settings_to_json(const Settings& s) {
     put(out, "gazeCursor", s.gaze_cursor);
     put(out, "dimOthers", s.dim_others);
     put(out, "gatherWindows", s.gather_windows);
+    put(out, "yawOnly", s.yaw_only);
     put(out, "k1", s.k1);
     put(out, "k2", s.k2);
     put(out, "onboardingDone", s.onboarding_done, true);
@@ -178,7 +179,8 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         bool* value;
     } bools[] = {{"autoStart", &s.auto_start},       {"stereo", &s.stereo},
                  {"gazeCursor", &s.gaze_cursor},     {"dimOthers", &s.dim_others},
-                 {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done}};
+                 {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done},
+                 {"yawOnly", &s.yaw_only}};
 
     while (!r.done() && !r.eat('}')) {
         const auto key = r.string();

@@ -22,6 +22,9 @@ struct SettingsView: View {
             Section(title: "Pantallas") {
                 Toggle("Atenuar los monitores que no miras", isOn: $model.dimOthers)
                     .font(Theme.body).foregroundStyle(Theme.text)
+                Toggle("Solo seguir el giro horizontal (las pantallas no se mueven al mirar arriba o abajo)",
+                       isOn: $model.yawOnly)
+                    .font(Theme.body).foregroundStyle(Theme.text)
             }
 
             DisclosureGroup(isExpanded: $advancedBox.value) {
@@ -65,6 +68,7 @@ struct SettingsView: View {
         .onChange(of: model.stereo) { server.settingsChanged() }
         .onChange(of: model.gazeCursor) { server.settingsChanged() }
         .onChange(of: model.dimOthers) { server.settingsChanged() }
+        .onChange(of: model.yawOnly) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }

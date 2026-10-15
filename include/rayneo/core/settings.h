@@ -27,6 +27,7 @@ struct Settings {
     bool gaze_cursor = true;     // "gazeCursor"
     bool dim_others = false;     // "dimOthers" (off: on see-through optics a dimmed panel looks cut off)
     bool gather_windows = true;  // "gatherWindows"
+    bool yaw_only = true;        // "yawOnly": panels follow only the left/right turn
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"

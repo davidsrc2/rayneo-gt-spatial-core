@@ -23,6 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float k2;
 @property(nonatomic) float maxPredictionMs;  // extrapolation clamp, 50
 @property(nonatomic) float dimOthers;        // brightness of the panels you are not looking at, 1 = off
+@property(nonatomic) BOOL yawOnly;           // follow only the left/right turn: nodding never moves the panels
 @end
 
 @interface RNSpatialRenderer : NSObject

@@ -41,6 +41,7 @@ final class AppModel: ObservableObject {
     @Published var gazeCursor: Bool { didSet { d.set(gazeCursor, forKey: "gazeCursor") } }
     @Published var dimOthers: Bool { didSet { d.set(dimOthers, forKey: "dimOthers") } }
     @Published var gatherWindows: Bool { didSet { d.set(gatherWindows, forKey: "gatherWindows") } }
+    @Published var yawOnly: Bool { didSet { d.set(yawOnly, forKey: "yawOnly") } }
     @Published var k1: Double { didSet { d.set(k1, forKey: "k1") } }
     @Published var k2: Double { didSet { d.set(k2, forKey: "k2") } }
 
@@ -62,6 +63,7 @@ final class AppModel: ObservableObject {
         gazeCursor = d.object(forKey: "gazeCursor") as? Bool ?? true
         dimOthers = d.object(forKey: "dimOthers") as? Bool ?? false  // optical see-through: dimmed reads as cut off
         gatherWindows = d.object(forKey: "gatherWindows") as? Bool ?? true
+        yawOnly = d.object(forKey: "yawOnly") as? Bool ?? true
         k1 = d.object(forKey: "k1") as? Double ?? 0
         k2 = d.object(forKey: "k2") as? Double ?? 0
         onboardingDone = d.bool(forKey: "onboardingDone")
@@ -248,6 +250,8 @@ final class AppModel: ObservableObject {
         o.gazeCursor = gazeCursor
         o.dimOthers = dimOthers ? 0.55 : 1  // linear light: ~80 % perceived brightness
         o.gatherWindows = gatherWindows
+        o.yawOnly = yawOnly
+        o.unmirror = true  // mirrored glasses run at the Mac's resolution and composited (reverted on exit)
         o.k1 = Float(k1)
         o.k2 = Float(k2)
         o.calibrationPath = Self.calibrationURL.path

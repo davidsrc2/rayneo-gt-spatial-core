@@ -62,6 +62,7 @@ public sealed partial class SettingsWindow : Window
         StartupToggle.IsOn = Startup.Enabled;
         DrawLayout();
         DimToggle.IsOn = _model.DimOthers;
+        YawOnlyToggle.IsOn = _model.YawOnly;
         FovSlider.Value = _model.Fov;
         IpdSlider.Value = _model.Ipd;
         DeadZoneSlider.Value = _model.DeadZone;
@@ -82,6 +83,7 @@ public sealed partial class SettingsWindow : Window
     {
         if (_updating) return;
         _model.DimOthers = DimToggle.IsOn;
+        _model.YawOnly = YawOnlyToggle.IsOn;
         _model.Fov = (float)FovSlider.Value;
         _model.Ipd = (float)IpdSlider.Value;
         _model.DeadZone = (float)DeadZoneSlider.Value;

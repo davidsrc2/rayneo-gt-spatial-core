@@ -41,6 +41,7 @@ internal static unsafe class NimboNative
         public fixed byte Source[32];
         public byte Refresh120;
         public byte Hotkeys;
+        public byte YawOnly;
     }
 
     public enum State
@@ -81,6 +82,7 @@ internal static unsafe class NimboNative
         public byte GatherWindows;
         public float K1, K2;
         public byte OnboardingDone;
+        public byte YawOnly;
     }
 
     [StructLayout(LayoutKind.Sequential)]
