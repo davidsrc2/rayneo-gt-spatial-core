@@ -69,6 +69,8 @@ final class AppModel: ObservableObject {
     // ⌘⌥C then recentres the glasses too. Nimbo renders the same either way.
     @Published var glassesPinned: Bool { didSet { d.set(glassesPinned ? 1 : 0, forKey: "glassesMode") } }
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
+    @Published var focusByCursor: Bool { didSet { d.set(focusByCursor, forKey: "focusByCursor") } }  // else by gaze
+    @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
     @Published var brightness: Int { didSet { d.set(brightness, forKey: "brightness") } }  // 1..8, 0 = leave
     @Published var k1: Double { didSet { d.set(k1, forKey: "k1") } }
     @Published var k2: Double { didSet { d.set(k2, forKey: "k2") } }
@@ -98,6 +100,8 @@ final class AppModel: ObservableObject {
         tracking = d.object(forKey: "tracking") as? Int ?? ((d.object(forKey: "yawOnly") as? Bool ?? true) ? 1 : 0)
         glassesPinned = (d.object(forKey: "glassesMode") as? Int).map { $0 == 1 } ?? d.bool(forKey: "glassesPinned")
         growFocused = d.object(forKey: "growFocused") as? Bool ?? true
+        focusByCursor = d.bool(forKey: "focusByCursor")
+        focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
         brightness = d.object(forKey: "brightness") as? Int ?? 0
         k1 = d.object(forKey: "k1") as? Double ?? 0
         k2 = d.object(forKey: "k2") as? Double ?? 0
@@ -345,6 +349,8 @@ final class AppModel: ObservableObject {
         o.glassesPinned = glassesPinned
         o.recenterGlasses = glassesPinned
         o.growFocused = growFocused
+        o.focusByCursor = focusByCursor
+        o.focusWindows = focusWindows
         o.brightness = brightness
         o.unmirror = true  // mirrored glasses run at the Mac's resolution and composited (reverted on exit)
         o.k1 = Float(k1)
