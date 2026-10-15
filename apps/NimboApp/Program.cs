@@ -20,14 +20,14 @@ public static class Program
             XamlCheckProcessRequirements();
             App.Trace("main: xaml requirements ok");
             WinRT.ComWrappersSupport.InitializeComWrappers();
-            Application.Start(_ =>
+            Application.Start(start =>
             {
                 try
                 {
                     var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
                     SynchronizationContext.SetSynchronizationContext(context);
                     App.Trace("main: creating the app");
-                    _ = new App();
+                    new App();
                 }
                 catch (Exception e)
                 {
