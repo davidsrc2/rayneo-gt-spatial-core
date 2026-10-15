@@ -199,4 +199,28 @@ int copy_wallpaper(const RECT& from, const std::vector<RECT>& to) {
     return done;
 }
 
+std::optional<DISPLAYCONFIG_TOPOLOGY_ID> current_topology() {
+    UINT32 paths = 0, modes = 0;
+    if (GetDisplayConfigBufferSizes(QDC_DATABASE_CURRENT, &paths, &modes) != ERROR_SUCCESS) return std::nullopt;
+    std::vector<DISPLAYCONFIG_PATH_INFO> p(paths);
+    std::vector<DISPLAYCONFIG_MODE_INFO> m(modes);
+    DISPLAYCONFIG_TOPOLOGY_ID id{};
+    if (QueryDisplayConfig(QDC_DATABASE_CURRENT, &paths, p.data(), &modes, m.data(), &id) != ERROR_SUCCESS) {
+        return std::nullopt;
+    }
+    return id;
+}
+
+bool set_topology(DISPLAYCONFIG_TOPOLOGY_ID topology) {
+    UINT32 flag = 0;
+    switch (topology) {
+        case DISPLAYCONFIG_TOPOLOGY_INTERNAL: flag = SDC_TOPOLOGY_INTERNAL; break;
+        case DISPLAYCONFIG_TOPOLOGY_CLONE: flag = SDC_TOPOLOGY_CLONE; break;
+        case DISPLAYCONFIG_TOPOLOGY_EXTEND: flag = SDC_TOPOLOGY_EXTEND; break;
+        case DISPLAYCONFIG_TOPOLOGY_EXTERNAL: flag = SDC_TOPOLOGY_EXTERNAL; break;
+        default: return false;
+    }
+    return SetDisplayConfig(0, nullptr, 0, nullptr, flag | SDC_APPLY) == ERROR_SUCCESS;
+}
+
 }  // namespace rayneo::win

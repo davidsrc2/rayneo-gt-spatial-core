@@ -50,6 +50,11 @@ void restore_mode(const std::wstring& gdi_name);
 
 std::string narrow(const std::wstring& w);
 
+// Win+P: the desktop's topology now (clone = duplicate, extend, internal / external only), and
+// switching it (persistent, like Win+P; restore it yourself).
+std::optional<DISPLAYCONFIG_TOPOLOGY_ID> current_topology();
+bool set_topology(DISPLAYCONFIG_TOPOLOGY_ID topology);
+
 // The wallpaper of the monitor at `from` set on the monitors at `to` (desktop rectangles), so
 // new virtual monitors do not show Windows' default one. Returns how many were set.
 int copy_wallpaper(const RECT& from, const std::vector<RECT>& to);

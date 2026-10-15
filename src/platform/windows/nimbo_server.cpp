@@ -442,6 +442,7 @@ private:
     bool redraw_ = true;
     bool display_changed_ = false;
     std::wstring laptop_gdi_;           // the computer's own screen as panel 1 (empty: all virtual)
+    std::optional<DISPLAYCONFIG_TOPOLOGY_ID> saved_topology_;  // Win+P mode before we extended
     uint64_t arranged_ns_ = 0;          // our own arrangement: its display-change messages are ours
     void rearrange_displays();
     std::vector<const win::OutputInfo*> virtual_panel_outputs() const;
@@ -529,11 +530,47 @@ bool Server::start() {
         glasses_gdi_ = glasses->gdi_name;
     }
 
+    // Windows duplicating the glasses (Win+P > Duplicate) or showing only one screen: the
+    // laptop's screen is not a display of its own and new virtual monitors would duplicate too.
+    // Extend for the session; shutdown() puts your mode back.
+    if (!opt_.windowed && opt_.displays > 0) {
+        const auto topology = win::current_topology();
+        if (topology && *topology != DISPLAYCONFIG_TOPOLOGY_EXTEND) {
+            if (win::set_topology(DISPLAYCONFIG_TOPOLOGY_EXTEND)) {
+                saved_topology_ = *topology;
+                logln("displays: Windows was %s, extended for this session (restored on exit)",
+                      *topology == DISPLAYCONFIG_TOPOLOGY_CLONE ? "duplicating" : "on one screen");
+                Sleep(2000);
+                outputs_ = win::enumerate_outputs();
+                for (const auto& o : outputs_) {
+                    logln("  %s %dx%d at %ld,%ld%s%s", win::narrow(o.gdi_name).c_str(), o.width(), o.height(),
+                          o.desktop.left, o.desktop.top, o.primary ? " [primary]" : "", o.glasses ? " [glasses]" : "");
+                }
+                glasses = win::find_glasses(outputs_);
+                if (glasses == nullptr) {
+                    logln("glasses display lost after extending the desktop");
+                    return false;
+                }
+                glasses_gdi_ = glasses->gdi_name;
+            }
+        }
+    }
+
     // The computer's own screen as panel 1: the primary display that is neither the glasses nor
     // a virtual monitor. With a single panel, that screen alone, no virtual monitors.
     if (opt_.laptop_screen && !opt_.windowed && opt_.displays > 0) {
         for (const auto& o : outputs_) {
             if (o.primary && !o.glasses && !win::is_virtual_panel(o)) laptop_gdi_ = o.gdi_name;
+        }
+        if (laptop_gdi_.empty()) {  // the glasses are primary: then your only other screen
+            int others = 0;
+            for (const auto& o : outputs_) {
+                if (!o.glasses && !win::is_virtual_panel(o)) {
+                    laptop_gdi_ = o.gdi_name;
+                    ++others;
+                }
+            }
+            if (others != 1) laptop_gdi_.clear();
         }
         if (laptop_gdi_.empty()) {
             logln("laptop screen: no primary display of its own (lid closed?), all panels virtual");
@@ -1241,8 +1278,9 @@ bool Server::setup_virtual_displays() {
         // desktop (Win+P > Extend), once.
         if (!extended && waited >= 2000) {
             extended = true;
-            const LONG r = SetDisplayConfig(0, nullptr, 0, nullptr, SDC_TOPOLOGY_EXTEND | SDC_APPLY);
-            logln("virtual monitors: not there yet, desktop set to Extend (%s)", r == ERROR_SUCCESS ? "ok" : "failed");
+            if (!saved_topology_) saved_topology_ = win::current_topology();  // put back on exit
+            const bool ok = win::set_topology(DISPLAYCONFIG_TOPOLOGY_EXTEND);
+            logln("virtual monitors: not there yet, desktop set to Extend (%s)", ok ? "ok" : "failed");
         }
         outputs_ = win::enumerate_outputs();
         panels.clear();
@@ -1492,6 +1530,10 @@ void Server::shutdown() {
             logln("displays: %s (run nimbo_win --restore)", error.c_str());
         }
         if (backend_) backend_->remove_monitors();  // VDD keeps one, detached above
+    }
+    if (saved_topology_) {
+        Sleep(500);  // the monitors gone first
+        logln("displays: Windows back to %s", win::set_topology(*saved_topology_) ? "your Win+P mode" : "? (set it with Win+P)");
     }
     std::lock_guard<std::mutex> lock(shared_mutex_);
     status_.state = NIMBO_STOPPED;
