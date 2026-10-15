@@ -322,6 +322,18 @@ static float panel_arc(RNRenderOptions* o) {
     const float k = placed > 0.0f ? panel_arc(o) / placed : 1.0f;
     floating.resize(floats);
     for (const auto& pl : core::placements_from_poses(floating, k)) out.push_back(pl);
+    if (floats > 0) {  // windows never over the monitors, whatever their shape
+        float aspects[kMaxPanels];
+        os_unfair_lock_lock(&_sourceLock);
+        for (NSUInteger i = 0; i < kMaxPanels; ++i) aspects[i] = _panels[i].aspect;
+        os_unfair_lock_unlock(&_sourceLock);
+        std::vector<float> w, h;
+        for (size_t i = 0; i < out.size(); ++i) {
+            w.push_back(panel_arc(o) * out[i].scale);
+            h.push_back(core::panel_vertical_arc(w.back(), aspects[std::min<size_t>(i, kMaxPanels - 1)], true));
+        }
+        core::separate_floating(out, w, h, count - floats, o.gapDegrees * kDegToRad);
+    }
     // Cinema: the focused panel straight ahead, large (the others are not drawn).
     if (o.cinema && o.focusPanel >= 0 && static_cast<NSUInteger>(o.focusPanel) < out.size()) {
         out[static_cast<size_t>(o.focusPanel)] = core::PanelPlacement{0.0f, 0.0f, kCinemaScale};

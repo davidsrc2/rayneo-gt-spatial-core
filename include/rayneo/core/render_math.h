@@ -127,6 +127,14 @@ std::vector<PanelPlacement> placements_from_poses(const std::vector<PanelPose>& 
 // 2 m about 81 %, the smallest and farthest (28 deg at 3 m) about 68 %.
 float pinned_zoom(float shown_arc_rad);
 
+// Floating panels (from `first_floating` on) moved out of the panels before them: along the
+// axis that frees them soonest, away from the one they overlap, `gap_rad` clear. A window
+// placed just above the monitors stays just above them whatever their shape (the Mac's
+// 16:10 screen is taller than the 16:9 the editor assumed; overlapping, the two flickered).
+// `widths_rad` / `heights_rad`: each panel's extent at its scale.
+void separate_floating(std::vector<PanelPlacement>& panels, const std::vector<float>& widths_rad,
+                       const std::vector<float>& heights_rad, size_t first_floating, float gap_rad);
+
 // Grid cells for the OS display arrangement (so the cursor crosses to the neighbour you see):
 // panels grouped into columns by yaw and rows by pitch, in panel order, every cell unique.
 std::vector<GridCell> cells_from_poses(const std::vector<PanelPose>& poses, float column_deg, float row_deg);

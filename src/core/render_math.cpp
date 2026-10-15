@@ -286,6 +286,29 @@ float pinned_zoom(float shown_arc_rad) {
     return std::pow(r, 0.25f);
 }
 
+void separate_floating(std::vector<PanelPlacement>& panels, const std::vector<float>& widths_rad,
+                       const std::vector<float>& heights_rad, size_t first_floating, float gap_rad) {
+    const size_t n = std::min(panels.size(), std::min(widths_rad.size(), heights_rad.size()));
+    for (int pass = 0; pass < 4; ++pass) {  // a push can land on another panel: a few rounds
+        bool moved = false;
+        for (size_t i = first_floating; i < n; ++i) {
+            for (size_t j = 0; j < i; ++j) {
+                const float dx = panels[i].yaw_rad - panels[j].yaw_rad, dy = panels[i].pitch_rad - panels[j].pitch_rad;
+                const float ox = 0.5f * (widths_rad[i] + widths_rad[j]) + gap_rad - std::fabs(dx);
+                const float oy = 0.5f * (heights_rad[i] + heights_rad[j]) + gap_rad - std::fabs(dy);
+                if (ox <= 1e-5f || oy <= 1e-5f) continue;
+                if (oy <= ox) {
+                    panels[i].pitch_rad += dy >= 0.0f ? oy : -oy;
+                } else {
+                    panels[i].yaw_rad += dx >= 0.0f ? ox : -ox;
+                }
+                moved = true;
+            }
+        }
+        if (!moved) break;
+    }
+}
+
 namespace {
 
 // Cluster indices of `values` (any order): sorted ascending, a new cluster wherever the step

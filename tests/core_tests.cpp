@@ -851,6 +851,19 @@ void test_pinned_zoom() {
     CHECK(z38 > 0.78f && z38 < 0.84f && z40 > z38);
 }
 
+// A window placed above two monitors, low enough to overlap them once they are taller.
+void test_separate_floating() {
+    std::vector<PanelPlacement> pl = {{-0.33f, 0, 1}, {0.33f, 0, 1}, {0, 0.38f, 1}};
+    const std::vector<float> w = {0.64f, 0.64f, 0.64f}, h = {0.42f, 0.42f, 0.36f};  // 16:10 monitors
+    separate_floating(pl, w, h, 2, 0.02f);
+    CHECK(near(pl[2].yaw_rad, 0.0f, 1e-6f));                         // only lifted
+    CHECK(pl[2].pitch_rad - 0.18f >= 0.21f + 0.02f - 1e-5f);         // clear of the monitors' tops
+    CHECK(near(pl[0].pitch_rad, 0.0f, 1e-6f) && near(pl[1].yaw_rad, 0.33f, 1e-6f));  // monitors untouched
+    std::vector<PanelPlacement> clear = {{0, 0, 1}, {0, 0.6f, 1}};
+    separate_floating(clear, {0.64f, 0.64f}, {0.36f, 0.36f}, 1, 0.02f);
+    CHECK(near(clear[1].pitch_rad, 0.6f, 1e-6f));                    // already clear: as placed
+}
+
 void test_slerp() {
     const Quat a{}, b = Quat::from_axis_angle({0, 0, 1}, 1.0f);
     CHECK(quat_near(slerp(a, b, 0.0f), a, 1e-6f) && quat_near(slerp(a, b, 1.0f), b, 1e-6f));
@@ -1184,6 +1197,7 @@ int main() {
     test_prediction_gain();
     test_yaw_only();
     test_panel_poses();
+    test_separate_floating();
     test_pinned_zoom();
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();

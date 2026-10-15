@@ -35,8 +35,6 @@ struct SettingsView: View {
         .onChange(of: model.gazeCursor) { server.settingsChanged() }
         .onChange(of: model.dimOthers) { server.settingsChanged() }
         .onChange(of: model.tracking) { server.settingsChanged() }
-        .onChange(of: model.glassesPinned) { server.settingsChanged() }
-        .onChange(of: model.growFocused) { server.settingsChanged() }
         .onChange(of: model.focusWindows) { server.settingsChanged() }
         .onChange(of: model.macScreen) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
@@ -62,23 +60,8 @@ struct SettingsView: View {
             Section(title: "Pantallas") {
                 Toggle("Atenuar los monitores que no miras", isOn: $model.dimOthers)
                     .font(Theme.body).foregroundStyle(Theme.text)
-                VStack(alignment: .leading, spacing: 6) {
-                    Picker("Cómo ves las pantallas", selection: $model.glassesPinned) {
-                        Text("Una pantalla grande").tag(true)
-                        Text("Espacio a tamaño real").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    Text(model.glassesPinned
-                         ? "Las gafas en pinned (Nimbo las pone): su imagen queda fija y todo cabe dentro, nada se mueve solo. ⌘⌥C vuelve a centrar la imagen delante."
-                         : "Las gafas en follow (Nimbo las pone; al parar vuelven a pinned): cada pantalla del tamaño de la imagen de las gafas, como sin Nimbo, quietas en la habitación. Gira la cabeza para ver la de al lado o mira arriba para la ventana de arriba. ⌘⌥C las vuelve a poner delante.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                    if model.glassesPinned {
-                        Toggle("Agrandar la pantalla que miras", isOn: $model.growFocused)
-                        Text("La pantalla que miras un segundo, o a la que llevas el ratón, ocupa toda la imagen de las gafas, grande y nítida como sin Nimbo. Las demás quedan justo fuera de los bordes: mira hacia ellas un segundo para pasar a otra. Desactivado: se ve todo junto, más pequeño.")
-                            .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                    }
-                }
-                .font(Theme.body).foregroundStyle(Theme.text)
+                Text("Cada pantalla mide lo que la imagen de las gafas y queda quieta en la habitación: gira la cabeza para pasar de una a otra. Nimbo pone las gafas en follow y, al parar, las devuelve a pinned. ⌘⌥C las vuelve a poner delante.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("La pantalla del Mac es una de las de Nimbo", isOn: $model.macScreen)
                     Text("Con la tapa abierta, la pantalla del Mac es la pantalla 1 y las demás son virtuales a su lado: con 2 pantallas, la del Mac y una más; con 1, solo la del Mac.")
@@ -87,7 +70,7 @@ struct SettingsView: View {
                 .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Incluir ventanas flotantes", isOn: $model.focusWindows)
-                    Text("Si una ventana flotante puede ser la pantalla agrandada en pinned o la del modo enfoque (⌘⌥O) y cine (⌘⌥P). Desactivado: solo los monitores.")
+                    Text("Si una ventana flotante puede ser la pantalla del modo enfoque (⌘⌥O) y del modo cine (⌘⌥P). Desactivado: solo los monitores.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)

@@ -184,6 +184,14 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
     }
     const std::vector<core::PanelPose> fl(floating_.begin(), floating_.begin() + floats);
     for (const auto& pl : core::placements_from_poses(fl, k)) out.push_back(pl);
+    if (floats > 0) {  // windows never over the monitors, whatever their shape
+        std::vector<float> w, h;
+        for (size_t i = 0; i < out.size(); ++i) {
+            w.push_back(panel_arc() * out[i].scale);
+            h.push_back(core::panel_vertical_arc(w.back(), panels_[std::min<size_t>(i, kMaxPanels - 1)].aspect, true));
+        }
+        core::separate_floating(out, w, h, static_cast<size_t>(monitors), options.gap_deg * kDegToRad);
+    }
     // Cinema: the focused panel straight ahead, large (the others are not drawn).
     if (options.cinema && options.focus_panel >= 0 && options.focus_panel < static_cast<int>(out.size())) {
         out[static_cast<size_t>(options.focus_panel)] = core::PanelPlacement{0.0f, 0.0f, 1.6f};

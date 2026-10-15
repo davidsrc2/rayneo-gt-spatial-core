@@ -98,7 +98,9 @@ final class AppModel: ObservableObject {
         dimOthers = d.object(forKey: "dimOthers") as? Bool ?? false  // optical see-through: dimmed reads as cut off
         gatherWindows = d.object(forKey: "gatherWindows") as? Bool ?? true
         tracking = d.object(forKey: "tracking") as? Int ?? ((d.object(forKey: "yawOnly") as? Bool ?? true) ? 1 : 0)
-        glassesPinned = (d.object(forKey: "glassesMode") as? Int).map { $0 == 1 } ?? d.bool(forKey: "glassesPinned")
+        // One way of seeing the panels in the app: the space at real size (glasses in follow).
+        // The one-large-panel pinned mode stays in the server for the command line only.
+        glassesPinned = false
         growFocused = d.object(forKey: "growFocused") as? Bool ?? true
         macScreen = d.object(forKey: "macScreen") as? Bool ?? true
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
