@@ -62,6 +62,7 @@ struct Panel {
     float mesh_aspect = 0, mesh_distance = 0, mesh_arc = 0, mesh_center = 0, mesh_pitch = 0;
     float mesh_curvature = -1.0f;
     float mesh_scale = 0.0f;
+    float mesh_tilt = -1.0f;
     float brightness = 1.0f;  // render thread: eased towards 1 (looked at) or dimOthers
 };
 
@@ -77,6 +78,7 @@ struct Panel {
         _gapDegrees = 4.0f;
         _curved = NO;
         _curvature = 0.0f;
+        _tilt = 1.0f;
         _fovYDegrees = 24.5f;
         _eyeAspect = 16.0f / 9.0f;
         _k1 = 0.0f;
@@ -491,13 +493,13 @@ static float effective_curvature(RNRenderOptions* o) {
     const float k = [self fillingImage] ? 0.0f : effective_curvature(o);
     if (p.vertices != nil && aspect == p.mesh_aspect && o.distanceMeters == p.mesh_distance &&
         o.arcDegrees == p.mesh_arc && center == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
-        k == p.mesh_curvature && pl.scale == p.mesh_scale) {
+        k == p.mesh_curvature && pl.scale == p.mesh_scale && o.tilt == p.mesh_tilt) {
         return;
     }
     const float arc = panel_arc(o) * pl.scale;
     const float width = core::panel_width(o.distanceMeters, arc, true);  // a sheet: bending keeps its width
     core::ScreenMesh mesh = core::bent_screen_mesh(o.distanceMeters, arc, width / aspect, k > 0.0f ? 64 : 1, k, center);
-    core::pitch_mesh(mesh, pl.pitch_rad);
+    core::place_pitched(mesh, pl.pitch_rad, o.tilt, o.distanceMeters);
     p.vertices = [_device newBufferWithBytes:mesh.vertices.data()
                                       length:mesh.vertices.size() * sizeof(core::ScreenVertex)
                                      options:MTLResourceStorageModeShared];
@@ -512,6 +514,7 @@ static float effective_curvature(RNRenderOptions* o) {
     p.mesh_pitch = pl.pitch_rad;
     p.mesh_curvature = k;
     p.mesh_scale = pl.scale;
+    p.mesh_tilt = o.tilt;
 }
 
 // Panels you are not looking at fade to dimOthers (core::PanelDimmer, shared with Windows).

@@ -5,6 +5,7 @@ import CoreGraphics
 // the cursor and dragged windows move between panels as the head does.
 final class VirtualDesktop {
     private(set) var displays: [RNVirtualDisplay] = []
+    var keep: [CGDirectDisplayID] = []  // left where they are when the rest is tucked away (floating windows' monitors)
     var ids: [CGDirectDisplayID] { displays.map(\.displayID) }
 
     init(count: Int, width: Int, height: Int, hiDPI: Bool, refresh: Double) throws {
@@ -63,7 +64,7 @@ final class VirtualDesktop {
             let minX = points.map(\.x).min() ?? 0
             let maxY = zip(ids, points).map { $1.y + CGDisplayBounds($0).height }.max() ?? 0
             var x = minX
-            for id in [physical] + Self.otherDisplays(excluding: ids + [physical]) {
+            for id in [physical] + Self.otherDisplays(excluding: ids + [physical] + keep) {
                 x -= CGDisplayBounds(id).width
                 CGConfigureDisplayOrigin(config, id, Int32(x), Int32(maxY))
             }

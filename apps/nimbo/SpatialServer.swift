@@ -207,6 +207,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             try await settle(0.5)
             let anchor = builtIn ?? CGMainDisplayID()
             let virtualMain = !options.includeMain && !options.windowed
+            macScreenID = builtIn
             if let builtIn {
                 vd.arrange(after: builtIn, cells: options.layout, tucking: screenID)
             } else if virtualMain {
@@ -215,6 +216,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 vd.arrange(rightOf: anchor, cells: options.layout)
             }
             try await settle(1.0)  // NSScreen list catches up
+            copyWallpaper(to: vd.ids, from: builtIn)
             log("virtual monitors: " + vd.ids.map { id in
                 let b = CGDisplayBounds(id)
                 return "\(id)@\(Int(b.minX)),\(Int(b.minY)) \(Int(b.width))x\(Int(b.height))"
@@ -301,6 +303,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.gapDegrees = options.gapDeg
         ro.curved = options.curved
         ro.curvature = options.curvature
+        ro.tilt = options.tilt
         ro.fovYDegrees = options.fovYDeg
         if !options.fovFromCLI, UserDefaults.standard.object(forKey: "fovY") != nil {
             ro.fovYDegrees = UserDefaults.standard.float(forKey: "fovY")
@@ -380,6 +383,51 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             return
         }
         if window.frame != s.frame { window.setFrame(s.frame, display: true) }
+        // A monitor coming or going (a floating window added or removed) and macOS lays the
+        // displays out its own way: the glasses' surface ended up beside the Mac's screen (the
+        // cursor fell onto it and jumped back) and a floating window's monitor to the right.
+        // Ours again, once things settle; our own changes do not count.
+        guard Date() > arrangingUntil else { return }
+        rearrangeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.rearrangeDisplays() }
+        rearrangeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+
+    // New virtual monitors start with macOS's default wallpaper (or none): give them yours,
+    // from the Mac's own screen (else the first screen that has one).
+    private func copyWallpaper(to ids: [CGDirectDisplayID], from source: CGDirectDisplayID?) {
+        let ws = NSWorkspace.shared
+        let mine = Set(ids)
+        let from = NSScreen.screens.first { source != nil && Displays.id(of: $0) == source }
+            ?? NSScreen.screens.first { !mine.contains(Displays.id(of: $0)) && Displays.glassesScreen() != $0 }
+        guard let from, let url = ws.desktopImageURL(for: from) else { return }
+        let options = ws.desktopImageOptions(for: from) ?? [:]
+        var done = 0
+        for screen in NSScreen.screens where mine.contains(Displays.id(of: screen)) {
+            if (try? ws.setDesktopImageURL(url, for: screen, options: options)) != nil { done += 1 }
+        }
+        log("wallpaper: \(url.lastPathComponent) on \(done) monitor(s)")
+    }
+
+    private var macScreenID: CGDirectDisplayID?   // the Mac's own screen as panel 1
+    private var arrangingUntil = Date.distantPast  // our own reconfiguration's notifications
+    private var rearrangeWork: DispatchWorkItem?
+
+    // The monitors as their grid cells, the floating windows' monitors where they float, and
+    // everything else (the glasses' surface, the Mac's screen when it is not a panel) tucked
+    // below-left.
+    private func rearrangeDisplays() {
+        guard let vd = desktop, let glasses = glassesID, physicalDisplay != nil, !stopped else { return }
+        vd.keep = floatingDisplays.compactMap { $0?.displayID }
+        arrangingUntil = Date().addingTimeInterval(1.5)
+        if let mac = macScreenID {
+            vd.arrange(after: mac, cells: options.layout, tucking: glasses)
+        } else {
+            vd.arrangeAsMain(tucking: glasses, cells: options.layout)
+        }
+        arrangeFloatingDisplays()
+        log("displays: arrangement restored")
     }
 
     // Unplugged glasses: the display disappears and/or the IMU stops. Quit, which restores
@@ -413,6 +461,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.gapDegrees = o.gapDeg
         ro.curved = o.curved
         ro.curvature = o.curvature
+        ro.tilt = o.tilt
         ro.fovYDegrees = o.fovYDeg
         ro.ipdMeters = o.ipdMM / 1000
         ro.sideBySide = o.sideBySide ?? !o.windowed
@@ -426,6 +475,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.gapDeg = o.gapDeg
         options.curved = o.curved
         options.curvature = o.curvature
+        options.tilt = o.tilt
         options.arcDeg = o.arcDeg
         options.fovYDeg = o.fovYDeg
         options.ipdMM = o.ipdMM

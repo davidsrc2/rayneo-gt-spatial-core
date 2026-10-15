@@ -17,6 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float gapDegrees;       // space between panels, 4
 @property(nonatomic) BOOL curved;            // shorthand for curvature 1
 @property(nonatomic) float curvature;        // 0 = flat monitors angled towards you, 1 = cylinder
+@property(nonatomic) float tilt;             // panels above / below: 1 face you, 0 upright (core::place_pitched)
 @property(nonatomic) float fovYDegrees;      // per-eye vertical FOV of the optics, 24.5
 @property(nonatomic) float eyeAspect;        // perceived per-eye aspect, 16/9
 @property(nonatomic) float k1;               // barrel pre-distortion, 0 = off

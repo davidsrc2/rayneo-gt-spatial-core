@@ -49,6 +49,7 @@ final class AppModel: ObservableObject {
     @Published var distance: Double { didSet { d.set(distance, forKey: "distance") } }
     @Published var gap: Double { didSet { d.set(gap, forKey: "gap") } }
     @Published var curvature: Double { didSet { d.set(curvature, forKey: "curvature") } }  // 0 flat .. 1 cylinder
+    @Published var tilt: Double { didSet { d.set(tilt, forKey: "tilt") } }  // panels above / below: 1 face you .. 0 upright
     @Published var size: Double { didSet { d.set(size, forKey: "size") } }                // panel width, degrees
     @Published var autoStart: Bool { didSet { d.set(autoStart, forKey: "autoStart") } }
     var curved: Bool {
@@ -89,6 +90,7 @@ final class AppModel: ObservableObject {
         distance = d.object(forKey: "distance") as? Double ?? 2.0
         gap = d.object(forKey: "gap") as? Double ?? 1.0
         curvature = d.object(forKey: "curvature") as? Double ?? (d.bool(forKey: "curved") ? 1 : 0)
+        tilt = d.object(forKey: "tilt") as? Double ?? 1
         size = d.object(forKey: "size") as? Double ?? 38
         autoStart = d.bool(forKey: "autoStart")
         fov = d.object(forKey: "fovY") != nil ? Double(d.float(forKey: "fovY")) : 24.5
@@ -338,6 +340,7 @@ final class AppModel: ObservableObject {
         o.distanceM = Float(distance)
         o.gapDeg = Float(gap)
         o.curvature = Float(curvature)
+        o.tilt = Float(tilt)
         o.arcDeg = Float(size)
         o.fovYDeg = Float(fov)
         o.fovFromCLI = true

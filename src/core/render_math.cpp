@@ -252,6 +252,20 @@ void pitch_mesh(ScreenMesh& mesh, float pitch_rad) {
     }
 }
 
+void place_pitched(ScreenMesh& mesh, float pitch_rad, float tilt, float distance_m) {
+    const float back = -(1.0f - std::clamp(tilt, 0.0f, 1.0f)) * pitch_rad;  // undo part of the facing
+    if (back != 0.0f) {
+        const float cb = std::cos(back), sb = std::sin(back);
+        for (auto& v : mesh.vertices) {
+            const float z = v.pz - distance_m;
+            const float y = v.py * cb + z * sb;
+            v.pz = distance_m - v.py * sb + z * cb;
+            v.py = y;
+        }
+    }
+    pitch_mesh(mesh, pitch_rad);
+}
+
 int panel_at_gaze(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad,
                   float vertical_arc_rad, float gap_rad) {
     const Vec3 f = render_rotation(head_rel).transform_point({0.0f, 0.0f, 1.0f});

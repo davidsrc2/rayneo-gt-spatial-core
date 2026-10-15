@@ -149,6 +149,11 @@ std::vector<PanelPlacement> grid_layout(const std::vector<GridCell>& cells, floa
 // Rotates a mesh about the render X axis: pitch > 0 tilts it up.
 void pitch_mesh(ScreenMesh& mesh, float pitch_rad);
 
+// A panel built straight ahead at `distance_m` moved up or down to `pitch_rad`. `tilt` 1 faces
+// it to the viewer (rows like a tilted cylinder), 0 keeps it upright like a wall of monitors,
+// in between leans part of the way (it turns about its own centre).
+void place_pitched(ScreenMesh& mesh, float pitch_rad, float tilt, float distance_m);
+
 // Panel whose cell (panel plus half the gap on each side) contains the view direction, or -1.
 int panel_at_gaze(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad,
                   float vertical_arc_rad, float gap_rad);

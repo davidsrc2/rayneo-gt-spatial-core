@@ -20,6 +20,10 @@ struct QuickPanel: View {
                                anchors: [(0, "Plana"), (0.5, "Suave"), (1, "Envolvente")],
                                format: { $0 < 0.02 ? "Plana" : String(format: "%.0f %%", $0 * 100) },
                                onCommit: server.settingsChanged)
+                    SnapSlider(title: "Inclinación", value: $model.tilt, range: 0...1,
+                               anchors: [(0, "Rectas"), (0.5, "Algo"), (1, "Hacia ti")],
+                               format: { $0 < 0.02 ? "Rectas" : String(format: "%.0f %%", $0 * 100) },
+                               onCommit: server.settingsChanged)
                 }
             }
             Tile {
@@ -42,6 +46,7 @@ struct QuickPanel: View {
         .preferredColorScheme(.dark)
         .onChange(of: model.distance) { server.settingsChanged() }
         .onChange(of: model.curvature) { server.settingsChanged() }
+        .onChange(of: model.tilt) { server.settingsChanged() }
         .onChange(of: model.size) { server.settingsChanged() }
         .onChange(of: model.brightness) { server.settingsChanged() }
     }

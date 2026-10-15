@@ -864,6 +864,24 @@ void test_separate_floating() {
     CHECK(near(clear[1].pitch_rad, 0.6f, 1e-6f));                    // already clear: as placed
 }
 
+// A panel raised 20 deg: tilt 1 faces the viewer, tilt 0 stands upright, same centre.
+void test_place_pitched() {
+    const float d2r = 0.0174533f;
+    const auto mesh = [] {
+        ScreenMesh m;
+        m.vertices = {{0, 0.5f, 2.0f, 0, 0}, {0, -0.5f, 2.0f, 0, 1}};  // top and bottom edge centres
+        return m;
+    };
+    ScreenMesh facing = mesh(), upright = mesh();
+    place_pitched(facing, 20 * d2r, 1.0f, 2.0f);
+    place_pitched(upright, 20 * d2r, 0.0f, 2.0f);
+    const float cy = 2.0f * std::sin(20 * d2r), cz = 2.0f * std::cos(20 * d2r);
+    CHECK(near(0.5f * (upright.vertices[0].py + upright.vertices[1].py), cy, 1e-4f));
+    CHECK(near(0.5f * (upright.vertices[0].pz + upright.vertices[1].pz), cz, 1e-4f));
+    CHECK(near(upright.vertices[0].pz, upright.vertices[1].pz, 1e-4f));    // upright: same depth
+    CHECK(facing.vertices[0].pz < facing.vertices[1].pz - 0.2f);           // facing: top leans back
+}
+
 void test_slerp() {
     const Quat a{}, b = Quat::from_axis_angle({0, 0, 1}, 1.0f);
     CHECK(quat_near(slerp(a, b, 0.0f), a, 1e-6f) && quat_near(slerp(a, b, 1.0f), b, 1e-6f));
@@ -1239,6 +1257,7 @@ int main() {
     test_yaw_only();
     test_panel_poses();
     test_separate_floating();
+    test_place_pitched();
     test_pinned_zoom();
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();

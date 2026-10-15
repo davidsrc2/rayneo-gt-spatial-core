@@ -33,6 +33,7 @@ struct ServerOptions {
     var gapDeg: Float = 1
     var curved = false
     var curvature: Float = 0          // 0 flat .. 1 cylinder (--curved = 1)
+    var tilt: Float = 1               // panels above / below: 1 face you .. 0 upright
     var fovYDeg: Float = 24.5
     var fovFromCLI = false
     var deadZoneDeg: Float = 1.0
@@ -181,6 +182,7 @@ struct ServerOptions {
             case "--gap": guard let v = float() else { return nil }; o.gapDeg = v
             case "--curved": o.curved = true; o.curvature = 1
             case "--curvature": guard let v = float(), (0...1).contains(v) else { return nil }; o.curvature = v
+            case "--tilt": guard let v = float(), (0...1).contains(v) else { return nil }; o.tilt = v
             case "--distance": guard let v = float() else { return nil }; o.distanceM = v
             case "--test-pattern": o.testPattern = true
             case "--keep-main": o.includeMain = true
