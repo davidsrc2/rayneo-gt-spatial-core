@@ -25,11 +25,41 @@ public partial class App : Application
 
     public App()
     {
+        // A crash at start-up closes a tray app without a word: write why to crash.log.
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => CrashLog("unhandled", e.ExceptionObject as Exception);
+        UnhandledException += (_, e) => CrashLog("xaml", e.Exception);
         InitializeComponent();
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
     }
 
+    public static string CrashLogPath => Path.Combine(AppModel.DataDirectory, "crash.log");
+
+    private static void CrashLog(string where, Exception? e)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppModel.DataDirectory);
+            File.AppendAllText(CrashLogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{where}] {e}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch (IOException)
+        {
+        }
+    }
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        try
+        {
+            Launch();
+        }
+        catch (Exception e)
+        {
+            CrashLog("launch", e);
+            throw;
+        }
+    }
+
+    private void Launch()
     {
         _single = new Mutex(true, @"Local\NimboApp", out bool first);
         if (!first)
