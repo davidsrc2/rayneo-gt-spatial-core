@@ -68,6 +68,53 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         return (cfg.width, cfg.height)
     }
 
+    // A single window, wherever it is (covered by others too): a floating panel in space.
+    func start(windowID: CGWindowID, fps: Int) async throws -> (Int, Int) {
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+        guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+            throw NSError(domain: "ScreenCapture", code: 2, userInfo: [NSLocalizedDescriptionKey: "window \(windowID) not capturable"])
+        }
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let cfg = SCStreamConfiguration()
+        let scale = max(CGFloat(filter.pointPixelScale), 2)
+        cfg.width = Int(window.frame.width * scale)
+        cfg.height = Int(window.frame.height * scale)
+        cfg.scalesToFit = true
+        cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
+        cfg.pixelFormat = kCVPixelFormatType_32BGRA
+        cfg.queueDepth = 4
+        cfg.showsCursor = true
+        let s = SCStream(filter: filter, configuration: cfg, delegate: self)
+        try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        try await s.startCapture()
+        stream = s
+        return (cfg.width, cfg.height)
+    }
+
+    struct WindowInfo: Hashable {
+        let id: CGWindowID
+        let title: String
+        let app: String
+    }
+
+    // Windows worth floating: on screen, titled or app-owned, not tiny, not ours.
+    static func windows() async -> [WindowInfo] {
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        else { return [] }
+        let me = getpid()
+        return content.windows
+            .filter { $0.frame.width >= 200 && $0.frame.height >= 120 && $0.windowLayer == 0 }
+            .filter { $0.owningApplication?.processID != me }
+            .map { WindowInfo(id: $0.windowID, title: $0.title ?? "", app: $0.owningApplication?.applicationName ?? "") }
+            .filter { !$0.title.isEmpty || !$0.app.isEmpty }
+    }
+
+    // The first window whose title or app contains `text` (case-insensitive).
+    static func window(matching text: String) async -> WindowInfo? {
+        let t = text.lowercased()
+        return await windows().first { $0.title.lowercased().contains(t) || $0.app.lowercased().contains(t) }
+    }
+
     func stop() async {
         try? await stream?.stopCapture()
         stream = nil

@@ -304,7 +304,7 @@ void save_fov(float fov) {
 // Server
 // ---------------------------------------------------------------------------------------
 
-enum HotKey { kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown };
+enum HotKey { kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump };
 
 
 struct LatencyStats {
@@ -351,6 +351,7 @@ private:
     void refresh_rects();
     void follow_gaze(uint64_t now);
     void apply_pinned(const Options& o);
+    void jump_cursor_to_gaze();
     void apply_pending();
     void set_state(nimbo_state st);
 
@@ -688,7 +689,8 @@ bool Server::start() {
         const char* name;
     };
     std::vector<Key> keys = {{kRecenter, 'C', "Ctrl+Alt+C"}, {kQuit, 'Q', "Ctrl+Alt+Q"},
-                             {kFovDown, VK_OEM_MINUS, "Ctrl+Alt+-"}, {kFovUp, VK_OEM_PLUS, "Ctrl+Alt+="}};
+                             {kFovDown, VK_OEM_MINUS, "Ctrl+Alt+-"}, {kFovUp, VK_OEM_PLUS, "Ctrl+Alt+="},
+                             {kJump, 'J', "Ctrl+Alt+J"}};
     if (opt_.sim) {
         keys.push_back({kLeft, VK_LEFT, "Ctrl+Alt+Left"});
         keys.push_back({kRight, VK_RIGHT, "Ctrl+Alt+Right"});
@@ -982,6 +984,22 @@ void Server::apply_pinned(const Options& o) {
     ro.arc_deg = core::arc_at_distance(seen, 2.0f, ro.distance_m) / kDeg;  // undo the render's distance scaling
 }
 
+// Ctrl+Alt+J: the cursor jumps to the centre of the monitor you are looking at.
+void Server::jump_cursor_to_gaze() {
+    const auto p = pose_->latest();
+    if (!p || !p->tracking) return;
+    const int i = renderer_.panel_at_gaze(p->orientation);
+    if (i < 0 || i >= static_cast<int>(panel_rects_.size())) {
+        logln("cursor: jump, no monitor in view");
+        return;
+    }
+    const RECT& r = panel_rects_[static_cast<size_t>(i)];
+    SetCursorPos((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    last_cursor_ = {(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+    last_gaze_panel_ = i;
+    logln("cursor: jump to panel %d", i + 1);
+}
+
 void Server::refresh_rects() {
     panel_rects_.clear();
     for (const auto& name : panel_names_) {
@@ -1153,6 +1171,7 @@ void Server::on_hotkey(int id) {
     case kRight: pose_->nudge(-step, 0); break;
     case kUp: pose_->nudge(0, step); break;
     case kDown: pose_->nudge(0, -step); break;
+    case kJump: jump_cursor_to_gaze(); break;
     default: break;
     }
 }
@@ -1183,7 +1202,7 @@ void Server::run() {
 void Server::shutdown() {
     if (shut_) return;
     shut_ = true;
-    for (int id = kRecenter; id <= kDown; ++id) UnregisterHotKey(hwnd_, id);
+    for (int id = kRecenter; id <= kJump; ++id) UnregisterHotKey(hwnd_, id);
     for (auto& c : captures_) c->stop();
     captures_.clear();
     pose_.reset();  // stream-off

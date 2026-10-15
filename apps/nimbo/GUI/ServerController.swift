@@ -68,6 +68,8 @@ final class ServerController: ObservableObject {
                 self.pending = nil
                 self.server = s
                 self.runningOptions = options
+                self.runningOptions?.floatingWindows = s.floatingResolved
+                self.model?.floating = s.floatingResolved  // poses chosen by the server
                 self.state = .calibrating
             } catch {
                 s.stop()
@@ -106,6 +108,19 @@ final class ServerController: ObservableObject {
             start()
         } else {
             server.applyLive(next)
+            let ids = { (o: ServerOptions) in o.floatingWindows.map(\.windowID) }
+            if ids(next) != ids(running) {
+                // Windows added or removed: their captures restart, then the panel gets the
+                // poses the server chose (centred above the monitors).
+                Task { @MainActor [weak self, weak server] in
+                    guard let server else { return }
+                    await server.setFloatingWindows(next.floatingWindows)
+                    self?.runningOptions?.floatingWindows = server.floatingResolved
+                    self?.model?.floating = server.floatingResolved
+                }
+            } else {
+                server.applyFloatingPoses(next.floatingWindows.map { $0.pose ?? PanelPos(yaw: 0, pitch: 0) })
+            }
             runningOptions = next
         }
     }

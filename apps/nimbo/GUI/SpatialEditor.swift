@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-// Hand placement of the monitors, seen from where you sit: drag each one where you want it
-// (it moves on the glasses at the same time), pick one to change its own size. Edges and
-// centres snap to the other monitors; hold ⌥ to place freely.
+// Hand placement of the monitors and floating windows, seen from where you sit: drag each one
+// where you want it (it moves on the glasses at the same time), pick one to change its own
+// size. Edges and centres snap to the others; hold ⌥ to place freely.
 struct SpatialEditor: View {
     @ObservedObject var model: AppModel
     @StateObject private var selectedBox = Box(0)
@@ -15,8 +15,16 @@ struct SpatialEditor: View {
     private var ppd: CGFloat { canvas.width / CGFloat(spanDeg) }  // points per degree
     private let snapDeg: Float = 1.5
 
+    private var monitorCount: Int { model.effectivePoses.count }
+    // Floating windows the server has placed (pose known), with their index in model.floating.
+    private var floatIndices: [Int] { model.floating.indices.filter { model.floating[$0].pose != nil } }
+    // Monitors first, then floating windows: one list for drawing, snapping and sizing.
+    private var items: [PanelPos] { model.effectivePoses + floatIndices.compactMap { model.floating[$0].pose } }
+
+    private func label(_ i: Int) -> String { i < monitorCount ? "\(i + 1)" : "V\(i - monitorCount + 1)" }
+
     var body: some View {
-        let poses = model.effectivePoses
+        let poses = items
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.35))
@@ -38,7 +46,8 @@ struct SpatialEditor: View {
             .clipped()
 
             HStack(spacing: 14) {
-                Text("Monitor \(selected + 1)").font(Theme.body).foregroundStyle(Theme.text).frame(width: 90, alignment: .leading)
+                Text(selected < monitorCount ? "Monitor \(selected + 1)" : "Ventana \(label(selected))")
+                    .font(Theme.body).foregroundStyle(Theme.text).frame(width: 110, alignment: .leading)
                 Slider(value: Binding(get: { Double(poses[safe: selected]?.scale ?? 1) }, set: { setScale(Float($0)) }),
                        in: 0.5...1.6, step: 0.05)
                     .tint(Theme.accent)
@@ -58,10 +67,11 @@ struct SpatialEditor: View {
     private func monitor(index i: Int, pose p: PanelPos) -> some View {
         let w = CGFloat(Float(model.size) * p.scale) * ppd
         let h = CGFloat(AppModel.verticalArc(Float(model.size) * p.scale)) * ppd
+        let isWindow = i >= monitorCount
         return RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill((i == 0 ? Theme.cardMain : Theme.card).opacity(i == selected ? 0.95 : 0.7))
+            .fill((isWindow ? Theme.accent.opacity(0.55) : i == 0 ? Theme.cardMain : Theme.card).opacity(i == selected ? 0.95 : 0.7))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.accent.opacity(i == selected ? 0.9 : 0), lineWidth: 1.5))
-            .overlay(Text("\(i + 1)").font(.system(size: 20, weight: .light)).foregroundStyle(Theme.text))
+            .overlay(Text(label(i)).font(.system(size: 20, weight: .light)).foregroundStyle(Theme.text))
             .frame(width: w, height: h)
             .position(point(yaw: p.yaw, pitch: p.pitch))
             .gesture(
@@ -69,7 +79,8 @@ struct SpatialEditor: View {
                     .onChanged { v in drag(index: i, translation: v.translation) }
                     .onEnded { _ in
                         dragStartBox.value = nil
-                        model.place(model.panelPoses)  // the OS arrangement follows the new order, once
+                        // The OS arrangement follows the monitors' new order, once.
+                        if i < monitorCount { model.place(model.panelPoses) }
                     }
             )
             .onTapGesture { selectedBox.value = i }
@@ -90,21 +101,32 @@ struct SpatialEditor: View {
 
     private func drag(index i: Int, translation: CGSize) {
         selectedBox.value = i
-        if dragStartBox.value == nil { dragStartBox.value = model.effectivePoses }
-        guard var poses = dragStartBox.value else { return }
+        if dragStartBox.value == nil { dragStartBox.value = items }
+        guard var poses = dragStartBox.value, poses.indices.contains(i) else { return }
         var p = poses[i]
         p.yaw += Float(translation.width / ppd)
         p.pitch -= Float(translation.height / ppd)
         if !NSEvent.modifierFlags.contains(.option) { p = snap(p, index: i, among: poses) }
         poses[i] = p
-        model.panelPoses = poses  // live on the glasses; the arrangement is settled on release
+        write(poses, changed: i, settle: false)  // live on the glasses
     }
 
     private func setScale(_ s: Float) {
-        var poses = model.effectivePoses
+        var poses = items
         guard poses.indices.contains(selected) else { return }
         poses[selected].scale = s
-        model.place(poses)
+        write(poses, changed: selected, settle: true)
+    }
+
+    // Monitors back to panelPoses (settle: the OS arrangement follows), windows to model.floating.
+    private func write(_ poses: [PanelPos], changed i: Int, settle: Bool) {
+        let m = monitorCount
+        if i < m {
+            let monitors = Array(poses.prefix(m))
+            if settle { model.place(monitors) } else { model.panelPoses = monitors }
+        } else if floatIndices.indices.contains(i - m) {
+            model.floating[floatIndices[i - m]].pose = poses[i]
+        }
     }
 
     // Edges touching, centres and tops/bottoms aligned with the other monitors, and the

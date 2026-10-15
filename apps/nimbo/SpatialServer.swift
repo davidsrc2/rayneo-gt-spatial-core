@@ -65,6 +65,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var displayLink: CAMetalDisplayLink?
     private var renderThread: Thread?
     private var captures: [ScreenCapture] = []
+    private var floatingCaptures: [ScreenCapture] = []  // floating windows, panels after the monitors
+    private(set) var floatingResolved: [FloatingWindow] = []  // with window ids and poses
     private var desktop: VirtualDesktop?
     private var patternWindows: [NSWindow] = []
     private var panelDisplays: [CGDirectDisplayID] = []  // left -> right
@@ -301,6 +303,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                                       : "cursor: could not hide the hardware cursor")
         }
         try await startCaptures(glasses: glasses)
+        await setFloatingWindows(options.floatingWindows)
         try Task.checkCancellation()
         startRenderLoop(layer: layer)
         startMonitoring()
@@ -402,6 +405,70 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         requestRedraw()
     }
 
+    // MARK: floating windows
+
+    private var monitorPanels: Int { max(1, panelDisplays.count) }
+
+    // Where a new floating window goes: centred above the monitors, one monitor wide.
+    private func defaultFloatingPose(above index: Int) -> PanelPos {
+        let size = options.panelArcDeg, gap = options.gapDeg
+        let vArc = 2 * atan(tan(size * .pi / 360) / (16.0 / 9.0)) * 180 / .pi
+        let top: Float
+        if let poses = options.panelPoses, !poses.isEmpty {
+            top = poses.map { $0.pitch + vArc * $0.scale / 2 }.max() ?? vArc / 2
+        } else {
+            let rows = Set((options.layout ?? []).map(\.row)).count
+            top = Float(max(1, rows) - 1) * (vArc + gap) / 2 + vArc / 2
+        }
+        return PanelPos(yaw: 0, pitch: top + gap + vArc / 2 + Float(index) * (vArc + gap), scale: 1)
+    }
+
+    // Starts (or restarts) the captures of the floating windows and makes them panels after
+    // the monitors. Windows given by text are looked up by title / app name.
+    @MainActor
+    func setFloatingWindows(_ specs: [FloatingWindow]) async {
+        let old = floatingCaptures
+        floatingCaptures = []
+        for c in old { await c.stop() }
+        var resolved: [FloatingWindow] = []
+        let base = monitorPanels
+        for spec in specs.prefix(8 - base) {
+            var w = spec
+            if w.windowID == 0 {
+                guard let found = await ScreenCapture.window(matching: spec.match) else {
+                    log("window: nothing matches \"\(spec.match)\"")
+                    continue
+                }
+                w.windowID = found.id
+                w.title = found.app + (found.title.isEmpty ? "" : " — " + found.title)
+            }
+            if w.pose == nil { w.pose = defaultFloatingPose(above: resolved.count) }
+            let panel = UInt(base + resolved.count)
+            let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: panel) }
+            do {
+                let (pw, ph) = try await cap.start(windowID: CGWindowID(w.windowID), fps: 60)
+                floatingCaptures.append(cap)
+                resolved.append(w)
+                log("window: panel \(Int(panel) + 1) <- \(w.title) \(pw)x\(ph)")
+            } catch {
+                log("window: \(error.localizedDescription)")
+            }
+        }
+        floatingResolved = resolved
+        options.floatingWindows = resolved
+        renderer.panelCount = UInt(base + resolved.count)
+        applyFloatingPoses(resolved.map { $0.pose ?? PanelPos(yaw: 0, pitch: 0) })
+    }
+
+    // Moving or resizing floating windows (editor), live.
+    func applyFloatingPoses(_ poses: [PanelPos]) {
+        guard let renderer else { return }
+        for (i, p) in poses.enumerated() where i < floatingResolved.count { floatingResolved[i].pose = p }
+        renderer.setFloatingPosesYaw(poses.map { NSNumber(value: $0.yaw) }, pitch: poses.map { NSNumber(value: $0.pitch) },
+                                     scale: poses.map { NSNumber(value: $0.scale) })
+        requestRedraw()
+    }
+
     // Hand-placed monitors (layout editor), live.
     private func applyPoses(_ o: ServerOptions) {
         guard let renderer else { return }
@@ -461,7 +528,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         // Pinned: the glasses pan over the image, so where the head points says nothing reliable
         // about which panel is in view.
-        guard options.gazeCursor, !options.glassesPinned, let p = pose.latest(), p.tracking else { return }
+        // --windowed: the cursor is on the Mac's own screen, the panels are only a preview.
+        guard options.gazeCursor, !options.glassesPinned, !options.windowed, let p = pose.latest(), p.tracking else { return }
         let panel = renderer.panel(atGaze: p.orientation)
         guard panel != lastGazePanel else {
             gazeCandidate = panel
@@ -513,8 +581,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         pose?.stop()
         physicalDisplay = nil
         glassesID = nil
-        let caps = captures
+        let caps = captures + floatingCaptures
         captures = []
+        floatingCaptures = []
         let done = DispatchSemaphore(value: 0)
         Task.detached {
             for c in caps { await c.stop() }
@@ -550,6 +619,22 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         return i >= 0 && i < panelDisplays.count ? i : nil
     }
 
+    // ⌘⌥J: the cursor jumps to the centre of the monitor you are looking at (on demand, where
+    // the gaze cursor would do it on its own).
+    func jumpCursorToGaze() {
+        guard let p = pose.latest(), p.tracking else { return }
+        let i = renderer.panel(atGaze: p.orientation)
+        guard i >= 0, i < panelDisplays.count else {
+            log("cursor: jump, no monitor in view")
+            return
+        }
+        let b = CGDisplayBounds(panelDisplays[i])
+        CGWarpMouseCursorPosition(CGPoint(x: b.midX, y: b.midY))
+        CGAssociateMouseAndMouseCursorPosition(1)
+        lastGazePanel = i
+        log("cursor: jump to panel \(i + 1)")
+    }
+
     func recenter() {
         // Glasses in their own pinned mode hold an anchor too: setting pinned again recentres it.
         if options.recenterGlasses || options.glassesPinned, let imu = pose as? ImuPoseSource {
@@ -567,6 +652,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         guard let hotKeys else { return }
         hotKeys.register(keyCode: kVK_ANSI_C, modifiers: mods) { [weak self] in self?.recenter() }
         hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: mods) { [weak self] in self?.requestStop("stopped (⌘⌥Q)") }
+        hotKeys.register(keyCode: kVK_ANSI_J, modifiers: mods) { [weak self] in self?.jumpCursorToGaze() }
         // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
         // turning, the render FOV is too large (Cmd+Opt+-); against it, too small (Cmd+Opt+=).
         hotKeys.register(keyCode: kVK_ANSI_Minus, modifiers: mods) { [weak self] in self?.adjustFov(-0.5) }
@@ -707,7 +793,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let s = stats
         stats = LatencyStats()
         statsLock.unlock()
-        let capFrames = captures.reduce(UInt64(0)) { $0 &+ $1.frames }
+        let capFrames = (captures + floatingCaptures).reduce(UInt64(0)) { $0 &+ $1.frames }
         let capFps = capFrames &- lastCaptureFrames
         lastCaptureFrames = capFrames
         guard s.frames + s.idle > 0 else {

@@ -103,6 +103,7 @@ static float panel_arc(RNRenderOptions* o) {
     NSUInteger _panelCount;  // guarded by _sourceLock
     std::vector<core::GridCell> _cells;  // guarded by _sourceLock
     std::vector<core::PanelPose> _poses;  // guarded by _sourceLock: hand-placed panels
+    std::vector<core::PanelPose> _floating;  // guarded by _sourceLock: floating windows, after the monitors
 
     id<MTLTexture> _placeholder;
     id<MTLTexture> _eyeTextures[2];
@@ -211,15 +212,40 @@ static float panel_arc(RNRenderOptions* o) {
     os_unfair_lock_unlock(&_sourceLock);
 }
 
+- (void)setFloatingPosesYaw:(NSArray<NSNumber*>*)yaw pitch:(NSArray<NSNumber*>*)pitch scale:(NSArray<NSNumber*>*)scale {
+    std::vector<core::PanelPose> poses;
+    for (NSUInteger i = 0; i < MIN(yaw.count, MIN(pitch.count, scale.count)); ++i) {
+        poses.push_back({yaw[i].floatValue, pitch[i].floatValue, scale[i].floatValue});
+    }
+    os_unfair_lock_lock(&_sourceLock);
+    _floating = std::move(poses);
+    os_unfair_lock_unlock(&_sourceLock);
+}
+
+// Monitors first (grid or hand-placed), then the floating windows.
 - (std::vector<core::PanelPlacement>)placements:(NSUInteger)count aspect:(float)aspect {
+    RNRenderOptions* o = _options;
+    os_unfair_lock_lock(&_sourceLock);
+    std::vector<core::PanelPose> floating = _floating;
+    os_unfair_lock_unlock(&_sourceLock);
+    const NSUInteger floats = std::min<NSUInteger>(floating.size(), count > 0 ? count - 1 : 0);
+    auto out = [self monitorPlacements:count - floats aspect:aspect];
+    // Placed at the editor's panel size: angles follow the arc actually shown (distance,
+    // pinned fitting), so the arrangement keeps its shape.
+    const float placed = (o.layoutArcDegrees > 0.0f ? o.layoutArcDegrees : o.arcDegrees) * kDegToRad;
+    const float k = placed > 0.0f ? panel_arc(o) / placed : 1.0f;
+    floating.resize(floats);
+    for (const auto& pl : core::placements_from_poses(floating, k)) out.push_back(pl);
+    return out;
+}
+
+- (std::vector<core::PanelPlacement>)monitorPlacements:(NSUInteger)count aspect:(float)aspect {
     RNRenderOptions* o = _options;
     os_unfair_lock_lock(&_sourceLock);
     std::vector<core::GridCell> cells = _cells;
     std::vector<core::PanelPose> poses = _poses;
     os_unfair_lock_unlock(&_sourceLock);
     if (poses.size() == count) {
-        // Placed at the editor's panel size: angles follow the arc actually shown (distance,
-        // pinned fitting), so the arrangement keeps its shape.
         const float placed = (o.layoutArcDegrees > 0.0f ? o.layoutArcDegrees : o.arcDegrees) * kDegToRad;
         return core::placements_from_poses(poses, placed > 0.0f ? panel_arc(o) / placed : 1.0f);
     }

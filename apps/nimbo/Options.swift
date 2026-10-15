@@ -14,6 +14,15 @@ struct PanelPos: Codable, Hashable {
     var scale: Float = 1
 }
 
+// A single window shown as a panel of its own (a video above the monitors...). Identified by
+// its window id, or by text in its title / app name (CLI). pose nil: centred above the monitors.
+struct FloatingWindow: Hashable {
+    var windowID: UInt32 = 0
+    var match = ""
+    var title = ""
+    var pose: PanelPos? = nil
+}
+
 struct ServerOptions {
     var sideBySide: Bool? = nil   // nil: SBS on the glasses, mono in --windowed
     var ipdMM: Float = 63
@@ -32,6 +41,7 @@ struct ServerOptions {
     var displays = 2              // virtual monitors; 0 = capture an existing display
     var layout: [GridPos]? = nil  // grid cell per monitor; nil = one row
     var panelPoses: [PanelPos]? = nil  // hand-placed monitors (same count as layout); nil = the grid
+    var floatingWindows: [FloatingWindow] = []  // single windows as panels, after the monitors
     var vdWidth = 1152            // points; with hiDPI: large, sharp text
     var vdHeight = 648
     var hiDPI = true
@@ -73,6 +83,8 @@ struct ServerOptions {
       --curvature K        0 flat .. 1 fully curved around you
       --distance M         panel radius in metres (2.0)
       --poses Y,P,S;...    hand-placed monitors: degrees right, degrees up and size (1 = normal)
+      --window TEXT[@Y,P,S] float the window whose title or app contains TEXT as a panel of its
+                           own (default: centred above the monitors); repeatable
       --test-pattern       labelled grid on each virtual monitor
       --keep-main          keep the glasses display as macOS's main display, shown as the left
                            panel (two cursors: macOS draws one on the glasses surface)
@@ -129,6 +141,16 @@ struct ServerOptions {
                 let poses = value()?.split(separator: ";").map { $0.split(separator: ",").compactMap { Float($0) } } ?? []
                 guard !poses.isEmpty, poses.count <= 8, poses.allSatisfy({ $0.count == 3 }) else { return nil }
                 o.panelPoses = poses.map { PanelPos(yaw: $0[0], pitch: $0[1], scale: $0[2]) }
+            case "--window":
+                guard let v = value(), !v.isEmpty else { return nil }
+                let parts = v.split(separator: "@", maxSplits: 1).map(String.init)
+                var w = FloatingWindow(match: parts[0])
+                if parts.count == 2 {
+                    let n = parts[1].split(separator: ",").compactMap { Float($0) }
+                    guard n.count == 3 else { return nil }
+                    w.pose = PanelPos(yaw: n[0], pitch: n[1], scale: n[2])
+                }
+                o.floatingWindows.append(w)
             case "--dead-zone": guard let v = float() else { return nil }; o.deadZoneDeg = v
             case "--vd-size":
                 let parts = value()?.split(separator: "x").compactMap { Int($0) } ?? []

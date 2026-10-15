@@ -30,6 +30,8 @@ final class AppModel: ObservableObject {
     }
     // Hand-placed monitors (layout editor); empty = the grid. Same count and order as cells.
     @Published var panelPoses: [PanelPos] { didSet { save(panelPoses, "panelPoses") } }
+    // Single windows floating as panels (this session: window ids do not survive the app).
+    @Published var floating: [FloatingWindow] = []
     private var keepingPoses = false
     @Published var textSize: Int { didSet { d.set(textSize, forKey: "textSize") } }
     @Published var distance: Double { didSet { d.set(distance, forKey: "distance") } }
@@ -303,6 +305,7 @@ final class AppModel: ObservableObject {
         o.headless = false
         o.layout = normalizedCells
         o.panelPoses = panelPoses.count == cells.count ? panelPoses : nil
+        o.floatingWindows = floating
         o.displays = cells.count
         let resolution = Self.textSizes[max(0, min(Self.textSizes.count - 1, textSize))]
         o.vdWidth = resolution.width

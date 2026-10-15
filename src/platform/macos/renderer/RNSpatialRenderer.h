@@ -52,6 +52,10 @@ NS_ASSUME_NONNULL_BEGIN
 // (Nimbo's layout editor). Empty or a count other than panelCount: the grid. Any thread.
 - (void)setPanelPosesYaw:(NSArray<NSNumber*>*)yaw pitch:(NSArray<NSNumber*>*)pitch scale:(NSArray<NSNumber*>*)scale;
 
+// Floating windows: the last N panels (after the monitors) show single windows, placed at
+// these poses (same units as the monitor poses). Their shape follows each window. Any thread.
+- (void)setFloatingPosesYaw:(NSArray<NSNumber*>*)yaw pitch:(NSArray<NSNumber*>*)pitch scale:(NSArray<NSNumber*>*)scale;
+
 // Panel arc (deg) that fits `count` panels (columns) in the horizontal FOV of the options.
 - (float)fitArcDegreesForPanels:(NSUInteger)count;
 
