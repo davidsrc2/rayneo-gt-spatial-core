@@ -26,6 +26,21 @@
             </StackPanel>
 
             <StackPanel Spacing="8">
+                <TextBlock Text="Colocar a mano" FontSize="13" Opacity="0.7" />
+                <Border CornerRadius="12" Background="#59000000" HorizontalAlignment="Left">
+                    <Canvas x:Name="PlaceCanvas" Width="560" Height="250" Background="Transparent" />
+                </Border>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock x:Name="PlaceSelected" VerticalAlignment="Center" Width="90" />
+                    <Slider x:Name="PlaceScale" Width="220" Minimum="0.5" Maximum="1.6" StepFrequency="0.05"
+                            ValueChanged="PlaceScale_Changed" />
+                    <Button x:Name="PlaceReset" Content="Volver a la cuadrícula" Click="PlaceReset_Click" />
+                </StackPanel>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
+                           Text="Arrastra cada monitor a su sitio; se mueve en las gafas a la vez. Se alinea solo con los demás (mantén Alt para colocarlo libre). Elige uno para cambiar su tamaño." />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
                 <TextBlock Text="Inicio" FontSize="13" Opacity="0.7" />
                 <ToggleSwitch x:Name="StartupToggle" Header="Abrir Nimbo al iniciar Windows" Toggled="Startup_Toggled" />
             </StackPanel>

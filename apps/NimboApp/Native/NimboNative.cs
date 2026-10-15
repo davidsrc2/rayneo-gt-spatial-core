@@ -43,6 +43,10 @@ internal static unsafe class NimboNative
         public byte Hotkeys;
         public int TrackingAxes;  // 0 both, 1 left/right, 2 up/down
         public byte GlassesPinned;
+        public int PoseCount;
+        public fixed float PoseYaw[MaxPanels];
+        public fixed float PosePitch[MaxPanels];
+        public fixed float PoseScale[MaxPanels];
     }
 
     public enum State
@@ -85,6 +89,10 @@ internal static unsafe class NimboNative
         public byte OnboardingDone;
         public int Tracking;
         public byte GlassesPinned;
+        public int PoseCount;
+        public fixed float PoseYaw[MaxPanels];
+        public fixed float PosePitch[MaxPanels];
+        public fixed float PoseScale[MaxPanels];
     }
 
     [StructLayout(LayoutKind.Sequential)]

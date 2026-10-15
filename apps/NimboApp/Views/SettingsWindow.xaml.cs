@@ -1,4 +1,8 @@
 using System.Diagnostics;
+using Microsoft.UI.Input;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -61,6 +65,7 @@ public sealed partial class SettingsWindow : Window
             : "Aún no has calibrado tus gafas (se usa la orientación por defecto).";
         StartupToggle.IsOn = Startup.Enabled;
         DrawLayout();
+        DrawPlacement();
         DimToggle.IsOn = _model.DimOthers;
         PinnedToggle.IsOn = _model.GlassesPinned;
         TrackingChoice.SelectedIndex = _model.Tracking switch { 1 => 0, 2 => 1, _ => 2 };
@@ -127,11 +132,206 @@ public sealed partial class SettingsWindow : Window
     {
         if (_model.AddMonitor()) _server.SettingsChanged();
         DrawLayout();
+        DrawPlacement();
     }
 
     private void RemoveMonitor_Click(object sender, RoutedEventArgs e)
     {
         if (_model.RemoveMonitor()) _server.SettingsChanged();
+        DrawLayout();
+        DrawPlacement();
+    }
+
+    // --- hand placement (SpatialEditor.swift on macOS) -------------------------------------------
+
+    private const float SpanDeg = 150f;  // horizontal degrees across the canvas
+    private const float SnapDeg = 1.5f;
+    private readonly List<Border> _placeViews = new();
+    private int _placeSelected;
+    private int _dragging = -1;
+    private Windows.Foundation.Point _dragStart;
+    private PanelPos[] _dragPoses = Array.Empty<PanelPos>();
+
+    private double Ppd => PlaceCanvas.Width / SpanDeg;
+
+    private Windows.Foundation.Point ToCanvas(float yaw, float pitch) =>
+        new(PlaceCanvas.Width / 2 + yaw * Ppd, PlaceCanvas.Height / 2 - pitch * Ppd);
+
+    // Degrees the glasses show around straight ahead, in editor units; in pinned mode the image
+    // the glasses hold, which Nimbo fits the arrangement into.
+    private (float W, float H) ViewFrame()
+    {
+        float fovY = _model.Fov;
+        float hfov = 2f * MathF.Atan(MathF.Tan(fovY * MathF.PI / 360f) * AppModel.EyeAspect) * 180f / MathF.PI;
+        if (!_model.GlassesPinned) return (hfov, fovY);
+        float columns = Math.Max(1, _model.Cells.Select(c => c.Col).Distinct().Count());
+        float fit = (hfov - 2f - (columns - 1) * _model.Gap) / columns;
+        float shrink = Math.Min(1f, fit / _model.Size);
+        return (hfov / shrink, fovY / shrink);
+    }
+
+    private void DrawPlacement()
+    {
+        PlaceCanvas.Children.Clear();
+        _placeViews.Clear();
+        var view = ViewFrame();
+        var frame = new Microsoft.UI.Xaml.Shapes.Rectangle
+        {
+            Width = view.W * Ppd,
+            Height = view.H * Ppd,
+            Stroke = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(150, 200, 200, 200)),
+            StrokeDashArray = new DoubleCollection { 4, 3 },
+            RadiusX = 6,
+            RadiusY = 6,
+        };
+        var c = ToCanvas(0, 0);
+        Microsoft.UI.Xaml.Controls.Canvas.SetLeft(frame, c.X - frame.Width / 2);
+        Microsoft.UI.Xaml.Controls.Canvas.SetTop(frame, c.Y - frame.Height / 2);
+        PlaceCanvas.Children.Add(frame);
+
+        var poses = _model.EffectivePoses;
+        _placeSelected = Math.Clamp(_placeSelected, 0, Math.Max(0, poses.Length - 1));
+        for (int i = 0; i < poses.Length; ++i)
+        {
+            int index = i;
+            var b = new Border
+            {
+                CornerRadius = new CornerRadius(6),
+                BorderThickness = new Thickness(1.5),
+                Child = new TextBlock
+                {
+                    Text = (i + 1).ToString(),
+                    FontSize = 18,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
+            b.PointerPressed += (s, e) => PlacePressed(index, (UIElement)s, e);
+            b.PointerMoved += (s, e) => PlaceMoved(index, e);
+            b.PointerReleased += (s, e) => PlaceReleased((UIElement)s, e);
+            PlaceCanvas.Children.Add(b);
+            _placeViews.Add(b);
+            PositionView(i, poses[i]);
+        }
+        PlaceSelected.Text = poses.Length > 0 ? $"Monitor {_placeSelected + 1}" : "";
+        PlaceScale.Value = poses.Length > 0 ? poses[_placeSelected].Scale : 1;
+        PlaceReset.IsEnabled = _model.HasPlacement;
+    }
+
+    private void PositionView(int i, PanelPos p)
+    {
+        var b = _placeViews[i];
+        b.Width = _model.Size * p.Scale * Ppd;
+        b.Height = AppModel.VerticalArc(_model.Size * p.Scale) * Ppd;
+        bool selected = i == _placeSelected;
+        b.Background = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(selected ? (byte)230 : (byte)160, 120, 160, 156));
+        b.BorderBrush = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(selected ? (byte)230 : (byte)0, 140, 220, 200));
+        var c = ToCanvas(p.Yaw, p.Pitch);
+        Microsoft.UI.Xaml.Controls.Canvas.SetLeft(b, c.X - b.Width / 2);
+        Microsoft.UI.Xaml.Controls.Canvas.SetTop(b, c.Y - b.Height / 2);
+    }
+
+    private void PlacePressed(int i, UIElement view, PointerRoutedEventArgs e)
+    {
+        _dragging = i;
+        _placeSelected = i;
+        _dragStart = e.GetCurrentPoint(PlaceCanvas).Position;
+        _dragPoses = _model.EffectivePoses;
+        view.CapturePointer(e.Pointer);
+        var poses = _model.EffectivePoses;
+        for (int k = 0; k < poses.Length; ++k) PositionView(k, poses[k]);
+        PlaceSelected.Text = $"Monitor {i + 1}";
+        _updating = true;
+        PlaceScale.Value = poses[i].Scale;
+        _updating = false;
+        e.Handled = true;
+    }
+
+    private void PlaceMoved(int i, PointerRoutedEventArgs e)
+    {
+        if (_dragging != i) return;
+        var pt = e.GetCurrentPoint(PlaceCanvas).Position;
+        var poses = (PanelPos[])_dragPoses.Clone();
+        var p = poses[i];
+        p = p with
+        {
+            Yaw = p.Yaw + (float)((pt.X - _dragStart.X) / Ppd),
+            Pitch = p.Pitch - (float)((pt.Y - _dragStart.Y) / Ppd),
+        };
+        bool free = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (!free) p = Snap(p, i, poses);
+        if (_model.GlassesPinned) p = ClampToView(p);
+        poses[i] = p;
+        _model.Poses = poses;
+        PositionView(i, p);
+        _server.SettingsChanged();  // live on the glasses
+        e.Handled = true;
+    }
+
+    private void PlaceReleased(UIElement view, PointerRoutedEventArgs e)
+    {
+        _dragging = -1;
+        view.ReleasePointerCapture(e.Pointer);
+        PlaceReset.IsEnabled = _model.HasPlacement;
+        DrawLayout();
+    }
+
+    // Edges touching, centres and tops/bottoms aligned with the other monitors, and the horizon.
+    private PanelPos Snap(PanelPos p, int i, PanelPos[] poses)
+    {
+        float size = _model.Size, g = _model.Gap;
+        float halfW = size * p.Scale / 2, halfH = AppModel.VerticalArc(size * p.Scale) / 2;
+        var xs = new List<float> { 0 };
+        var ys = new List<float> { 0 };
+        for (int j = 0; j < poses.Length; ++j)
+        {
+            if (j == i) continue;
+            var o = poses[j];
+            float oW = size * o.Scale / 2, oH = AppModel.VerticalArc(size * o.Scale) / 2;
+            xs.AddRange(new[] { o.Yaw, o.Yaw + oW + g + halfW, o.Yaw - oW - g - halfW });
+            ys.AddRange(new[] { o.Pitch, o.Pitch + oH - halfH, o.Pitch - oH + halfH, o.Pitch + oH + g + halfH, o.Pitch - oH - g - halfH });
+        }
+        float yaw = p.Yaw, pitch = p.Pitch, bx = SnapDeg, by = SnapDeg;
+        foreach (var t in xs)
+        {
+            if (MathF.Abs(p.Yaw - t) < bx) { bx = MathF.Abs(p.Yaw - t); yaw = t; }
+        }
+        foreach (var t in ys)
+        {
+            if (MathF.Abs(p.Pitch - t) < by) { by = MathF.Abs(p.Pitch - t); pitch = t; }
+        }
+        return p with { Yaw = yaw, Pitch = pitch };
+    }
+
+    private PanelPos ClampToView(PanelPos p)
+    {
+        var view = ViewFrame();
+        float size = _model.Size;
+        float halfW = size * p.Scale / 2, halfH = AppModel.VerticalArc(size * p.Scale) / 2;
+        return p with
+        {
+            Yaw = Math.Clamp(p.Yaw, Math.Min(0, -view.W / 2 + halfW), Math.Max(0, view.W / 2 - halfW)),
+            Pitch = Math.Clamp(p.Pitch, Math.Min(0, -view.H / 2 + halfH), Math.Max(0, view.H / 2 - halfH)),
+        };
+    }
+
+    private void PlaceScale_Changed(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_updating) return;
+        var poses = _model.EffectivePoses;
+        if (_placeSelected >= poses.Length) return;
+        poses[_placeSelected] = poses[_placeSelected] with { Scale = (float)PlaceScale.Value };
+        _model.Poses = poses;
+        PositionView(_placeSelected, poses[_placeSelected]);
+        PlaceReset.IsEnabled = true;
+        _server.SettingsChanged();
+    }
+
+    private void PlaceReset_Click(object sender, RoutedEventArgs e)
+    {
+        _model.ResetPlacement();
+        _server.SettingsChanged();
+        DrawPlacement();
         DrawLayout();
     }
 

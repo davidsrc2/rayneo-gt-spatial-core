@@ -3,6 +3,10 @@ using Nimbo.Native;
 namespace Nimbo.Core;
 
 // One-click layout or usage profile from the shared core (core/presets.h), with its title.
+// A monitor placed by hand (layout editor): degrees right / up at 2 m with the common panel
+// size, and its own size (core::PanelPose).
+internal record struct PanelPos(float Yaw, float Pitch, float Scale = 1f);
+
 internal sealed record Preset(string Id, string Title, (int Col, int Row)[] Cells, float Curvature, float Size, float Gap);
 internal sealed record ProfilePreset(string Id, string Title, string LayoutId, float Distance, int TextSize, float? Curvature,
                                      float? Size);
@@ -58,6 +62,7 @@ internal sealed unsafe class AppModel
                 _s.Cols[i] = value[i].Col;
                 _s.Rows[i] = value[i].Row;
             }
+            _s.PoseCount = 0;  // a new arrangement from the grid editor or a preset starts from the grid
         }
     }
 
@@ -81,6 +86,49 @@ internal sealed unsafe class AppModel
     public int Tracking { get => _s.Tracking; set => _s.Tracking = Math.Clamp(value, 0, 2); }  // 0 both, 1 left/right, 2 up/down
 
     public bool HasCalibration => File.Exists(CalibrationPath);
+
+    // --- hand placement (layout editor) --------------------------------------------------
+
+    public const float EyeAspect = 16f / 9f;
+
+    // Vertical size (deg) of a flat panel `arc` degrees wide (core::panel_vertical_arc).
+    public static float VerticalArc(float arc) => 2f * MathF.Atan(MathF.Tan(arc * MathF.PI / 360f) / EyeAspect) * 180f / MathF.PI;
+
+    public PanelPos[] Poses
+    {
+        get
+        {
+            var p = new PanelPos[_s.PoseCount];
+            for (int i = 0; i < p.Length; ++i) p[i] = new PanelPos(_s.PoseYaw[i], _s.PosePitch[i], _s.PoseScale[i]);
+            return p;
+        }
+        set
+        {
+            _s.PoseCount = Math.Min(value.Length, NimboNative.MaxPanels);
+            for (int i = 0; i < _s.PoseCount; ++i)
+            {
+                _s.PoseYaw[i] = value[i].Yaw;
+                _s.PosePitch[i] = value[i].Pitch;
+                _s.PoseScale[i] = value[i].Scale;
+            }
+        }
+    }
+
+    public bool HasPlacement => _s.PoseCount > 0 && _s.PoseCount == _s.CellCount;
+
+    // The grid as hand placements: where the monitors are now (core::grid_layout).
+    public PanelPos[] GridPoses()
+    {
+        var n = Normalized(Cells);
+        if (n.Length == 0) return Array.Empty<PanelPos>();
+        float midC = (n.Min(c => c.Item1) + n.Max(c => c.Item1)) / 2f, midR = (n.Min(c => c.Item2) + n.Max(c => c.Item2)) / 2f;
+        float w = Size + Gap, h = VerticalArc(Size) + Gap;
+        return n.Select(c => new PanelPos((c.Item1 - midC) * w, (midR - c.Item2) * h)).ToArray();
+    }
+
+    public PanelPos[] EffectivePoses => HasPlacement ? Poses : GridPoses();
+
+    public void ResetPlacement() => _s.PoseCount = 0;
 
     // --- layouts and profiles -------------------------------------------------------------
 

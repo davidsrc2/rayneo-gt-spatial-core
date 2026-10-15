@@ -164,6 +164,12 @@ float SpatialRenderer::vertical_arc(float aspect) const {
 }
 
 std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) const {
+    if (static_cast<int>(poses_.size()) == count_) {
+        // Placed at the editor's panel size: angles follow the arc actually shown (distance,
+        // pinned fitting), so the arrangement keeps its shape.
+        const float placed = (options.layout_arc_deg > 0.0f ? options.layout_arc_deg : options.arc_deg) * kDegToRad;
+        return core::placements_from_poses(poses_, placed > 0.0f ? panel_arc() / placed : 1.0f);
+    }
     std::vector<core::GridCell> cells = cells_;
     if (static_cast<int>(cells.size()) != count_) {
         cells.clear();
@@ -203,10 +209,10 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl) {
     const float k = std::clamp(options.curvature, 0.0f, 1.0f);
     if (p.vertices && p.aspect == p.mesh_aspect && options.distance_m == p.mesh_distance &&
         options.arc_deg == p.mesh_arc && pl.yaw_rad == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
-        k == p.mesh_curvature) {
+        k == p.mesh_curvature && pl.scale == p.mesh_scale) {
         return;
     }
-    const float arc = panel_arc();
+    const float arc = panel_arc() * pl.scale;
     const float width = core::panel_width(options.distance_m, arc, true);  // a sheet: bending keeps its width
     core::ScreenMesh mesh =
         core::bent_screen_mesh(options.distance_m, arc, width / p.aspect, k > 0.0f ? 64 : 1, k, pl.yaw_rad);
@@ -231,6 +237,7 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl) {
     p.mesh_center = pl.yaw_rad;
     p.mesh_pitch = pl.pitch_rad;
     p.mesh_curvature = k;
+    p.mesh_scale = pl.scale;
 }
 
 void SpatialRenderer::compose(Panel& p) {

@@ -77,6 +77,7 @@ struct Options {
     bool hotkeys = true;
     int tracking_axes = 1;  // 0 both, 1 left/right, 2 up/down
     bool glasses_pinned = false;
+    std::vector<core::PanelPose> poses;  // hand-placed monitors; empty = the grid
 
     int displays = 2;                      // virtual monitors; 0 = show an existing display
     std::vector<core::GridCell> layout;    // grid cell per monitor; empty = one row
@@ -128,6 +129,9 @@ Options from_c(const nimbo_options& c) {
     o.hotkeys = c.hotkeys;
     o.tracking_axes = std::clamp(c.tracking_axes, 0, 2);
     o.glasses_pinned = c.glasses_pinned;
+    for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
+        o.poses.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
+    }
     return o;
 }
 
@@ -619,6 +623,8 @@ bool Server::start() {
     ro.tracking_axes = static_cast<core::TrackingAxes>(opt_.tracking_axes);
     renderer_.set_panel_count(panels);
     if (static_cast<int>(opt_.layout.size()) == panels) renderer_.set_grid(opt_.layout);
+    ro.layout_arc_deg = opt_.panel_arc_deg();
+    renderer_.set_poses(opt_.poses);
     if (opt_.fit && !opt_.arc_deg) {
         int columns = panels;
         if (!opt_.layout.empty()) {
@@ -1235,6 +1241,8 @@ void Server::apply_pending() {
     ro.gap_deg = o->gap_deg;
     ro.curvature = o->curvature;
     if (o->arc_deg) ro.arc_deg = *o->arc_deg;
+    ro.layout_arc_deg = o->panel_arc_deg();
+    renderer_.set_poses(o->poses);
     if (o->fov_from_cli) ro.fov_y_deg = o->fov_y_deg;
     ro.ipd_m = o->ipd_mm / 1000.0f;
     ro.side_by_side = o->side_by_side.value_or(!opt_.windowed);
@@ -1308,6 +1316,9 @@ core::Settings to_core(const nimbo_settings& c) {
     s.onboarding_done = c.onboarding_done;
     s.tracking = std::clamp(c.tracking, 0, 2);
     s.glasses_pinned = c.glasses_pinned;
+    for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
+        s.panels.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
+    }
     return s;
 }
 
@@ -1336,6 +1347,12 @@ nimbo_settings to_c(const core::Settings& s) {
     c.onboarding_done = s.onboarding_done;
     c.tracking = s.tracking;
     c.glasses_pinned = s.glasses_pinned;
+    c.pose_count = static_cast<int>(std::min<size_t>(s.panels.size(), NIMBO_MAX_PANELS));
+    for (int i = 0; i < c.pose_count; ++i) {
+        c.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;
+        c.pose_pitch[i] = s.panels[static_cast<size_t>(i)].pitch_deg;
+        c.pose_scale[i] = s.panels[static_cast<size_t>(i)].scale;
+    }
     return c;
 }
 
@@ -1500,7 +1517,13 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     // 1024 points wide) are the same text sizes as 100..200 % at 1920x1080.
     static constexpr int kScale[] = {100, 125, 150, 175, 200};
     const core::Settings s = to_core(*settings);
-    const std::vector<core::GridCell> cells = core::normalized_cells(s.cells);
+    std::vector<core::GridCell> cells = core::normalized_cells(s.cells);
+    const bool placed = !s.panels.empty() && s.panels.size() == cells.size();
+    if (placed) {
+        // The OS arrangement follows where the monitors were placed.
+        const float vertical = 2.0f * std::atan(std::tan(s.size_deg * 0.00872664626f) / (16.0f / 9.0f)) / 0.0174532925f;
+        cells = core::cells_from_poses(s.panels, s.size_deg, vertical);
+    }
     nimbo_options o = *out;
     o.displays = static_cast<int>(cells.size());
     o.layout_count = o.displays;
@@ -1522,6 +1545,12 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.gather_windows = s.gather_windows;
     o.tracking_axes = s.tracking;
     o.glasses_pinned = s.glasses_pinned;
+    o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;
+    for (int i = 0; i < o.pose_count; ++i) {
+        o.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;
+        o.pose_pitch[i] = s.panels[static_cast<size_t>(i)].pitch_deg;
+        o.pose_scale[i] = s.panels[static_cast<size_t>(i)].scale;
+    }
     o.k1 = s.k1;
     o.k2 = s.k2;
     *out = o;

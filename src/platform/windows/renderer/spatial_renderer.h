@@ -34,6 +34,7 @@ struct RenderOptions {
     float dim_others = 1.0f;     // brightness of the panels you are not looking at, 1 = off
     core::TrackingAxes tracking_axes = core::TrackingAxes::Both;  // head rotations that move the panels
     bool static_head = false;    // glasses in their own pinned mode: they anchor the image, not us
+    float layout_arc_deg = 0.0f; // panel size the hand-placed poses refer to (0 = arc_deg)
 };
 
 // Render thread only, except where noted.
@@ -49,6 +50,8 @@ public:
     int panel_count() const { return count_; }
     // Grid cell per panel (row 0 = top); empty or mismatched count: one row, left -> right.
     void set_grid(std::vector<core::GridCell> cells) { cells_ = std::move(cells); }
+    // Hand-placed position and size per panel (layout editor); empty or another count: the grid.
+    void set_poses(std::vector<core::PanelPose> poses) { poses_ = std::move(poses); }
     // The capture feeding a panel (not owned; must outlive the renderer's use).
     void set_source(int panel, DesktopDuplication* source);
 
@@ -86,6 +89,7 @@ private:
         UINT index_count = 0;
         float mesh_aspect = 0, mesh_distance = 0, mesh_arc = 0, mesh_center = 0, mesh_pitch = 0;
         float mesh_curvature = -1.0f;
+        float mesh_scale = 0.0f;
         float brightness = 1.0f;
     };
 
@@ -114,6 +118,7 @@ private:
     Panel panels_[kMaxPanels];
     int count_ = 1;
     std::vector<core::GridCell> cells_;
+    std::vector<core::PanelPose> poses_;
     core::PanelDimmer dimmer_;
     core::FrameSkipper skipper_;
     uint64_t last_frame_ns_ = 0;

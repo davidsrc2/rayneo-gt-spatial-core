@@ -62,6 +62,10 @@ typedef struct {
     bool hotkeys;                       /* Ctrl+Alt+C / Q / - / = (and arrows with sim) */
     int tracking_axes;                  /* head rotations that move the panels: 0 both, 1 left/right, 2 up/down */
     bool glasses_pinned;                /* glasses in their pinned mode: panels stay put, fitted inside the image */
+    int pose_count;                     /* hand-placed monitors (layout editor); 0 or != displays: the grid */
+    float pose_yaw[NIMBO_MAX_PANELS];   /* degrees right, at 2 m with arc_deg-sized panels */
+    float pose_pitch[NIMBO_MAX_PANELS]; /* degrees up */
+    float pose_scale[NIMBO_MAX_PANELS]; /* size relative to arc_deg */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -140,12 +144,18 @@ typedef struct {
     bool onboarding_done;
     int tracking;   /* 0 both, 1 left/right only, 2 up/down only */
     bool glasses_pinned;
+    int pose_count; /* "panels": hand-placed monitors, same order as the cells; 0 = the grid */
+    float pose_yaw[NIMBO_MAX_PANELS];
+    float pose_pitch[NIMBO_MAX_PANELS];
+    float pose_scale[NIMBO_MAX_PANELS];
 } nimbo_settings;
 
 NIMBO_API nimbo_settings nimbo_default_settings(void);
 /* Missing file or keys: defaults. False only when the file exists but is not JSON. */
 NIMBO_API bool nimbo_load_settings(const char* path, nimbo_settings* out);
 NIMBO_API bool nimbo_save_settings(const char* path, const nimbo_settings* settings);
+/* The arrangement follows hand-placed monitors: layout cells are derived from their positions
+ * (core::cells_from_poses), so the cursor crosses to the neighbour you see. */
 NIMBO_API void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* out);
 
 /* One-click layouts and usage profiles shared with macOS (core/presets.h). Ids are static
