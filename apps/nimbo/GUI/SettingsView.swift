@@ -23,6 +23,12 @@ struct SettingsView: View {
                 Toggle("Atenuar los monitores que no miras", isOn: $model.dimOthers)
                     .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Gafas en modo pinned (fijo)", isOn: $model.glassesPinned)
+                    Text("Actívalo si usas el modo pinned de las RayNeo: ellas fijan la imagen y Nimbo coloca los monitores dentro, enteros.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                }
+                .font(Theme.body).foregroundStyle(Theme.text)
+                VStack(alignment: .leading, spacing: 6) {
                     Picker("Las pantallas siguen", selection: $model.tracking) {
                         Text("Solo horizontal").tag(1)
                         Text("Solo vertical").tag(2)
@@ -77,6 +83,7 @@ struct SettingsView: View {
         .onChange(of: model.gazeCursor) { server.settingsChanged() }
         .onChange(of: model.dimOthers) { server.settingsChanged() }
         .onChange(of: model.tracking) { server.settingsChanged() }
+        .onChange(of: model.glassesPinned) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }

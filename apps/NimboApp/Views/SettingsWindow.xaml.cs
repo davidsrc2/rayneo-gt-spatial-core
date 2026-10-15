@@ -62,6 +62,7 @@ public sealed partial class SettingsWindow : Window
         StartupToggle.IsOn = Startup.Enabled;
         DrawLayout();
         DimToggle.IsOn = _model.DimOthers;
+        PinnedToggle.IsOn = _model.GlassesPinned;
         TrackingChoice.SelectedIndex = _model.Tracking switch { 1 => 0, 2 => 1, _ => 2 };
         FovSlider.Value = _model.Fov;
         IpdSlider.Value = _model.Ipd;
@@ -83,6 +84,7 @@ public sealed partial class SettingsWindow : Window
     {
         if (_updating) return;
         _model.DimOthers = DimToggle.IsOn;
+        _model.GlassesPinned = PinnedToggle.IsOn;
         _model.Tracking = TrackingChoice.SelectedIndex switch { 0 => 1, 1 => 2, _ => 0 };
         _model.Fov = (float)FovSlider.Value;
         _model.Ipd = (float)IpdSlider.Value;

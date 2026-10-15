@@ -33,6 +33,7 @@ struct ServerOptions {
     var gazeCursor = true         // cursor jumps to the panel you look at
     var dimOthers: Float = 1      // brightness of the panels you are not looking at (1 = off)
     var trackingAxes = 1          // head rotations that move the panels: 0 both, 1 left/right, 2 up/down
+    var glassesPinned = false     // glasses in their own pinned mode: panels fixed in the image, fitted inside it
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
     var calibrationPath = "calibration.json"
@@ -65,6 +66,8 @@ struct ServerOptions {
       --no-gather          do not move windows from the glasses display to panel 1
       --no-gaze-cursor     keep the cursor where it is when you look at another panel
       --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
+      --pinned             the glasses are in their pinned mode: they anchor the image, so the
+                           panels stay put in it and are sized to fit inside it
       --track AXES         head rotations that move the panels: h (left/right, default: still
                            vertically), v (up/down, for stacked monitors) or both
     optics
@@ -129,6 +132,7 @@ struct ServerOptions {
                 guard let v = value(), let axes = ["both": 0, "h": 1, "v": 2][v] else { return nil }
                 o.trackingAxes = axes
             case "--full-tracking": o.trackingAxes = 0
+            case "--pinned": o.glassesPinned = true
             case "--dim": guard let v = float() else { return nil }; o.dimOthers = max(0, min(1, v))
             case "--mono": o.sideBySide = false
             case "--sbs": o.sideBySide = true

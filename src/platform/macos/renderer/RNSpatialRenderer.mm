@@ -78,6 +78,7 @@ struct Panel {
         _maxPredictionMs = 50.0f;
         _dimOthers = 1.0f;
         _trackingAxes = 0;
+        _staticHead = NO;
     }
     return self;
 }
@@ -305,8 +306,8 @@ static float effective_curvature(RNRenderOptions* o) {
     const uint64_t generation = _sourceGeneration;
     os_unfair_lock_unlock(&_sourceLock);
     core::FrameSkipper::Input in;
-    in.orientation = from_simd(orientation);
-    in.angular_speed_rads = simd_length(angularVelocity);
+    in.orientation = _options.staticHead ? core::Quat{} : from_simd(orientation);
+    in.angular_speed_rads = _options.staticHead ? 0.0f : simd_length(angularVelocity);
     in.source_generation = generation;
     in.tracking = tracking;
     in.animating = _dimmer.animating();
@@ -350,6 +351,10 @@ static float effective_curvature(RNRenderOptions* o) {
     horizon_s *= core::prediction_gain(w.norm());
     core::Quat head = core::predict_orientation(from_simd(orientation), w, horizon_s);
     head = core::track_axes(head, static_cast<core::TrackingAxes>(o.trackingAxes));
+    if (o.staticHead) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
+        head = core::Quat{};
+        horizon_s = 0.0f;
+    }
 
     // Snapshot the panels' latest frames; each stays retained until the GPU is done.
     CVMetalTextureRef textures[kMaxPanels] = {};

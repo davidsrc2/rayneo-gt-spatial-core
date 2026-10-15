@@ -61,6 +61,7 @@ typedef struct {
     bool refresh120;                    /* glasses at 120 Hz */
     bool hotkeys;                       /* Ctrl+Alt+C / Q / - / = (and arrows with sim) */
     int tracking_axes;                  /* head rotations that move the panels: 0 both, 1 left/right, 2 up/down */
+    bool glasses_pinned;                /* glasses in their pinned mode: panels stay put, fitted inside the image */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -138,6 +139,7 @@ typedef struct {
     float k1, k2;
     bool onboarding_done;
     int tracking;   /* 0 both, 1 left/right only, 2 up/down only */
+    bool glasses_pinned;
 } nimbo_settings;
 
 NIMBO_API nimbo_settings nimbo_default_settings(void);

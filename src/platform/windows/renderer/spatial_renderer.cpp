@@ -185,8 +185,8 @@ bool SpatialRenderer::can_skip_frame(const core::Quat& orientation, const core::
         if (panels_[i].source != nullptr) generation += panels_[i].source->generation();
     }
     core::FrameSkipper::Input in;
-    in.orientation = orientation;
-    in.angular_speed_rads = angular_velocity.norm();
+    in.orientation = options.static_head ? core::Quat{} : orientation;
+    in.angular_speed_rads = options.static_head ? 0.0f : angular_velocity.norm();
     in.source_generation = generation;
     in.tracking = tracking;
     in.animating = dimmer_.animating();
@@ -346,6 +346,10 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     horizon_s *= core::prediction_gain(angular_velocity.norm());
     core::Quat head = core::predict_orientation(orientation, angular_velocity, horizon_s);
     head = core::track_axes(head, options.tracking_axes);
+    if (options.static_head) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
+        head = core::Quat{};
+        horizon_s = 0.0f;
+    }
 
     for (int i = 0; i < count_; ++i) compose(panels_[i]);
     // One layout for all panels (they share a size); per-panel aspect only shapes its mesh.

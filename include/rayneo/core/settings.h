@@ -29,6 +29,7 @@ struct Settings {
     bool gather_windows = true;  // "gatherWindows"
     int tracking = 1;            // "tracking": head rotations that move the panels, TrackingAxes
                                  // (0 both, 1 left/right only, 2 up/down only)
+    bool glasses_pinned = false; // "glassesPinned": the glasses anchor the image (their pinned mode)
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"

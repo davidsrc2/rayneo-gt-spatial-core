@@ -33,6 +33,7 @@ struct RenderOptions {
     float max_prediction_ms = 50.0f;
     float dim_others = 1.0f;     // brightness of the panels you are not looking at, 1 = off
     core::TrackingAxes tracking_axes = core::TrackingAxes::Both;  // head rotations that move the panels
+    bool static_head = false;    // glasses in their own pinned mode: they anchor the image, not us
 };
 
 // Render thread only, except where noted.

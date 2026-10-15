@@ -76,6 +76,7 @@ struct Options {
     float sim_sweep_deg = 0;
     bool hotkeys = true;
     int tracking_axes = 1;  // 0 both, 1 left/right, 2 up/down
+    bool glasses_pinned = false;
 
     int displays = 2;                      // virtual monitors; 0 = show an existing display
     std::vector<core::GridCell> layout;    // grid cell per monitor; empty = one row
@@ -126,6 +127,7 @@ Options from_c(const nimbo_options& c) {
     o.refresh120 = c.refresh120;
     o.hotkeys = c.hotkeys;
     o.tracking_axes = std::clamp(c.tracking_axes, 0, 2);
+    o.glasses_pinned = c.glasses_pinned;
     return o;
 }
 
@@ -334,6 +336,7 @@ private:
     const win::OutputInfo* find_output(const std::wstring& gdi_name) const;
     void refresh_rects();
     void follow_gaze(uint64_t now);
+    void apply_pinned(const Options& o);
     void apply_pending();
     void set_state(nimbo_state st);
 
@@ -621,9 +624,13 @@ bool Server::start() {
         }
         ro.arc_deg = renderer_.fit_arc_deg(columns);
     }
+    // The glasses' pinned mode anchors the whole image and lets the eyes roam over it: moving
+    // the panels with the head as well would push them out of it. They stay put, fitted inside.
+    apply_pinned(opt_);
     static const char* kTracking[] = {"full head rotation", "left/right turn only (panels never move vertically)",
                                       "up/down only (panels never move sideways)"};
-    logln("tracking: %s", kTracking[opt_.tracking_axes]);
+    logln("tracking: %s", opt_.glasses_pinned ? "by the glasses (pinned mode); panels fitted inside their image"
+                                              : kTracking[opt_.tracking_axes]);
     logln("render: %s, %d %s panel(s) of %.1f deg gap %.1f deg at %.1f m, ipd %.0f mm, fov %.1f deg, k1 %.3f k2 %.3f",
           ro.side_by_side ? "half-SBS" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
           ro.distance_m, opt_.ipd_mm, ro.fov_y_deg, ro.k1, ro.k2);
@@ -931,6 +938,21 @@ const win::OutputInfo* Server::find_output(const std::wstring& gdi_name) const {
     return nullptr;
 }
 
+void Server::apply_pinned(const Options& o) {
+    auto& ro = renderer_.options;
+    ro.static_head = o.glasses_pinned;
+    if (!o.glasses_pinned) return;
+    int columns = std::max(1, renderer_.panel_count());
+    if (!o.layout.empty()) {
+        std::vector<int> cols;
+        for (const auto& c : o.layout) {
+            if (std::find(cols.begin(), cols.end(), c.col) == cols.end()) cols.push_back(c.col);
+        }
+        columns = static_cast<int>(cols.size());
+    }
+    ro.arc_deg = renderer_.fit_arc_deg(columns);
+}
+
 void Server::refresh_rects() {
     panel_rects_.clear();
     for (const auto& name : panel_names_) {
@@ -1034,7 +1056,8 @@ void Server::follow_gaze(uint64_t now) {
         warp(panel_rects_[static_cast<size_t>(i)], 0.5f, 0.5f);
         return;
     }
-    if (!opt_.gaze_cursor || panel_rects_.size() < 2 || !p || !p->tracking) return;
+    // Pinned: the glasses pan over the image, so the head direction does not say which panel is in view.
+    if (!opt_.gaze_cursor || opt_.glasses_pinned || panel_rects_.size() < 2 || !p || !p->tracking) return;
     if (gaze == last_gaze_panel_) {
         gaze_candidate_ = gaze;
         return;
@@ -1204,6 +1227,8 @@ void Server::apply_pending() {
     ro.k2 = o->k2;
     ro.dim_others = o->dim_others;
     ro.tracking_axes = static_cast<core::TrackingAxes>(o->tracking_axes);
+    opt_.glasses_pinned = o->glasses_pinned;
+    apply_pinned(*o);  // after the width above: it overrides it
     opt_.gaze_cursor = o->gaze_cursor;
     opt_.gather_windows = o->gather_windows;
     redraw_ = true;
@@ -1266,6 +1291,7 @@ core::Settings to_core(const nimbo_settings& c) {
     s.k2 = c.k2;
     s.onboarding_done = c.onboarding_done;
     s.tracking = std::clamp(c.tracking, 0, 2);
+    s.glasses_pinned = c.glasses_pinned;
     return s;
 }
 
@@ -1293,6 +1319,7 @@ nimbo_settings to_c(const core::Settings& s) {
     c.k2 = s.k2;
     c.onboarding_done = s.onboarding_done;
     c.tracking = s.tracking;
+    c.glasses_pinned = s.glasses_pinned;
     return c;
 }
 
@@ -1478,6 +1505,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.dim_others = s.dim_others ? 0.55f : 1.0f;  // linear light: ~80 % perceived brightness
     o.gather_windows = s.gather_windows;
     o.tracking_axes = s.tracking;
+    o.glasses_pinned = s.glasses_pinned;
     o.k1 = s.k1;
     o.k2 = s.k2;
     *out = o;

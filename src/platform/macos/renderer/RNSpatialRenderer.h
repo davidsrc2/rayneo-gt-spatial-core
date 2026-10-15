@@ -24,6 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float maxPredictionMs;  // extrapolation clamp, 50
 @property(nonatomic) float dimOthers;        // brightness of the panels you are not looking at, 1 = off
 @property(nonatomic) NSInteger trackingAxes; // core::TrackingAxes: 0 both, 1 left/right only, 2 up/down only
+@property(nonatomic) BOOL staticHead;        // glasses in their own pinned mode: they anchor the image, not us
 @end
 
 @interface RNSpatialRenderer : NSObject

@@ -274,8 +274,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let columns = Set((options.layout ?? []).map(\.col)).count
             ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(max(columns, options.layout == nil ? panels : 1)))
         }
-        log("tracking: " + ["full head rotation", "left/right turn only (panels never move vertically)",
-                            "up/down only (panels never move sideways)"][max(0, min(2, ro.trackingAxes))])
+        applyPinned(options)
+        log("tracking: " + (options.glassesPinned ? "by the glasses (pinned mode); panels fitted inside their image" : ["full head rotation", "left/right turn only (panels never move vertically)",
+                            "up/down only (panels never move sideways)"][max(0, min(2, ro.trackingAxes))]))
         log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
@@ -372,7 +373,22 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.gazeCursor = o.gazeCursor
         options.dimOthers = o.dimOthers
         options.trackingAxes = o.trackingAxes
+        options.glassesPinned = o.glassesPinned
+        applyPinned(o)  // last: it overrides the panel width
         requestRedraw()
+    }
+
+    // The glasses' pinned mode anchors the whole image in space and lets the eyes roam over
+    // it: moving the panels with the head as well would push them out of that image (the
+    // right one ended half cut). So they stay put and are sized to fit side by side in it.
+    private func applyPinned(_ o: ServerOptions) {
+        guard let renderer else { return }
+        let ro = renderer.options
+        ro.staticHead = o.glassesPinned
+        if o.glassesPinned {
+            let columns = Set((o.layout ?? []).map(\.col)).count
+            ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(max(1, o.layout == nil ? max(1, panelDisplays.count) : columns)))
+        }
     }
 
     private func requestRedraw() {
@@ -407,7 +423,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             CGAssociateMouseAndMouseCursorPosition(1)
             return
         }
-        guard options.gazeCursor, let p = pose.latest(), p.tracking else { return }
+        // Pinned: the glasses pan over the image, so where the head points says nothing reliable
+        // about which panel is in view.
+        guard options.gazeCursor, !options.glassesPinned, let p = pose.latest(), p.tracking else { return }
         let panel = renderer.panel(atGaze: p.orientation)
         guard panel != lastGazePanel else {
             gazeCandidate = panel

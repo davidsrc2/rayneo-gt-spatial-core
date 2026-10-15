@@ -42,6 +42,7 @@ internal static unsafe class NimboNative
         public byte Refresh120;
         public byte Hotkeys;
         public int TrackingAxes;  // 0 both, 1 left/right, 2 up/down
+        public byte GlassesPinned;
     }
 
     public enum State
@@ -83,6 +84,7 @@ internal static unsafe class NimboNative
         public float K1, K2;
         public byte OnboardingDone;
         public int Tracking;
+        public byte GlassesPinned;
     }
 
     [StructLayout(LayoutKind.Sequential)]

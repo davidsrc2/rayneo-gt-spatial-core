@@ -158,6 +158,7 @@ std::string settings_to_json(const Settings& s) {
     put(out, "gazeCursor", s.gaze_cursor);
     put(out, "dimOthers", s.dim_others);
     put(out, "gatherWindows", s.gather_windows);
+    put(out, "glassesPinned", s.glasses_pinned);
     out += "  \"tracking\": " + std::to_string(s.tracking) + ",\n";
     put(out, "k1", s.k1);
     put(out, "k2", s.k2);
@@ -180,7 +181,8 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         bool* value;
     } bools[] = {{"autoStart", &s.auto_start},       {"stereo", &s.stereo},
                  {"gazeCursor", &s.gaze_cursor},     {"dimOthers", &s.dim_others},
-                 {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done}};
+                 {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done},
+                 {"glassesPinned", &s.glasses_pinned}};
     bool has_tracking = false, legacy_yaw_only = true, has_legacy = false;
 
     while (!r.done() && !r.eat('}')) {
