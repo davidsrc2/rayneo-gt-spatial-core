@@ -1209,6 +1209,13 @@ bool Server::setup_virtual_displays() {
     std::vector<std::wstring> before;  // displays that are not Nimbo's
     for (const auto& o : outputs_) before.push_back(o.gdi_name);
     logln("virtual monitors: %s", backend_->name());
+    // Next to the laptop's screen, the virtual monitors take its shape (16:10 on many laptops;
+    // at 16:9 the same width drew them shorter, as if cut). Only virtual-display-rs takes any
+    // resolution; the Virtual Display Driver offers the modes of its vdd_settings.xml.
+    if (const auto* laptop = laptop_gdi_.empty() ? nullptr : find_output(laptop_gdi_);
+        laptop != nullptr && laptop->width() > 0 && std::string(backend_->name()) == "virtual-display-rs") {
+        opt_.vd_height = (opt_.vd_width * laptop->height() / laptop->width()) & ~1;
+    }
     if (!backend_->set_monitors(n, opt_.vd_width, opt_.vd_height, &error)) {
         logln("virtual monitors: %s", error.c_str());
         return false;
