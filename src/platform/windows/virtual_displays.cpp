@@ -352,7 +352,8 @@ bool DisplayArrangement::restore(const std::vector<OutputInfo>& outputs, std::st
 
 bool DisplayArrangement::arrange(const std::vector<const OutputInfo*>& panels, const std::vector<core::GridCell>& cells,
                                  const OutputInfo* glasses, const std::vector<OutputInfo>& outputs, int panel_width,
-                                 int panel_height, std::string* error) {
+                                 int panel_height, std::string* error, const OutputInfo* first) {
+    if (first != nullptr) return arrange_after(panels, cells, glasses, *first, panel_width, panel_height, error);
     // Anchor: top-right corner of the rightmost physical display (not the glasses).
     const OutputInfo* anchor = nullptr;
     for (const auto& o : outputs) {
@@ -404,6 +405,53 @@ bool DisplayArrangement::arrange(const std::vector<const OutputInfo*>& panels, c
         // Corner-only contact refused: below the last panel instead.
         queue_panels(&cx, &cy, &bx);
         place(glasses->gdi_name, bx, cy, gm->width, gm->height, gm->hz);
+        r = apply();
+    }
+    if (r != DISP_CHANGE_SUCCESSFUL) {
+        if (error != nullptr) *error = code_text("display arrangement failed", r);
+        return false;
+    }
+    return true;
+}
+
+bool DisplayArrangement::arrange_after(const std::vector<const OutputInfo*>& panels,
+                                       const std::vector<core::GridCell>& cells, const OutputInfo* glasses,
+                                       const OutputInfo& first, int panel_width, int panel_height,
+                                       std::string* error) {
+    std::vector<core::GridCell> grid = cells;
+    if (grid.size() != panels.size() + 1) {
+        grid.clear();
+        for (size_t i = 0; i <= panels.size(); ++i) grid.push_back({static_cast<int>(i), 0});
+    }
+    const int fw = first.width(), fh = first.height();
+    // Cells past the first one start at its far edge; cells before it, one panel each.
+    const auto coord = [](int d, int first_size, int size) {
+        return d == 0 ? 0 : (d > 0 ? first_size + (d - 1) * size : d * size);
+    };
+    const core::GridCell c0 = grid[0];
+    RECT corner = first.desktop;  // bottom row, then rightmost: where the glasses tuck in
+    int best = 0;
+    for (size_t i = 0; i < panels.size(); ++i) {
+        const core::GridCell c = grid[i + 1];
+        const int x = first.desktop.left + coord(c.col - c0.col, fw, panel_width);
+        const int y = first.desktop.top + coord(c.row - c0.row, fh, panel_height);
+        place(panels[i]->gdi_name, x, y, panel_width, panel_height, 60);
+        const int key = (c.row - c0.row) * 1000 + (c.col - c0.col);
+        if (key > best) {
+            best = key;
+            corner = RECT{x, y, x + panel_width, y + panel_height};
+        }
+    }
+    const auto gm = glasses != nullptr ? current_mode(glasses->gdi_name) : std::nullopt;
+    if (gm) place(glasses->gdi_name, corner.right, corner.bottom, gm->width, gm->height, gm->hz);
+    LONG r = apply();
+    if (r != DISP_CHANGE_SUCCESSFUL && gm) {  // corner-only contact refused: below instead
+        for (size_t i = 0; i < panels.size(); ++i) {
+            const core::GridCell c = grid[i + 1];
+            place(panels[i]->gdi_name, first.desktop.left + coord(c.col - c0.col, fw, panel_width),
+                  first.desktop.top + coord(c.row - c0.row, fh, panel_height), panel_width, panel_height, 60);
+        }
+        place(glasses->gdi_name, corner.left, corner.bottom, gm->width, gm->height, gm->hz);
         r = apply();
     }
     if (r != DISP_CHANGE_SUCCESSFUL) {

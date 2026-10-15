@@ -145,6 +145,9 @@ internal sealed class ServerController : IDisposable
     {
         if (!IsRunning || _busy) return;
         await StopAsync();
+        // Windows settles the displays a moment after they are restored (on macOS starting
+        // straight away found them half way and laid the monitors out wrong).
+        await Task.Delay(1500);
         await StartAsync();
     }
 

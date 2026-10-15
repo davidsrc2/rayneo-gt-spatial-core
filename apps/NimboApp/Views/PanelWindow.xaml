@@ -40,22 +40,16 @@
                     BorderThickness="1">
                 <StackPanel Spacing="6">
                     <Grid>
-                        <TextBlock Text="Distancia" FontSize="13" />
-                        <TextBlock x:Name="DistanceValue" HorizontalAlignment="Right" FontSize="13" Opacity="0.7" />
-                    </Grid>
-                    <Slider x:Name="DistanceSlider" Minimum="1.2" Maximum="3" StepFrequency="0.1"
-                            ValueChanged="Slider_ValueChanged" />
-                    <Grid>
                         <TextBlock Text="Curvatura" FontSize="13" />
                         <TextBlock x:Name="CurvatureValue" HorizontalAlignment="Right" FontSize="13" Opacity="0.7" />
                     </Grid>
                     <Slider x:Name="CurvatureSlider" Minimum="0" Maximum="1" StepFrequency="0.05"
                             ValueChanged="Slider_ValueChanged" />
                     <Grid>
-                        <TextBlock Text="Tamaño" FontSize="13" />
-                        <TextBlock x:Name="SizeValue" HorizontalAlignment="Right" FontSize="13" Opacity="0.7" />
+                        <TextBlock Text="Inclinación" FontSize="13" />
+                        <TextBlock x:Name="TiltValue" HorizontalAlignment="Right" FontSize="13" Opacity="0.7" />
                     </Grid>
-                    <Slider x:Name="SizeSlider" Minimum="28" Maximum="60" StepFrequency="1"
+                    <Slider x:Name="TiltSlider" Minimum="0" Maximum="1" StepFrequency="0.05"
                             ValueChanged="Slider_ValueChanged" />
                     <Grid>
                         <TextBlock Text="Texto" FontSize="13" />

@@ -82,9 +82,12 @@ internal sealed unsafe class AppModel
     public float K1 { get => _s.K1; set => _s.K1 = value; }
     public float K2 { get => _s.K2; set => _s.K2 = value; }
     public bool OnboardingDone { get => _s.OnboardingDone != 0; set => _s.OnboardingDone = B(value); }
-    // The user keeps the glasses in their own pinned mode (changed only with the glasses' button):
-    // Ctrl+Alt+C then recentres the glasses too. Nimbo renders the same either way.
-    public bool GlassesPinned { get => _s.GlassesMode == 1; set => _s.GlassesMode = value ? 1 : 0; }
+    // The space at real size (the app's one mode, as on macOS): panels above / below face you (1)
+    // or stand upright (0); frozen while the head holds still (anchor); the laptop's own screen
+    // as panel 1.
+    public float Tilt { get => _s.Tilt; set => _s.Tilt = Math.Clamp(value, 0f, 1f); }
+    public bool AnchorAtRest { get => _s.AnchorAtRest != 0; set => _s.AnchorAtRest = B(value); }
+    public bool LaptopScreen { get => _s.LaptopScreen != 0; set => _s.LaptopScreen = B(value); }
     public int Brightness { get => _s.Brightness; set => _s.Brightness = Math.Clamp(value, 0, 8); }  // 1..8, 0 = leave
     public int Tracking { get => _s.Tracking; set => _s.Tracking = Math.Clamp(value, 0, 2); }  // 0 both, 1 left/right, 2 up/down
 
@@ -351,7 +354,8 @@ internal sealed unsafe class AppModel
     public static bool NeedsRestart(NimboNative.Options a, NimboNative.Options b)
     {
         if (a.Displays != b.Displays || a.LayoutCount != b.LayoutCount || a.VdScale != b.VdScale ||
-            a.VdWidth != b.VdWidth || a.DeadZoneDeg != b.DeadZoneDeg || a.GatherWindows != b.GatherWindows)
+            a.VdWidth != b.VdWidth || a.DeadZoneDeg != b.DeadZoneDeg || a.GatherWindows != b.GatherWindows ||
+            a.LaptopScreen != b.LaptopScreen)
         {
             return true;
         }

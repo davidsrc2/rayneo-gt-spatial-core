@@ -74,6 +74,10 @@ typedef struct {
     float floating_yaw[NIMBO_MAX_PANELS];        /* pose like pose_*; scale <= 0: centred above the monitors */
     float floating_pitch[NIMBO_MAX_PANELS];
     float floating_scale[NIMBO_MAX_PANELS];
+    /* the space at real size (glasses in follow, set by glasses_mode 0) */
+    float tilt;                         /* panels above / below: 1 face you .. 0 upright */
+    bool real_size;                     /* every panel as large as the glasses' image (fits both ways), both axes */
+    bool laptop_screen;                 /* the computer's own (primary) screen is panel 1; the rest virtual */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -168,6 +172,9 @@ typedef struct {
     float pose_yaw[NIMBO_MAX_PANELS];
     float pose_pitch[NIMBO_MAX_PANELS];
     float pose_scale[NIMBO_MAX_PANELS];
+    float tilt;            /* panels above / below: 1 face you .. 0 upright */
+    bool anchor_at_rest;   /* panels frozen while the head holds still */
+    bool laptop_screen;    /* "macScreen": the computer's own screen is panel 1 */
 } nimbo_settings;
 
 NIMBO_API nimbo_settings nimbo_default_settings(void);

@@ -69,11 +69,10 @@ public sealed partial class SettingsWindow : Window
         DrawFloating();
         DrawRules();
         DimToggle.IsOn = _model.DimOthers;
-        PinnedToggle.IsOn = _model.GlassesPinned;
-        TrackingChoice.SelectedIndex = _model.Tracking switch { 1 => 0, 2 => 1, _ => 2 };
+        AnchorToggle.IsOn = _model.AnchorAtRest;
+        LaptopToggle.IsOn = _model.LaptopScreen;
         FovSlider.Value = _model.Fov;
         IpdSlider.Value = _model.Ipd;
-        DeadZoneSlider.Value = _model.DeadZone;
         GapSlider.Value = _model.Gap;
         StereoToggle.IsOn = _model.Stereo;
         GazeToggle.IsOn = _model.GazeCursor;
@@ -91,11 +90,10 @@ public sealed partial class SettingsWindow : Window
     {
         if (_updating) return;
         _model.DimOthers = DimToggle.IsOn;
-        _model.GlassesPinned = PinnedToggle.IsOn;
-        _model.Tracking = TrackingChoice.SelectedIndex switch { 0 => 1, 1 => 2, _ => 0 };
+        _model.AnchorAtRest = AnchorToggle.IsOn;
+        _model.LaptopScreen = LaptopToggle.IsOn;
         _model.Fov = (float)FovSlider.Value;
         _model.Ipd = (float)IpdSlider.Value;
-        _model.DeadZone = (float)DeadZoneSlider.Value;
         _model.Gap = (float)GapSlider.Value;
         _model.Stereo = StereoToggle.IsOn;
         _model.GazeCursor = GazeToggle.IsOn;
@@ -108,8 +106,6 @@ public sealed partial class SettingsWindow : Window
     private void Changed(object sender, RoutedEventArgs e) => Save();
 
     private void SliderChanged(object sender, RangeBaseValueChangedEventArgs e) => Save();
-
-    private void TrackingChanged(object sender, Microsoft.UI.Xaml.Controls.SelectionChangedEventArgs e) => Save();
 
     private void OpenLog_Click(object sender, RoutedEventArgs e)
     {

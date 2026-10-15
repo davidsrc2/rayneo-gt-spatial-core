@@ -97,6 +97,9 @@ struct Options {
     bool gather_windows = true;            // move windows off the glasses display into panel 1
     bool gaze_cursor = true;               // cursor jumps to the panel you look at
     float dim_others = 1;                  // brightness of the panels you are not looking at
+    float tilt = 1;                        // panels above / below: 1 face you .. 0 upright
+    bool real_size = false;                // not pinned: every panel as large as the glasses' image, both axes
+    bool laptop_screen = false;            // the computer's own (primary) screen is panel 1
 
     float panel_arc_deg() const { return arc_deg.value_or(displays > 0 ? 38.0f : 50.0f); }
 };
@@ -152,6 +155,9 @@ Options from_c(const nimbo_options& c) {
         f.pose = {c.floating_yaw[i], c.floating_pitch[i], f.placed ? c.floating_scale[i] : 1.0f};
         o.floating.push_back(f);
     }
+    o.tilt = std::clamp(c.tilt, 0.0f, 1.0f);
+    o.real_size = c.real_size;
+    o.laptop_screen = c.laptop_screen;
     return o;
 }
 
@@ -229,7 +235,7 @@ class ImuPose final : public PoseSource {
 public:
     explicit ImuPose(float dead_zone_deg) {
         rayneo_config cfg = rayneo_default_config();
-        if (dead_zone_deg > 0) cfg.dead_zone_deg = dead_zone_deg;
+        if (dead_zone_deg != 0) cfg.dead_zone_deg = dead_zone_deg;  // < 0: world-locked (see rayneo_config)
         engine_ = rayneo_engine_create(&cfg);
     }
     ~ImuPose() override {
@@ -431,6 +437,10 @@ private:
     uint64_t gaze_candidate_ns_ = 0;
     bool redraw_ = true;
     bool display_changed_ = false;
+    std::wstring laptop_gdi_;           // the computer's own screen as panel 1 (empty: all virtual)
+    uint64_t arranged_ns_ = 0;          // our own arrangement: its display-change messages are ours
+    void rearrange_displays();
+    std::vector<const win::OutputInfo*> virtual_panel_outputs() const;
 
     struct Sent {
         uint64_t sample_ns = 0, target_ns = 0;
@@ -513,6 +523,24 @@ bool Server::start() {
             return false;
         }
         glasses_gdi_ = glasses->gdi_name;
+    }
+
+    // The computer's own screen as panel 1: the primary display that is neither the glasses nor
+    // a virtual monitor. With a single panel, that screen alone, no virtual monitors.
+    if (opt_.laptop_screen && !opt_.windowed && opt_.displays > 0) {
+        for (const auto& o : outputs_) {
+            if (o.primary && !o.glasses && !win::is_virtual_panel(o)) laptop_gdi_ = o.gdi_name;
+        }
+        if (laptop_gdi_.empty()) {
+            logln("laptop screen: no primary display of its own (lid closed?), all panels virtual");
+        } else if (opt_.displays == 1) {
+            opt_.displays = 0;
+            opt_.source = "primary";
+            laptop_gdi_.clear();
+            logln("laptop screen: the only panel");
+        } else {
+            logln("laptop screen: %s is panel 1", win::narrow(laptop_gdi_).c_str());
+        }
     }
 
     // Virtual monitors first: arranging displays resets temporary modes such as the glasses'
@@ -996,6 +1024,19 @@ void Server::handle_display_change() {
         return;
     }
     if (const auto m = win::current_mode(glasses_gdi_)) refresh_hz_ = m->hz;
+    // Panels or the glasses' surface moved, and not by us: lay them out our way again.
+    if (virtual_ && steady_ns() - arranged_ns_ > 2000000000ull && !panel_rects_.empty()) {
+        bool moved = glasses->desktop.left != glasses_rect_.left || glasses->desktop.top != glasses_rect_.top;
+        for (size_t i = 0; i < panel_names_.size() && i < panel_rects_.size(); ++i) {
+            const auto* o = find_output(panel_names_[i]);
+            if (o != nullptr && (o->desktop.left != panel_rects_[i].left || o->desktop.top != panel_rects_[i].top)) moved = true;
+        }
+        if (moved) {
+            rearrange_displays();
+            glasses = find_output(glasses_gdi_);
+            if (glasses == nullptr) return;
+        }
+    }
     const RECT r = glasses->desktop;
     SetWindowPos(hwnd_, HWND_TOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE);
     if (r.right - r.left != width_ || r.bottom - r.top != height_) {
@@ -1027,6 +1068,25 @@ void Server::apply_pinned(const Options& o) {
     // Which panel you look at: the image is anchored on both axes, so a window above is
     // reached by looking up.
     if (o.glasses_pinned) ro.tracking_axes = core::TrackingAxes::Both;
+    ro.tilt = o.tilt;
+    // Space at real size (glasses in follow): every panel nearly as large as the glasses' own
+    // image, fixed in the room on both axes. It fits both ways (a 16:10 laptop screen is taller
+    // than the image): 94 % of what fits. The arc is set so the distance scaling cancels out.
+    if (!o.glasses_pinned && o.real_size) {
+        constexpr float kDegToRad = 0.017453292519943295f;
+        ro.tracking_axes = core::TrackingAxes::Both;
+        const float fov_y = ro.fov_y_deg * kDegToRad;
+        float tallest = 16.0f / 9.0f;
+        for (const auto& name : panel_names_) {
+            if (const auto* out = find_output(name); out != nullptr && out->height() > 0) {
+                tallest = std::min(tallest, static_cast<float>(out->width()) / static_cast<float>(out->height()));
+            }
+        }
+        const float wide = 2.0f * std::atan(std::tan(fov_y / 2) * (16.0f / 9.0f));
+        const float tall = 2.0f * std::atan(std::tan(fov_y / 2) * tallest);
+        const float fw = 0.94f * std::min(wide, tall);
+        ro.arc_deg = 2.0f * std::atan(std::tan(fw / 2) * ro.distance_m / 2.0f) / kDegToRad;
+    }
 }
 
 // Ctrl+Alt+O focus mode: only the panel you look at stays; Ctrl+Alt+P cinema: that one centred
@@ -1145,7 +1205,7 @@ bool Server::setup_virtual_displays() {
         logln("virtual monitors: %s", error.c_str());
         return false;
     }
-    const int n = opt_.displays;
+    const int n = opt_.displays - (laptop_gdi_.empty() ? 0 : 1);  // the laptop screen is one of them
     std::vector<std::wstring> before;  // displays that are not Nimbo's
     for (const auto& o : outputs_) before.push_back(o.gdi_name);
     logln("virtual monitors: %s", backend_->name());
@@ -1173,11 +1233,14 @@ bool Server::setup_virtual_displays() {
               [](const win::OutputInfo* a, const win::OutputInfo* b) { return a->gdi_name < b->gdi_name; });
     panels.resize(std::min<size_t>(panels.size(), static_cast<size_t>(n)));
     panel_names_.clear();
+    if (!laptop_gdi_.empty()) panel_names_.push_back(laptop_gdi_);
     for (const auto* p : panels) panel_names_.push_back(p->gdi_name);
 
     const win::OutputInfo* glasses = glasses_gdi_.empty() ? nullptr : find_output(glasses_gdi_);
+    const win::OutputInfo* laptop = laptop_gdi_.empty() ? nullptr : find_output(laptop_gdi_);
+    arranged_ns_ = steady_ns();
     if (!arrangement_.arrange(panels, opt_.layout, opt_.windowed ? nullptr : glasses, outputs_, opt_.vd_width,
-                              opt_.vd_height, &error)) {
+                              opt_.vd_height, &error, laptop)) {
         logln("virtual monitors: %s (is %dx%d in the driver's vdd_settings.xml?)", error.c_str(), opt_.vd_width,
               opt_.vd_height);
         return false;
@@ -1186,6 +1249,7 @@ bool Server::setup_virtual_displays() {
     outputs_ = win::enumerate_outputs();
     std::string line;
     for (const auto& name : panel_names_) {
+        if (name == laptop_gdi_) continue;  // your own screen keeps its scaling
         if (!win::set_display_scale(name, opt_.vd_scale, &error)) {
             logln("virtual monitors: scale %d%% on %s: %s", opt_.vd_scale, win::narrow(name).c_str(), error.c_str());
         }
@@ -1197,7 +1261,46 @@ bool Server::setup_virtual_displays() {
         }
     }
     logln("virtual monitors:%s, scale %d%% (removed on exit)", line.c_str(), opt_.vd_scale);
+    // New monitors may come up with Windows' default wallpaper: give them yours.
+    std::vector<RECT> fresh;
+    for (const auto* p : virtual_panel_outputs()) fresh.push_back(p->desktop);
+    const auto* own = laptop_gdi_.empty() ? nullptr : find_output(laptop_gdi_);
+    for (const auto& o : outputs_) {
+        if (own == nullptr && o.primary && !o.glasses && !win::is_virtual_panel(o)) own = &o;
+    }
+    if (own != nullptr && !fresh.empty()) {
+        logln("wallpaper: copied to %d monitor(s)", win::copy_wallpaper(own->desktop, fresh));
+    }
     return true;
+}
+
+// Nimbo's virtual monitors (the panels except the laptop screen), from the current outputs.
+std::vector<const win::OutputInfo*> Server::virtual_panel_outputs() const {
+    std::vector<const win::OutputInfo*> out;
+    for (const auto& name : panel_names_) {
+        if (name == laptop_gdi_) continue;
+        if (const auto* o = find_output(name)) out.push_back(o);
+    }
+    return out;
+}
+
+// Windows lays the displays out its own way when one comes or goes (or a driver reloads):
+// the glasses' surface beside a panel, the panels apart. Ours again; our own changes are
+// ignored for 2 s.
+void Server::rearrange_displays() {
+    if (!virtual_ || opt_.windowed) return;
+    std::string error;
+    const auto* glasses = glasses_gdi_.empty() ? nullptr : find_output(glasses_gdi_);
+    const auto* laptop = laptop_gdi_.empty() ? nullptr : find_output(laptop_gdi_);
+    arranged_ns_ = steady_ns();
+    if (!arrangement_.arrange(virtual_panel_outputs(), opt_.layout, glasses, outputs_, opt_.vd_width, opt_.vd_height,
+                              &error, laptop)) {
+        logln("displays: could not restore the arrangement: %s", error.c_str());
+        return;
+    }
+    Sleep(500);
+    outputs_ = win::enumerate_outputs();
+    logln("displays: arrangement restored");
 }
 
 // The cursor follows the panel you look at, keeping its relative position, once the mouse
@@ -1338,6 +1441,12 @@ void Server::shutdown() {
     window_captures_.clear();
     for (auto& c : captures_) c->stop();
     captures_.clear();
+    // The space at real size put the glasses in follow: back to pinned, how they are used
+    // without Nimbo (the command goes out with the next IMU read).
+    if (imu_ && pose_ && opt_.real_size && !opt_.glasses_pinned && opt_.glasses_mode == 0) {
+        pose_->set_glasses_mode(1);
+        Sleep(150);
+    }
     pose_.reset();  // stream-off
     if (hwnd_ != nullptr) {
         DestroyWindow(hwnd_);
@@ -1436,6 +1545,8 @@ void Server::apply_pending() {
     opt_.brightness = o->brightness;
     opt_.recenter_glasses = o->recenter_glasses;
     opt_.glasses_pinned = o->glasses_pinned;
+    opt_.tilt = o->tilt;
+    opt_.real_size = o->real_size;
     apply_pinned(*o);  // after the width above: it overrides it
     opt_.gaze_cursor = o->gaze_cursor;
     opt_.gather_windows = o->gather_windows;
@@ -1501,6 +1612,9 @@ core::Settings to_core(const nimbo_settings& c) {
     s.tracking = std::clamp(c.tracking, 0, 2);
     s.glasses_mode = std::clamp(c.glasses_mode, 0, 2);
     s.brightness = std::clamp(c.brightness, 0, 8);
+    s.tilt = std::clamp(c.tilt, 0.0f, 1.0f);
+    s.anchor_at_rest = c.anchor_at_rest;
+    s.mac_screen = c.laptop_screen;
     for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
         s.panels.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
     }
@@ -1533,6 +1647,9 @@ nimbo_settings to_c(const core::Settings& s) {
     c.tracking = s.tracking;
     c.glasses_mode = s.glasses_mode;
     c.brightness = s.brightness;
+    c.tilt = s.tilt;
+    c.anchor_at_rest = s.anchor_at_rest;
+    c.laptop_screen = s.mac_screen;
     c.pose_count = static_cast<int>(std::min<size_t>(s.panels.size(), NIMBO_MAX_PANELS));
     for (int i = 0; i < c.pose_count; ++i) {
         c.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;
@@ -1578,6 +1695,7 @@ nimbo_options nimbo_default_options(void) {
     o.hotkeys = true;
     o.tracking_axes = 1;
     o.glasses_mode = -1;
+    o.tilt = 1.0f;
     return o;
 }
 
@@ -1736,11 +1854,16 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.dim_others = s.dim_others ? 0.55f : 1.0f;  // linear light: ~80 % perceived brightness
     o.gather_windows = s.gather_windows;
     o.tracking_axes = s.tracking;
-    // The glasses' mode is changed with their own button. Pinned: they anchor the image, so
-    // Nimbo fits everything in it and Ctrl+Alt+C recentres them.
-    o.glasses_mode = -1;
-    o.glasses_pinned = s.glasses_mode == 1;
-    o.recenter_glasses = s.glasses_mode == 1;
+    // The app has one way of seeing the panels, as on macOS: the space at real size. Nimbo puts
+    // the glasses in follow (and back in pinned when it stops), every panel as large as their
+    // image, fixed in the room; the stabilizer world-locked, frozen at rest with the anchor.
+    o.glasses_mode = 0;
+    o.glasses_pinned = false;
+    o.recenter_glasses = false;
+    o.real_size = true;
+    o.dead_zone_deg = s.anchor_at_rest ? -1.3f : -1.0f;  // see rayneo_config: -1 - hold
+    o.tilt = s.tilt;
+    o.laptop_screen = s.mac_screen;
     o.brightness = s.brightness;
     o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;
     for (int i = 0; i < o.pose_count; ++i) {

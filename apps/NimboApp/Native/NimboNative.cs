@@ -55,6 +55,9 @@ internal static unsafe class NimboNative
         public fixed float FloatingYaw[MaxPanels];
         public fixed float FloatingPitch[MaxPanels];
         public fixed float FloatingScale[MaxPanels];   // <= 0: centred above the monitors
+        public float Tilt;          // panels above / below: 1 face you .. 0 upright
+        public byte RealSize;       // every panel as large as the glasses' image, both axes
+        public byte LaptopScreen;   // the computer's own screen is panel 1
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -110,6 +113,9 @@ internal static unsafe class NimboNative
         public fixed float PoseYaw[MaxPanels];
         public fixed float PosePitch[MaxPanels];
         public fixed float PoseScale[MaxPanels];
+        public float Tilt;
+        public byte AnchorAtRest;
+        public byte LaptopScreen;
     }
 
     [StructLayout(LayoutKind.Sequential)]

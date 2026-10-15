@@ -72,13 +72,12 @@
             <StackPanel Spacing="8">
                 <TextBlock Text="Pantallas" FontSize="13" Opacity="0.7" />
                 <ToggleSwitch x:Name="DimToggle" Header="Atenuar los monitores que no miras" Toggled="Changed" />
-                <ToggleSwitch x:Name="PinnedToggle" Toggled="Changed"
-                              Header="Mis gafas están en modo pinned (el modo se cambia con su botón). Nimbo coloca todo dentro de la imagen que fijan las gafas, así nada se corta; Ctrl+Alt+C las recentra; distancia y tamaño acercan y alejan" />
-                <RadioButtons x:Name="TrackingChoice" Header="Las pantallas siguen" SelectionChanged="TrackingChanged">
-                    <x:String>Solo horizontal (monitores en fila, quietos al mirar arriba o abajo)</x:String>
-                    <x:String>Solo vertical (monitores uno encima de otro)</x:String>
-                    <x:String>Ambos</x:String>
-                </RadioButtons>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
+                           Text="Cada pantalla mide lo que la imagen de las gafas y queda quieta en la habitación: gira la cabeza para pasar de una a otra. Nimbo pone las gafas en follow y, al parar, las devuelve a pinned. Ctrl+Alt+C las vuelve a poner delante." />
+                <ToggleSwitch x:Name="AnchorToggle" Toggled="Changed"
+                              Header="Anclar las pantallas con la cabeza quieta (no se mueven ni un píxel; al moverla más de 0,3° vuelven a seguir el espacio con suavidad)" />
+                <ToggleSwitch x:Name="LaptopToggle" Toggled="Changed"
+                              Header="La pantalla del portátil es una de las de Nimbo (con 2 pantallas, la del portátil y una más; con 1, solo la del portátil)" />
             </StackPanel>
 
             <Expander Header="Avanzado" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
@@ -87,8 +86,6 @@
                             StepFrequency="0.5" ValueChanged="SliderChanged" />
                     <Slider x:Name="IpdSlider" Header="Distancia entre ojos (mm)" Minimum="54" Maximum="72"
                             StepFrequency="1" ValueChanged="SliderChanged" />
-                    <Slider x:Name="DeadZoneSlider" Header="Zona quieta (°)" Minimum="0.3" Maximum="2.5"
-                            StepFrequency="0.1" ValueChanged="SliderChanged" />
                     <Slider x:Name="GapSlider" Header="Separación entre monitores (°)" Minimum="0" Maximum="6"
                             StepFrequency="0.5" ValueChanged="SliderChanged" />
                     <ToggleSwitch x:Name="StereoToggle" Header="Imagen en 3D (gafas en modo 3D)" Toggled="Changed" />

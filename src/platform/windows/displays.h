@@ -50,4 +50,8 @@ void restore_mode(const std::wstring& gdi_name);
 
 std::string narrow(const std::wstring& w);
 
+// The wallpaper of the monitor at `from` set on the monitors at `to` (desktop rectangles), so
+// new virtual monitors do not show Windows' default one. Returns how many were set.
+int copy_wallpaper(const RECT& from, const std::vector<RECT>& to);
+
 }  // namespace rayneo::win

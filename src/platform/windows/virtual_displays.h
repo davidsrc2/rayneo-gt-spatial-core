@@ -68,12 +68,17 @@ public:
 
     // Panels (left -> right in `cells` order) in a grid to the right of the physical displays,
     // the glasses surface tucked diagonally off the bottom-right panel's corner, so the cursor
-    // rarely wanders into it. Applies the change.
+    // rarely wanders into it. With `first` (the computer's own screen as panel 1) it takes
+    // cells[0] where it is and the virtual panels the other cells around it (`cells` then has
+    // one more entry than `panels`). Applies the change.
     bool arrange(const std::vector<const OutputInfo*>& panels, const std::vector<core::GridCell>& cells,
                  const OutputInfo* glasses, const std::vector<OutputInfo>& outputs, int panel_width, int panel_height,
-                 std::string* error);
+                 std::string* error, const OutputInfo* first = nullptr);
 
 private:
+    bool arrange_after(const std::vector<const OutputInfo*>& panels, const std::vector<core::GridCell>& cells,
+                       const OutputInfo* glasses, const OutputInfo& first, int panel_width, int panel_height,
+                       std::string* error);
     std::vector<SavedDisplay> saved_;
 };
 

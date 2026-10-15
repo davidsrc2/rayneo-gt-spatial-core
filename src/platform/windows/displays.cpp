@@ -4,6 +4,9 @@
 #include <cstdint>
 #include <cwctype>
 #include <map>
+#include <utility>
+
+#include <shobjidl.h>  // IDesktopWallpaper
 
 using Microsoft::WRL::ComPtr;
 
@@ -150,6 +153,50 @@ std::optional<DisplayMode> set_native_mode(const std::wstring& gdi_name, int hz)
 
 void restore_mode(const std::wstring& gdi_name) {
     ChangeDisplaySettingsExW(gdi_name.c_str(), nullptr, nullptr, 0, nullptr);
+}
+
+int copy_wallpaper(const RECT& from, const std::vector<RECT>& to) {
+    const HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);  // already MTA: fine too
+    int done = 0;
+    {
+        ComPtr<IDesktopWallpaper> wp;
+        if (SUCCEEDED(CoCreateInstance(CLSID_DesktopWallpaper, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&wp)))) {
+            std::vector<std::pair<std::wstring, RECT>> monitors;
+            UINT count = 0;
+            if (SUCCEEDED(wp->GetMonitorDevicePathCount(&count))) {
+                for (UINT i = 0; i < count; ++i) {
+                    LPWSTR id = nullptr;
+                    if (FAILED(wp->GetMonitorDevicePathAt(i, &id)) || id == nullptr) continue;
+                    RECT r{};
+                    if (SUCCEEDED(wp->GetMonitorRECT(id, &r))) monitors.emplace_back(id, r);
+                    CoTaskMemFree(id);
+                }
+            }
+            const auto at = [](const RECT& a, const RECT& b) { return a.left == b.left && a.top == b.top; };
+            std::wstring image;
+            for (const auto& m : monitors) {
+                LPWSTR path = nullptr;
+                if (at(m.second, from) && SUCCEEDED(wp->GetWallpaper(m.first.c_str(), &path)) && path != nullptr) {
+                    image = path;
+                }
+                if (path != nullptr) CoTaskMemFree(path);
+            }
+            if (image.empty()) {  // the same picture everywhere: asked without a monitor
+                LPWSTR path = nullptr;
+                if (SUCCEEDED(wp->GetWallpaper(nullptr, &path)) && path != nullptr) image = path;
+                if (path != nullptr) CoTaskMemFree(path);
+            }
+            for (const auto& m : monitors) {
+                for (const auto& r : to) {
+                    if (!image.empty() && at(m.second, r) && SUCCEEDED(wp->SetWallpaper(m.first.c_str(), image.c_str()))) {
+                        ++done;
+                    }
+                }
+            }
+        }
+    }
+    if (SUCCEEDED(init)) CoUninitialize();
+    return done;
 }
 
 }  // namespace rayneo::win

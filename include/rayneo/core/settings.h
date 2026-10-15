@@ -33,6 +33,9 @@ struct Settings {
     int glasses_mode = 0;        // "glassesMode": the glasses' own mode set by Nimbo: 0 follow, 1 pinned
                                  // (they anchor the image), 2 steady (reads the earlier "glassesPinned")
     int brightness = 0;          // "brightness": glasses' brightness 1..8 set by Nimbo; 0 = leave as is
+    float tilt = 1.0f;           // "tilt": panels above / below face you (1) .. stand upright (0)
+    bool anchor_at_rest = false;  // "anchorAtRest": panels frozen while the head holds still
+    bool mac_screen = true;      // "macScreen": the computer's own screen is panel 1 (laptop lid open)
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"

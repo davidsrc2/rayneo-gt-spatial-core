@@ -115,9 +115,8 @@ public sealed partial class PanelWindow : Window
             DrawGlyph(glyph, preset, selected && _server.IsRunning ? _server.GazePanel : -1);
         }
 
-        DistanceSlider.Value = _model.Distance;
         CurvatureSlider.Value = _model.Curvature;
-        SizeSlider.Value = _model.Size;
+        TiltSlider.Value = _model.Tilt;
         TextSlider.Value = _model.TextSize;
         UpdateValueLabels();
 
@@ -131,9 +130,8 @@ public sealed partial class PanelWindow : Window
 
     private void UpdateValueLabels()
     {
-        DistanceValue.Text = $"{DistanceSlider.Value:0.0} m";
         CurvatureValue.Text = CurvatureSlider.Value < 0.02 ? "Plana" : $"{CurvatureSlider.Value * 100:0} %";
-        SizeValue.Text = $"{SizeSlider.Value:0}°";
+        TiltValue.Text = TiltSlider.Value < 0.02 ? "Rectas" : TiltSlider.Value > 0.98 ? "Hacia ti" : $"{TiltSlider.Value * 100:0} %";
         TextValue.Text = AppModel.TextSizeLabels[(int)Math.Round(TextSlider.Value)];
     }
 
@@ -237,9 +235,8 @@ public sealed partial class PanelWindow : Window
     private void Slider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (_updating) return;
-        _model.Distance = (float)DistanceSlider.Value;
         _model.Curvature = (float)CurvatureSlider.Value;
-        _model.Size = (float)SizeSlider.Value;
+        _model.Tilt = (float)TiltSlider.Value;
         _model.TextSize = (int)Math.Round(TextSlider.Value);
         UpdateValueLabels();
         _server.SettingsChanged();
