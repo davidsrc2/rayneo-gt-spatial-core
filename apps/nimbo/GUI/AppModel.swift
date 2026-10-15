@@ -338,7 +338,10 @@ final class AppModel: ObservableObject {
         o.dimOthers = dimOthers ? 0.55 : 1  // linear light: ~80 % perceived brightness
         o.gatherWindows = gatherWindows
         o.trackingAxes = tracking
-        o.recenterGlasses = glassesPinned  // the mode itself is the glasses' business (their button)
+        // The mode itself is the glasses' business (their button). Pinned: they anchor the image,
+        // so Nimbo fits everything in it and ⌘⌥C recentres them.
+        o.glassesPinned = glassesPinned
+        o.recenterGlasses = glassesPinned
         o.brightness = brightness
         o.unmirror = true  // mirrored glasses run at the Mac's resolution and composited (reverted on exit)
         o.k1 = Float(k1)

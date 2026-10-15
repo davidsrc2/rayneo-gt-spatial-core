@@ -1,6 +1,7 @@
 #import "RNSpatialRenderer.h"
 
 #include <os/lock.h>
+#import <CoreText/CoreText.h>
 
 #include <algorithm>
 #include <cmath>
@@ -40,6 +41,7 @@ core::Quat from_simd(simd_quatf q) { return core::Quat{q.vector.w, q.vector.x, q
 
 constexpr NSUInteger kMaxPanels = 8;
 constexpr float kCinemaScale = 1.6f;  // cinema mode: the panel this much larger than a monitor
+constexpr float kReferenceArcDeg = 38.0f;  // glasses' pinned mode: this panel size at 2 m fits exactly
 
 struct Panel {
     CVMetalTextureRef texture = nullptr;  // guarded by _sourceLock
@@ -109,6 +111,10 @@ static float panel_arc(RNRenderOptions* o) {
     std::vector<core::PanelPose> _floating;  // guarded by _sourceLock: floating windows, after the monitors
 
     id<MTLTexture> _placeholder;
+    id<MTLTexture> _overlay;            // guarded by _sourceLock: start-up message, nil = none
+    id<MTLBuffer> _overlayVertices;     // render thread
+    id<MTLBuffer> _overlayIndices;
+    NSUInteger _overlayIndexCount;
     id<MTLTexture> _eyeTextures[2];
 
     core::PanelDimmer _dimmer;     // render thread
@@ -215,6 +221,50 @@ static float panel_arc(RNRenderOptions* o) {
     os_unfair_lock_unlock(&_sourceLock);
 }
 
+- (void)setOverlayText:(NSString*)text {
+    id<MTLTexture> tex = nil;
+    if (text.length > 0) {
+        // Dark rounded card with white text (black would be see-through on the glasses).
+        const size_t w = 1400, h = 360;
+        CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        CGContextRef ctx = CGBitmapContextCreate(nullptr, w, h, 8, w * 4, cs,
+                                                 kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+        CGColorSpaceRelease(cs);
+        if (ctx == nullptr) return;
+        CGContextSetRGBFillColor(ctx, 0.13, 0.15, 0.16, 1.0);
+        CGPathRef card = CGPathCreateWithRoundedRect(CGRectMake(0, 0, w, h), 48, 48, nullptr);
+        CGContextAddPath(ctx, card);
+        CGContextFillPath(ctx);
+        CGPathRelease(card);
+        NSArray<NSString*>* lines = [text componentsSeparatedByString:@"\n"];
+        for (NSUInteger i = 0; i < lines.count && i < 2; ++i) {
+            const CGFloat size = i == 0 ? 76 : 50;
+            CTFontRef font = CTFontCreateUIFontForLanguage(i == 0 ? kCTFontUIFontEmphasizedSystem : kCTFontUIFontSystem, size, nullptr);
+            CGColorRef color = CGColorCreateSRGB(1, 1, 1, i == 0 ? 1.0 : 0.75);
+            NSDictionary* attrs = @{(id)kCTFontAttributeName : (__bridge id)font, (id)kCTForegroundColorAttributeName : (__bridge id)color};
+            CTLineRef line = CTLineCreateWithAttributedString(
+                (__bridge CFAttributedStringRef)[[NSAttributedString alloc] initWithString:lines[i] attributes:attrs]);
+            const CGRect bounds = CTLineGetBoundsWithOptions(line, 0);
+            CGContextSetTextPosition(ctx, (w - bounds.size.width) / 2, i == 0 ? 200 : 90);
+            CTLineDraw(line, ctx);
+            CFRelease(line);
+            CGColorRelease(color);
+            CFRelease(font);
+        }
+        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB
+                                                                                     width:w
+                                                                                    height:h
+                                                                                 mipmapped:NO];
+        tex = [_device newTextureWithDescriptor:d];
+        [tex replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:CGBitmapContextGetData(ctx) bytesPerRow:w * 4];
+        CGContextRelease(ctx);
+    }
+    os_unfair_lock_lock(&_sourceLock);
+    _overlay = tex;
+    ++_sourceGeneration;  // a new picture: the next frame is drawn even with a still head
+    os_unfair_lock_unlock(&_sourceLock);
+}
+
 - (void)setFloatingPosesYaw:(NSArray<NSNumber*>*)yaw pitch:(NSArray<NSNumber*>*)pitch scale:(NSArray<NSNumber*>*)scale {
     std::vector<core::PanelPose> poses;
     for (NSUInteger i = 0; i < MIN(yaw.count, MIN(pitch.count, scale.count)); ++i) {
@@ -243,7 +293,41 @@ static float panel_arc(RNRenderOptions* o) {
     if (o.cinema && o.focusPanel >= 0 && static_cast<NSUInteger>(o.focusPanel) < out.size()) {
         out[static_cast<size_t>(o.focusPanel)] = core::PanelPlacement{0.0f, 0.0f, kCinemaScale};
     }
+    if (o.staticHead) [self fitInGlassesImage:out];
     return out;
+}
+
+// Glasses in their own pinned mode anchor the image we send and let the eyes roam over it:
+// nothing outside it can ever be seen. The whole arrangement (monitors and floating windows,
+// both axes; only the focused panel in focus / cinema) is centred and scaled to fit in it.
+// Distance and size still zoom: with a 38° panel at 2 m it fits exactly, closer or larger
+// grows from there.
+- (void)fitInGlassesImage:(std::vector<core::PanelPlacement>&)out {
+    RNRenderOptions* o = _options;
+    float aspects[kMaxPanels];
+    os_unfair_lock_lock(&_sourceLock);
+    for (NSUInteger i = 0; i < kMaxPanels; ++i) aspects[i] = _panels[i].aspect;
+    os_unfair_lock_unlock(&_sourceLock);
+    const float arc = panel_arc(o);
+    float y0 = 1e9f, y1 = -1e9f, p0 = 1e9f, p1 = -1e9f;
+    for (size_t i = 0; i < out.size() && i < kMaxPanels; ++i) {
+        if (o.focusPanel >= 0 && static_cast<NSInteger>(i) != o.focusPanel) continue;
+        const float w = arc * out[i].scale, h = core::panel_vertical_arc(w, aspects[i], true);
+        y0 = std::min(y0, out[i].yaw_rad - w / 2);
+        y1 = std::max(y1, out[i].yaw_rad + w / 2);
+        p0 = std::min(p0, out[i].pitch_rad - h / 2);
+        p1 = std::max(p1, out[i].pitch_rad + h / 2);
+    }
+    if (y1 <= y0 || p1 <= p0) return;
+    const float fw = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect), fh = o.fovYDegrees * kDegToRad;
+    const float zoom = arc / (kReferenceArcDeg * kDegToRad);
+    const float s = 0.94f * std::min(fw * zoom / (y1 - y0), fh * zoom / (p1 - p0));
+    const float yc = 0.5f * (y0 + y1), pc = 0.5f * (p0 + p1);
+    for (auto& pl : out) {
+        pl.yaw_rad = (pl.yaw_rad - yc) * s;
+        pl.pitch_rad = (pl.pitch_rad - pc) * s;
+        pl.scale *= s;
+    }
 }
 
 - (std::vector<core::PanelPlacement>)monitorPlacements:(NSUInteger)count aspect:(float)aspect {
@@ -475,6 +559,22 @@ static float effective_curvature(RNRenderOptions* o) {
     const core::Mat4 proj =
         core::perspective_lh(o.fovYDegrees * kDegToRad, o.eyeAspect, 0.05f, 100.0f);
 
+    os_unfair_lock_lock(&_sourceLock);
+    id<MTLTexture> overlay = _overlay;
+    os_unfair_lock_unlock(&_sourceLock);
+    if (overlay != nil && _overlayVertices == nil) {
+        // 20° wide card at 2 m, 4° below straight ahead.
+        core::ScreenMesh m = core::flat_screen_mesh(2.0f, 20.0f * kDegToRad,
+                                                    core::panel_width(2.0f, 20.0f * kDegToRad, true) * 360.0f / 1400.0f, 1);
+        core::pitch_mesh(m, -4.0f * kDegToRad);
+        _overlayVertices = [_device newBufferWithBytes:m.vertices.data()
+                                                length:m.vertices.size() * sizeof(core::ScreenVertex)
+                                               options:MTLResourceStorageModeShared];
+        _overlayIndices = [_device newBufferWithBytes:m.indices.data()
+                                               length:m.indices.size() * sizeof(uint16_t)
+                                              options:MTLResourceStorageModeShared];
+        _overlayIndexCount = m.indices.size();
+    }
     for (int eye = 0; eye < eyes; ++eye) {
         MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
         pass.colorAttachments[0].texture = _eyeTextures[eye];
@@ -499,6 +599,20 @@ static float effective_curvature(RNRenderOptions* o) {
                             indexCount:p.index_count
                              indexType:MTLIndexTypeUInt16
                            indexBuffer:p.indices
+                     indexBufferOffset:0];
+        }
+        if (overlay != nil) {
+            // Head-locked: straight ahead whatever the pose, slightly below the centre.
+            SceneUniforms ou{to_simd(proj * core::view_matrix(core::Quat{}, offset))};
+            const float one = 1.0f;
+            [enc setVertexBytes:&ou length:sizeof(ou) atIndex:1];
+            [enc setVertexBuffer:_overlayVertices offset:0 atIndex:0];
+            [enc setFragmentBytes:&one length:sizeof(float) atIndex:0];
+            [enc setFragmentTexture:overlay atIndex:0];
+            [enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                            indexCount:_overlayIndexCount
+                             indexType:MTLIndexTypeUInt16
+                           indexBuffer:_overlayIndices
                      indexBufferOffset:0];
         }
         [enc endEncoding];

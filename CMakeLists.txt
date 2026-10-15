@@ -187,7 +187,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
   target_compile_options(rayneo_macos_renderer PRIVATE -fobjc-arc)
   target_link_libraries(rayneo_macos_renderer PUBLIC rayneo::core
     "-framework Metal" "-framework QuartzCore" "-framework CoreVideo" "-framework Foundation"
-    "-framework CoreGraphics")
+    "-framework CoreGraphics" "-framework CoreText")
   rayneo_warnings(rayneo_macos_renderer)
 
   set(NIMBO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/apps/nimbo)

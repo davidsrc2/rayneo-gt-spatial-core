@@ -99,6 +99,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var lastCaptureFrames: UInt64 = 0
     private var statsTimer: Timer?
     private var calibSeconds = 0
+    private var overlayShown = false  // start-up message on the glasses until tracking starts
 
     // Idle skip (render thread): with the head still and no monitor changing, the last
     // frame is still correct, so nothing is drawn. Settings changes force one redraw.
@@ -295,12 +296,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
         registerHotKeys()
         if options.headless { statusMenu = StatusMenu { [weak self] in self?.recenter() } }
-        // The hardware cursor only needs hiding when the glasses mirror a display: then it is drawn
-        // head-locked over the render. Hidden in any other case it also vanished from the panels
-        // whenever Nimbo itself was the active app (its panel, its window).
-        if !options.windowed, Displays.isMirrored(screenID) {
+        // The hardware cursor only needs hiding when the glasses mirror the captured display (one
+        // panel, no virtual monitors): then it is drawn head-locked over the render. With virtual
+        // monitors the gaze timer keeps it off the glasses surface; hidden, it also vanished from
+        // the panels whenever Nimbo itself was the active app (its panel, "Más opciones").
+        if !options.windowed, options.displays == 0, Displays.isMirrored(screenID) {
             log(HardwareCursor.hide() ? "cursor: hardware cursor hidden (mirrored glasses; the panels show the real one)"
                                       : "cursor: could not hide the hardware cursor")
+        }
+        if pose is ImuPoseSource {  // the IMU calibrates first: say so on the glasses
+            renderer.setOverlayText("Nimbo se está preparando\nDeja las gafas quietas unos segundos")
+            overlayShown = true
         }
         try await startCaptures(glasses: glasses)
         await setFloatingWindows(options.floatingWindows)
@@ -524,13 +530,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func applyPinned(_ o: ServerOptions) {
         guard let renderer else { return }
         let ro = renderer.options
-        ro.staticHead = o.glassesPinned
-        if o.glassesPinned {
-            // Size and distance can make the panels smaller, never wider than the glasses' image.
-            let columns = Set((o.layout ?? []).map(\.col)).count
-            ro.arcDegrees = renderer.pinnedArcDegrees(forPanels: UInt(max(1, o.layout == nil ? max(1, panelDisplays.count) : columns)),
-                                                      sizeDegrees: o.panelArcDeg)
-        }
+        ro.staticHead = o.glassesPinned  // the renderer fits everything in the glasses' image
     }
 
     private func requestRedraw() {
@@ -569,7 +569,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // about which panel is in view.
         // --windowed: the cursor is on the Mac's own screen, the panels are only a preview.
         // Focus / cinema: a single panel is shown, the cursor stays put.
-        guard focusMode == 0, options.gazeCursor, !options.glassesPinned, !options.windowed, let p = pose.latest(), p.tracking else { return }
+        guard focusMode == 0, options.gazeCursor, !options.windowed, let p = pose.latest(), p.tracking else { return }
         let panel = renderer.panel(atGaze: p.orientation)
         guard panel != lastGazePanel else {
             gazeCandidate = panel
@@ -873,6 +873,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         guard s.frames + s.idle > 0 else {
             log("render: no frames")
             return
+        }
+        if overlayShown && s.tracking {
+            renderer.setOverlayText(nil)
+            overlayShown = false
+            log("ready: tracking")
+        } else if overlayShown {
+            let left = max(1, 6 - calibSeconds)
+            renderer.setOverlayText("Nimbo se está preparando\nDeja las gafas quietas · \(left) s")
         }
         if !s.tracking && pose is ImuPoseSource {
             calibSeconds += 1

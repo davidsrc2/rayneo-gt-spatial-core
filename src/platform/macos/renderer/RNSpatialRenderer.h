@@ -58,6 +58,10 @@ NS_ASSUME_NONNULL_BEGIN
 // these poses (same units as the monitor poses). Their shape follows each window. Any thread.
 - (void)setFloatingPosesYaw:(NSArray<NSNumber*>*)yaw pitch:(NSArray<NSNumber*>*)pitch scale:(NSArray<NSNumber*>*)scale;
 
+// A message fixed in front of the eyes (start-up: "preparing, keep the glasses still"), two
+// lines separated by "\n"; nil hides it. Any thread.
+- (void)setOverlayText:(nullable NSString*)text;
+
 // Panel arc (deg) that fits `count` panels (columns) in the horizontal FOV of the options.
 - (float)fitArcDegreesForPanels:(NSUInteger)count;
 
