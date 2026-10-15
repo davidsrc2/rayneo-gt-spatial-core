@@ -30,8 +30,9 @@ final class AppModel: ObservableObject {
     }
     // Hand-placed monitors (layout editor); empty = the grid. Same count and order as cells.
     @Published var panelPoses: [PanelPos] { didSet { save(panelPoses, "panelPoses") } }
-    // Single windows floating as panels (this session: window ids do not survive the app).
-    @Published var floating: [FloatingWindow] = []
+    // Single windows floating as panels, remembered by app and title (window ids do not survive
+    // the app: found again when Nimbo starts).
+    @Published var floating: [FloatingWindow] { didSet { save(floating, "floatingWindows") } }
 
     // Per-app profiles: while one of these apps is in front, its profile's look (distance,
     // curvature, size) applies on top of the saved settings, which stay untouched. The number
@@ -78,6 +79,8 @@ final class AppModel: ObservableObject {
             ?? [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0)]
         panelPoses = Self.load([PanelPos].self, "panelPoses", from: UserDefaults.standard) ?? []
         appRules = Self.load([AppRule].self, "appProfiles", from: UserDefaults.standard) ?? []
+        floating = (Self.load([FloatingWindow].self, "floatingWindows", from: UserDefaults.standard) ?? [])
+            .map { var w = $0; w.windowID = 0; return w }  // ids of an earlier session
         textSize = d.object(forKey: "textSize") as? Int ?? 3
         distance = d.object(forKey: "distance") as? Double ?? 2.0
         gap = d.object(forKey: "gap") as? Double ?? 1.0

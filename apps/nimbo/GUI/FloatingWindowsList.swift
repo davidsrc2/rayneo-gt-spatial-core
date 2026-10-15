@@ -24,7 +24,8 @@ struct FloatingWindowsList: View {
                     if windowsBox.value.isEmpty { Text("No hay ventanas (pulsa Actualizar)") }
                     ForEach(windowsBox.value, id: \.self) { w in
                         Button(w.title.isEmpty ? w.app : "\(w.app) — \(w.title)") {
-                            model.floating.append(FloatingWindow(windowID: w.id, title: w.title.isEmpty ? w.app : "\(w.app) — \(w.title)"))
+                            model.floating.append(FloatingWindow(windowID: w.id, title: w.title.isEmpty ? w.app : "\(w.app) — \(w.title)",
+                                                                 app: w.app, windowTitle: w.title))
                         }
                     }
                 }
@@ -33,8 +34,7 @@ struct FloatingWindowsList: View {
                 Button("Actualizar") { refresh() }.buttonStyle(CalmButtonStyle())
                 Spacer()
             }
-            Text(running ? "La ventana aparece encima de los monitores; muévela o cambia su tamaño en «Colocar a mano». La ventana real sigue donde está: el panel la muestra."
-                         : "Las ventanas se muestran al empezar. Duran hasta que cierres Nimbo.")
+            Text("Aparecen encima de los monitores; muévelas o cambia su tamaño en «Colocar a mano». Se recuerdan: al empezar, Nimbo vuelve a buscar cada una por su app. Mirando una, ⌘⌥J trae la ventana real al frente con el cursor encima." + (running ? "" : " Se muestran al empezar."))
                 .font(Theme.small).foregroundStyle(Theme.secondary)
         }
         .onAppear { refresh() }

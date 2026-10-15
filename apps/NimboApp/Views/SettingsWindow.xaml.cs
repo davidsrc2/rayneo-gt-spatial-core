@@ -167,6 +167,7 @@ public sealed partial class SettingsWindow : Window
             remove.Click += (_, _) =>
             {
                 _model.Floating.RemoveAt(index);
+                _model.SaveFloating();
                 _server.SettingsChanged();
                 DrawFloating();
                 DrawPlacement();
@@ -185,7 +186,11 @@ public sealed partial class SettingsWindow : Window
         int i = FloatChoice.SelectedIndex;
         if (i < 0 || i >= _windows.Count || _model.Floating.Count + _model.Cells.Length >= NimboNative.MaxPanels) return;
         var w = _windows[i];
-        _model.Floating.Add(new AppModel.FloatingWin { Hwnd = w.Hwnd, Title = $"{w.App} — {w.Title}", Pose = _model.DefaultFloatingPose() });
+        _model.Floating.Add(new AppModel.FloatingWin
+        {
+            Hwnd = w.Hwnd, Title = $"{w.App} — {w.Title}", Pose = _model.DefaultFloatingPose(), App = w.App, WindowTitle = w.Title,
+        });
+        _model.SaveFloating();
         _server.SettingsChanged();
         DrawFloating();
         DrawPlacement();
@@ -373,6 +378,7 @@ public sealed partial class SettingsWindow : Window
     private void PlaceReleased(UIElement view, PointerRoutedEventArgs e)
     {
         _dragging = -1;
+        _model.SaveFloating();
         view.ReleasePointerCapture(e.Pointer);
         PlaceReset.IsEnabled = _model.HasPlacement;
         DrawLayout();

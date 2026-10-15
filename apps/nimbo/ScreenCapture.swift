@@ -117,6 +117,13 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         return await windows().first { $0.title.lowercased().contains(t) || $0.app.lowercased().contains(t) }
     }
 
+    // A remembered window: the same app and title, else the same app's first window (a browser
+    // tab title changes with every video).
+    static func window(app: String, title: String) async -> WindowInfo? {
+        let all = await windows().filter { $0.app == app }
+        return all.first { $0.title == title } ?? all.first
+    }
+
     func stop() async {
         try? await stream?.stopCapture()
         stream = nil

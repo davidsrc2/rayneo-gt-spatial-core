@@ -136,11 +136,53 @@ internal sealed unsafe class AppModel
     public sealed class FloatingWin
     {
         public ulong Hwnd;
-        public string Title = "";
+        public string Title = "";        // "app — window title", shown in Settings
         public PanelPos Pose;
+        public string App = "";          // remembered between sessions: found again by app and title
+        public string WindowTitle = "";
     }
 
-    public List<FloatingWin> Floating { get; } = new();
+    // Floating windows, remembered in floating.json by app and title (window handles do not
+    // survive the app: found again when the app starts).
+    public List<FloatingWin> Floating { get; } = LoadFloating();
+
+    private sealed record SavedFloating(string App, string Title, float Yaw, float Pitch, float Scale);
+
+    public static string FloatingPath => Path.Combine(DataDirectory, "floating.json");
+
+    public void SaveFloating() => File.WriteAllText(FloatingPath, System.Text.Json.JsonSerializer.Serialize(
+        Floating.Select(f => new SavedFloating(f.App, f.WindowTitle, f.Pose.Yaw, f.Pose.Pitch, f.Pose.Scale))));
+
+    // Saved windows that are open now: the same app and title, else that app's first window.
+    private static List<FloatingWin> LoadFloating()
+    {
+        List<SavedFloating> saved;
+        try
+        {
+            saved = File.Exists(FloatingPath)
+                ? System.Text.Json.JsonSerializer.Deserialize<List<SavedFloating>>(File.ReadAllText(FloatingPath)) ?? new()
+                : new();
+        }
+        catch (Exception e) when (e is IOException or System.Text.Json.JsonException)
+        {
+            return new();
+        }
+        var open = NimboNative.ListWindows();
+        var list = new List<FloatingWin>();
+        foreach (var s in saved)
+        {
+            var same = open.Where(w => w.App.Equals(s.App, StringComparison.OrdinalIgnoreCase) && list.All(f => f.Hwnd != w.Hwnd)).ToList();
+            if (same.Count == 0) continue;
+            var w = same.FirstOrDefault(x => x.Title == s.Title);
+            if (w.Hwnd == 0) w = same[0];
+            list.Add(new FloatingWin
+            {
+                Hwnd = w.Hwnd, Title = $"{w.App} — {w.Title}", Pose = new PanelPos(s.Yaw, s.Pitch, s.Scale),
+                App = w.App, WindowTitle = w.Title,
+            });
+        }
+        return list;
+    }
 
     // Where a new floating window goes: centred above the monitors, one monitor wide.
     public PanelPos DefaultFloatingPose()

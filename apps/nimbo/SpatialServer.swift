@@ -412,6 +412,31 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: floating windows
 
+    // ⌘⌥J on a floating window: its real window comes to the front with the cursor on it, to
+    // pause the video or type without looking for it.
+    private func focusFloatingWindow(_ w: FloatingWindow) {
+        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(w.windowID)) as? [[String: Any]],
+              let info = list.first, let pid = info[kCGWindowOwnerPID as String] as? pid_t else { return }
+        NSRunningApplication(processIdentifier: pid)?.activate()
+        // Raise the right window of that app (Accessibility; without it the app's front window).
+        let axApp = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &value) == .success,
+           let windows = value as? [AXUIElement] {
+            let match = windows.first { win in
+                var t: CFTypeRef?
+                return AXUIElementCopyAttributeValue(win, kAXTitleAttribute as CFString, &t) == .success && (t as? String) == w.windowTitle
+            } ?? windows.first
+            if let match { AXUIElementPerformAction(match, kAXRaiseAction as CFString) }
+        }
+        if let b = info[kCGWindowBounds as String] as? [String: CGFloat], let x = b["X"], let y = b["Y"],
+           let width = b["Width"], let height = b["Height"] {
+            CGWarpMouseCursorPosition(CGPoint(x: x + width / 2, y: y + height / 2))
+            CGAssociateMouseAndMouseCursorPosition(1)
+        }
+        log("window: focus \(w.title)")
+    }
+
     private var monitorPanels: Int { max(1, panelDisplays.count) }
 
     // Where a new floating window goes: centred above the monitors, one monitor wide.
@@ -439,13 +464,22 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let base = monitorPanels
         for spec in specs.prefix(8 - base) {
             var w = spec
+            // A window id from an earlier session is gone: find it again by app and title.
+            let known = await ScreenCapture.windows()
+            if w.windowID != 0, !known.contains(where: { $0.id == w.windowID }) { w.windowID = 0 }
             if w.windowID == 0 {
-                guard let found = await ScreenCapture.window(matching: spec.match) else {
-                    log("window: nothing matches \"\(spec.match)\"")
+                let found = !w.app.isEmpty ? await ScreenCapture.window(app: w.app, title: w.windowTitle)
+                                            : await ScreenCapture.window(matching: spec.match)
+                guard let found else {
+                    log("window: \(w.app.isEmpty ? "nothing matches \"\(spec.match)\"" : "\(w.app) is not open")")
                     continue
                 }
                 w.windowID = found.id
-                w.title = found.app + (found.title.isEmpty ? "" : " — " + found.title)
+            }
+            if let info = known.first(where: { $0.id == w.windowID }) {
+                w.app = info.app
+                w.windowTitle = info.title
+                w.title = info.app + (info.title.isEmpty ? "" : " — " + info.title)
             }
             if w.pose == nil { w.pose = defaultFloatingPose(above: resolved.count) }
             let panel = UInt(base + resolved.count)
@@ -658,6 +692,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     func jumpCursorToGaze() {
         guard let p = pose.latest(), p.tracking else { return }
         let i = renderer.panel(atGaze: p.orientation)
+        if i >= monitorPanels, i - monitorPanels < floatingResolved.count {
+            focusFloatingWindow(floatingResolved[i - monitorPanels])
+            return
+        }
         guard i >= 0, i < panelDisplays.count else {
             log("cursor: jump, no monitor in view")
             return

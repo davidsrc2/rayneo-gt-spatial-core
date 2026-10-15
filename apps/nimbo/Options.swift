@@ -16,11 +16,13 @@ struct PanelPos: Codable, Hashable {
 
 // A single window shown as a panel of its own (a video above the monitors...). Identified by
 // its window id, or by text in its title / app name (CLI). pose nil: centred above the monitors.
-struct FloatingWindow: Hashable {
+struct FloatingWindow: Codable, Hashable {
     var windowID: UInt32 = 0
     var match = ""
-    var title = ""
+    var title = ""          // shown in the app: "App — window title"
     var pose: PanelPos? = nil
+    var app = ""            // remembered between sessions: found again by app and title
+    var windowTitle = ""
 }
 
 struct ServerOptions {

@@ -49,7 +49,7 @@
                     <Button Content="Actualizar" Click="FloatRefresh_Click" />
                 </StackPanel>
                 <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
-                           Text="Una sola ventana como panel propio (un vídeo encima de los monitores, un chat a un lado). Aparece encima de los monitores; muévela en «Colocar a mano». La ventana real sigue donde está: el panel la muestra. Dura hasta que cierres Nimbo." />
+                           Text="Una sola ventana como panel propio (un vídeo encima de los monitores, un chat a un lado). Aparece encima de los monitores; muévela en «Colocar a mano». Se recuerdan: al abrir Nimbo vuelve a buscar cada una por su app. Mirando una, Ctrl+Alt+J trae la ventana real al frente con el cursor encima." />
             </StackPanel>
 
             <StackPanel Spacing="8">

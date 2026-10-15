@@ -1041,6 +1041,17 @@ void Server::jump_cursor_to_gaze() {
     const auto p = pose_->latest();
     if (!p || !p->tracking) return;
     const int i = renderer_.panel_at_gaze(p->orientation);
+    // A floating window: its real window to the front with the cursor on it (pause the video,
+    // type in the chat).
+    if (i >= monitor_panels_ && i - monitor_panels_ < static_cast<int>(floating_hwnds_.size())) {
+        HWND w = floating_hwnds_[static_cast<size_t>(i - monitor_panels_)];
+        if (IsIconic(w)) ShowWindow(w, SW_RESTORE);
+        SetForegroundWindow(w);  // allowed: this process just received the hotkey
+        RECT r{};
+        if (GetWindowRect(w, &r)) SetCursorPos((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+        logln("window: focus panel %d", i + 1);
+        return;
+    }
     if (i < 0 || i >= static_cast<int>(panel_rects_.size())) {
         logln("cursor: jump, no monitor in view");
         return;
