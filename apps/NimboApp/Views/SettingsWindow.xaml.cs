@@ -26,7 +26,11 @@ public sealed partial class SettingsWindow : Window
     {
         _model = model;
         _server = server;
+        // XAML raises ValueChanged / Toggled while it builds the controls (a slider's minimum
+        // moves its value): saving then read controls not created yet and crashed the app.
+        _updating = true;
         InitializeComponent();
+        _updating = false;
         Title = "Nimbo · Ajustes";
         SystemBackdrop = new MicaBackdrop();
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Nimbo.ico"));

@@ -372,7 +372,6 @@ private:
     bool create_window(const RECT& rect);
     bool create_swap_chain();
     bool create_back_buffer_view();
-    uint64_t estimate_target(uint64_t now);
     uint64_t estimate_vsync(uint64_t now);
     // How much later than its target a frame reaches the glasses (ms, smoothed): the pose is
     // predicted for that real moment, or the panels lag and jerk while turning (as on macOS).
@@ -945,11 +944,6 @@ bool Server::create_back_buffer_view() {
 
 // Scanout time of the frame about to be queued: the next vblank after the render budget,
 // from the last vblank DXGI reported (or one refresh from now until it reports one).
-uint64_t Server::estimate_target(uint64_t now) {
-    const auto late = static_cast<uint64_t>(std::clamp(present_late_ms_, 0.0, 25.0) * 1e6);
-    return estimate_vsync(now) + late;
-}
-
 uint64_t Server::estimate_vsync(uint64_t now) {
     const double period = 1e9 / std::max(1, refresh_hz_);
     DXGI_FRAME_STATISTICS fs{};
@@ -988,7 +982,11 @@ void Server::collect_presented() {
 bool Server::frame() {
     collect_presented();
     const uint64_t now = steady_ns();
-    const uint64_t target = estimate_target(now);
+    // Predicted for when the frame really reaches the glasses (vsync + measured lateness);
+    // the lateness itself is measured against the vsync, as on macOS: measured against the
+    // corrected target it fed back on itself and settled at half the real value.
+    const uint64_t vsync = estimate_vsync(now);
+    const uint64_t target = vsync + static_cast<uint64_t>(std::clamp(present_late_ms_, 0.0, 25.0) * 1e6);
     const auto p = pose_->latest();
     float prediction = 0;
     if (!p) {
@@ -1012,7 +1010,7 @@ bool Server::frame() {
         return true;
     }
     UINT id = 0;
-    if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) sent_[id % 128] = {p->host_ns, target};
+    if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) sent_[id % 128] = {p->host_ns, vsync};
     if (p) {
         const double age = static_cast<double>(static_cast<int64_t>(steady_ns() - p->host_ns)) / 1e6;
         stats_.frames += 1;

@@ -29,7 +29,9 @@ public sealed partial class PanelWindow : Window
         _model = model;
         _server = server;
         _openSettings = openSettings;
+        _updating = true;  // no saving while XAML builds the controls (see SettingsWindow)
         InitializeComponent();
+        _updating = false;
         Title = "Nimbo";
         SystemBackdrop = new DesktopAcrylicBackdrop();
 
