@@ -50,6 +50,8 @@ public:
     // Number of virtual monitors (the driver keeps at least one). Reloads the adapter: the
     // monitors disappear and come back.
     static bool set_count(int count, std::string* error);
+    // Monitors the driver has now, on the desktop or not (no pipe needed).
+    static int live_monitors();
 };
 
 // Position and mode of an attached display, for the backup and the restore.
@@ -86,7 +88,7 @@ private:
 
 // Virtual monitors the driver created but Windows left off the desktop (after a topology
 // change it does): attached to the right of everything at width x height. Returns how many.
-int attach_detached_virtual(int width, int height);
+int attach_detached_virtual(int width, int height, int limit = 8);
 
 // Every display device Windows knows, attached to the desktop or not, with its monitors: one
 // line each, for the log when monitors do not show up.

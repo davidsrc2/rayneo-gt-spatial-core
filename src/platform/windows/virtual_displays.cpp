@@ -123,10 +123,20 @@ namespace {
 class VddBackend final : public VirtualDisplayBackend {
 public:
     const char* name() const override { return "Virtual Display Driver"; }
+    // A count change reloads the adapter, and after a reload this driver's pipe may stop
+    // answering until Windows restarts (seen on the test PC: one run per boot). So the count is
+    // changed only when it has to be, and left as is on exit (the monitors are detached).
     bool set_monitors(int count, int, int, std::string* error) override {
-        return VirtualDisplayDriver::set_count(count, error);
+        const int live = VirtualDisplayDriver::live_monitors();
+        if (live == count) return true;
+        if (VirtualDisplayDriver::set_count(count, error)) return true;
+        if (live > count) {  // pipe silent, but enough of them: use those
+            if (error != nullptr) error->clear();
+            return true;
+        }
+        return false;
     }
-    void remove_monitors() override { VirtualDisplayDriver::set_count(1, nullptr); }
+    void remove_monitors() override {}
 };
 
 // --- virtual-display-rs ---------------------------------------------------------------------
@@ -270,6 +280,8 @@ std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend() {
     // After a reload (Nimbo's last exit, the device switched back on) its pipe takes a while
     // to come back: wait up to 12 s before falling back to another driver or none.
     if (VirtualDisplayDriver::installed()) {
+        // Its monitors are there already: no pipe needed unless the count must change.
+        if (VirtualDisplayDriver::live_monitors() > 0) return std::make_unique<VddBackend>();
         for (int waited = 0; waited < 12000; waited += 500) {
             Sleep(500);
             if (VirtualDisplayDriver::available()) return std::make_unique<VddBackend>();
@@ -296,6 +308,22 @@ bool VirtualDisplayDriver::installed() {
         return true;
     }
     return GetFileAttributesW(L"C:\\VirtualDisplayDriver\\vdd_settings.xml") != INVALID_FILE_ATTRIBUTES;
+}
+
+int VirtualDisplayDriver::live_monitors() {
+    int n = 0;
+    DISPLAY_DEVICEW dev{};
+    dev.cb = sizeof(dev);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dev, 0); ++i) {
+        if (std::wstring(dev.DeviceString).find(L"Virtual Display Driver") != std::wstring::npos) {
+            DISPLAY_DEVICEW mon{};
+            mon.cb = sizeof(mon);
+            if (EnumDisplayDevicesW(dev.DeviceName, 0, &mon, 0)) ++n;
+        }
+        dev = DISPLAY_DEVICEW{};
+        dev.cb = sizeof(dev);
+    }
+    return n;
 }
 
 bool VirtualDisplayDriver::set_count(int count, std::string* error) {
@@ -477,7 +505,7 @@ bool DisplayArrangement::arrange_after(const std::vector<const OutputInfo*>& pan
     return true;
 }
 
-int attach_detached_virtual(int width, int height) {
+int attach_detached_virtual(int width, int height, int limit) {
     int right = 0, count = 0;
     std::vector<std::wstring> loose;
     DISPLAY_DEVICEW dev{};
@@ -499,6 +527,7 @@ int attach_detached_virtual(int width, int height) {
         dev.cb = sizeof(dev);
     }
     for (const auto& name : loose) {
+        if (count >= limit) break;
         if (place(name, right, 0, width, height, 60) == DISP_CHANGE_SUCCESSFUL ||
             place(name, right, 0, width, height, 0) == DISP_CHANGE_SUCCESSFUL) {
             right += width;

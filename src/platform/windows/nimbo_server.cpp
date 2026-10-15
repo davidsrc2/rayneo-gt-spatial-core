@@ -1315,7 +1315,8 @@ bool Server::setup_virtual_displays() {
         }
         // Created by the driver but left off the desktop: attach them ourselves.
         if (waited >= 3000 && waited % 1000 == 0) {
-            if (const int n_attached = win::attach_detached_virtual(opt_.vd_width, opt_.vd_height); n_attached > 0) {
+            if (const int n_attached = win::attach_detached_virtual(opt_.vd_width, opt_.vd_height, n - static_cast<int>(panels.size()));
+                n_attached > 0) {
                 logln("virtual monitors: %d were off the desktop, attached", n_attached);
             }
         }
