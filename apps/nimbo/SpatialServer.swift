@@ -114,6 +114,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // Idle skip (render thread): with the head still and no monitor changing, the last
     // frame is still correct, so nothing is drawn. Settings changes force one redraw.
     private var redrawRequested = true  // guarded by statsLock
+    // How much later than its target a frame actually reaches the glasses (ms, smoothed): the
+    // head pose is predicted for that real moment, or the panels lag and jerk while turning.
+    private var presentLateMs = 0.0  // guarded by statsLock
 
     init(options: ServerOptions) {
         self.options = options
@@ -1078,7 +1081,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // Map CACurrentMediaTime (display link base) onto the engine's steady clock.
         let nowMedia = CACurrentMediaTime()
         let nowHost = RNSpatialEngine.hostNowNs()
-        let targetHost = Int64(nowHost) + Int64((update.targetPresentationTimestamp - nowMedia) * 1e9)
+        statsLock.lock()
+        let late = max(0, min(25, presentLateMs))
+        statsLock.unlock()
+        let targetHost = Int64(nowHost) + Int64((update.targetPresentationTimestamp - nowMedia + late / 1e3) * 1e9)
 
         guard let p = pose.latest() else {
             renderer.invalidateSkippedFrame()
@@ -1100,8 +1106,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         update.drawable.addPresentedHandler { [weak self] d in
             guard let self, d.presentedTime > 0 else { return }
             self.statsLock.lock()
-            self.stats.addPresented(latency: (d.presentedTime - sampleMedia) * 1e3,
-                                    targetError: (d.presentedTime - target) * 1e3)
+            let lateMs = (d.presentedTime - target) * 1e3
+            self.stats.addPresented(latency: (d.presentedTime - sampleMedia) * 1e3, targetError: lateMs)
+            self.presentLateMs += (max(-10, min(40, lateMs)) - self.presentLateMs) * 0.03
             let gap = d.presentedTime - self.lastPresentedTime
             if self.lastPresentedTime > 0, gap > 0, gap < 0.05 { self.stats.addInterval(gap * 1e3) }
             self.lastPresentedTime = d.presentedTime
@@ -1151,9 +1158,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let inN = Double(max(1, s.intervalN))
         let inMean = s.intervalSum / inN
         let inStd = (max(0, s.intervalSq / inN - inMean * inMean)).squareRoot()
-        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms | frame interval %.1f±%.1f max %.1f ms",
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
-                   s.presentedSum / pn, s.presentedMax, s.predSum / n, inMean, inStd, s.intervalMax))
+                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax))
     }
 
     // MARK: util

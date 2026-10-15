@@ -887,6 +887,46 @@ void test_stabilizer_holds_still() {
 }
 
 // A real 60 deg/s turn: leaves the dead zone, follows with little lag, then holds again.
+// World-locked (space mode): never frozen, much less shake at rest than the plain 8 Hz floor,
+// turns still tight.
+void test_stabilizer_world_locked() {
+    const float dt = kRefDt, d2r = 0.0174533f, pi = 3.14159265f;
+    const auto shake = [&](PoseStabilizerConfig c) {
+        PoseStabilizer s(c);
+        Lcg rng;
+        double sum = 0;
+        int n = 0;
+        for (int i = 0; i < 457 * 10; ++i) {
+            const float t = static_cast<float>(i) * dt;
+            const float sway = 0.5f * d2r * std::sin(2 * pi * 0.25f * t);
+            const float pitch = 0.3f * d2r * std::sin(2 * pi * 8.0f * t) + sway + rng.uni() * 0.05f * d2r;
+            const float rate = 0.3f * d2r * 2 * pi * 8.0f * std::cos(2 * pi * 8.0f * t) +
+                               0.5f * d2r * 2 * pi * 0.25f * std::cos(2 * pi * 0.25f * t) + rng.uni() * 0.03f;
+            const Quat out = s.update(Quat::from_axis_angle({0, 1, 0}, pitch), {0, rate, 0}, dt);
+            if (i > 457 * 2) {
+                const float e = angle_between_deg(out, Quat::from_axis_angle({0, 1, 0}, sway));
+                sum += e * e;
+                ++n;
+            }
+        }
+        return std::sqrt(sum / n);
+    };
+    PoseStabilizerConfig plain;
+    plain.enter_deg = 0.0f;
+    const auto locked = world_locked_stabilizer();
+    CHECK(shake(locked) < 0.4 * shake(plain));
+    // A 60 deg/s turn after a second of rest: under 1.2 deg behind.
+    PoseStabilizer s(locked);
+    float lag = 0.0f;
+    for (int i = 0; i < 457 * 2; ++i) {
+        const float t = static_cast<float>(i) * dt;
+        const Quat q = Quat::from_axis_angle({0, 0, 1}, t > 1 ? (t - 1) * 60 * d2r : 0.0f);
+        const Quat out = s.update(q, {0, 0, t > 1 ? 60 * d2r : 0.0f}, dt);
+        if (t > 1) lag = std::fmax(lag, angle_between_deg(out, q));
+    }
+    CHECK(lag < 1.2f);
+}
+
 void test_stabilizer_follows_turns() {
     PoseStabilizer s;
     const float dt = kRefDt, rate = 60.0f * 0.0174533f;
@@ -1076,6 +1116,7 @@ int main() {
     test_bias_worn_ignores_head_motion();
     test_slerp();
     test_stabilizer_holds_still();
+    test_stabilizer_world_locked();
     test_stabilizer_follows_turns();
     test_stabilizer_dead_zone();
     test_prediction_gain();
