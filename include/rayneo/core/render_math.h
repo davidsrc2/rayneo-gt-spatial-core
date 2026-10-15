@@ -129,6 +129,11 @@ float horizontal_fov(float fovy_rad, float aspect);
 // side): every panel visible at once, at the cost of angular resolution.
 float fit_panel_arc(float fov_rad, int count, float gap_rad, float margin_rad);
 
+// Angular width of a panel that spans `arc_rad` at `reference_m` once moved to `distance_m`:
+// closer looks bigger, farther smaller, like a real monitor. Its own inverse with the two
+// distances swapped.
+float arc_at_distance(float arc_rad, float distance_m, float reference_m = 2.0f);
+
 // Arc width (rad) that shows a source `pixels_wide` at `pixels_per_degree` angular density.
 float arc_for_pixels(float pixels_wide, float pixels_per_degree);
 

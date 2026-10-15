@@ -43,8 +43,9 @@ public partial class App : Application
         _panel = new PanelWindow(_model, _server, OpenSettings);
         _server.GlassesChanged += OnGlassesChanged;
 
-        // Ctrl+Alt+1 / 2 / 3: the one-click layouts without opening the panel.
+        // Ctrl+Alt+1 / 2 / 3: the one-click layouts without opening the panel. Ctrl+Alt+N: the panel.
         _hotKeys = new HotKeys();
+        _hotKeys.Register('N', () => _panel.Toggle());
         for (int i = 0; i < Math.Min(3, AppModel.Layouts.Count); ++i)
         {
             var preset = AppModel.Layouts[i];

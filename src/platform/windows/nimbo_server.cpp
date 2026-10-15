@@ -950,7 +950,11 @@ void Server::apply_pinned(const Options& o) {
         }
         columns = static_cast<int>(cols.size());
     }
-    ro.arc_deg = renderer_.fit_arc_deg(columns);
+    // Size and distance can make the panels smaller, never wider than the glasses' image.
+    constexpr float kDeg = 0.017453292519943295f;
+    const float fit = renderer_.fit_arc_deg(columns) * kDeg;
+    const float seen = std::min(fit, core::arc_at_distance(o.panel_arc_deg() * kDeg, ro.distance_m));
+    ro.arc_deg = core::arc_at_distance(seen, 2.0f, ro.distance_m) / kDeg;  // undo the render's distance scaling
 }
 
 void Server::refresh_rects() {
@@ -1102,6 +1106,10 @@ void Server::on_hotkey(int id) {
     constexpr float step = 10;
     switch (id) {
     case kRecenter:
+        if (opt_.glasses_pinned) {  // the glasses hold the anchor in their pinned mode
+            logln("recenter: the glasses are in pinned mode, recenter with their own control");
+            break;
+        }
         pose_->recenter();
         last_gaze_panel_ = -2;  // re-evaluate: the cursor follows to the panel in front
         logln("recenter");

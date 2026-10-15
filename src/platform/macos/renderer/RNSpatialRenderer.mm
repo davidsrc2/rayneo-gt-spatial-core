@@ -84,6 +84,11 @@ struct Panel {
 }
 @end
 
+// The panel arc as seen at the current distance (Distancia acerca y aleja de verdad).
+static float panel_arc(RNRenderOptions* o) {
+    return core::arc_at_distance(o.arcDegrees * kDegToRad, o.distanceMeters);
+}
+
 @implementation RNSpatialRenderer {
     id<MTLCommandQueue> _queue;
     id<MTLRenderPipelineState> _screenPipeline;
@@ -202,7 +207,7 @@ struct Panel {
         cells.clear();
         for (NSUInteger i = 0; i < count; ++i) cells.push_back({static_cast<int>(i), 0});
     }
-    const float arc = o.arcDegrees * kDegToRad;
+    const float arc = panel_arc(o);
     return core::grid_layout(cells, arc, core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
 }
 
@@ -212,12 +217,19 @@ struct Panel {
     return core::fit_panel_arc(hfov, static_cast<int>(count), o.gapDegrees * kDegToRad, 1.0f * kDegToRad) / kDegToRad;
 }
 
+- (float)pinnedArcDegreesForPanels:(NSUInteger)count sizeDegrees:(float)sizeDegrees {
+    const float d = _options.distanceMeters;
+    const float fit = [self fitArcDegreesForPanels:count] * kDegToRad;
+    const float seen = std::min(fit, core::arc_at_distance(sizeDegrees * kDegToRad, d));
+    return core::arc_at_distance(seen, 2.0f, d) / kDegToRad;  // undo the distance scaling the render applies
+}
+
 - (NSInteger)panelAtGaze:(simd_quatf)orientation {
     RNRenderOptions* o = _options;
     os_unfair_lock_lock(&_sourceLock);
     const float aspect = _panels[0].aspect;
     os_unfair_lock_unlock(&_sourceLock);
-    const float arc = o.arcDegrees * kDegToRad;
+    const float arc = panel_arc(o);
     const core::Quat head = core::track_axes(from_simd(orientation), static_cast<core::TrackingAxes>(o.trackingAxes));
     return core::panel_at_gaze(head, [self placements:self.panelCount aspect:aspect], arc,
                                core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
@@ -260,7 +272,7 @@ static float effective_curvature(RNRenderOptions* o) {
         k == p.mesh_curvature) {
         return;
     }
-    const float arc = o.arcDegrees * kDegToRad;
+    const float arc = panel_arc(o);
     const float width = core::panel_width(o.distanceMeters, arc, true);  // a sheet: bending keeps its width
     core::ScreenMesh mesh = core::bent_screen_mesh(o.distanceMeters, arc, width / aspect, k > 0.0f ? 64 : 1, k, center);
     core::pitch_mesh(mesh, pl.pitch_rad);
@@ -288,7 +300,7 @@ static float effective_curvature(RNRenderOptions* o) {
     RNRenderOptions* o = _options;
     int gaze = -1;
     if (count > 1 && o.dimOthers < 1.0f) {
-        const float arc = o.arcDegrees * kDegToRad;
+        const float arc = panel_arc(o);
         gaze = core::panel_at_gaze(head, placements, arc, core::panel_vertical_arc(arc, aspect, true),
                                    o.gapDegrees * kDegToRad);
     }

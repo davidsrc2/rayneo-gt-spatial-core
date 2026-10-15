@@ -154,8 +154,13 @@ void SpatialRenderer::set_source(int panel, DesktopDuplication* source) {
     panels_[panel].composed_generation = ~0ull;
 }
 
+// The panel arc as seen at the current distance (closer looks bigger, like a real monitor).
+float SpatialRenderer::panel_arc() const {
+    return core::arc_at_distance(options.arc_deg * kDegToRad, options.distance_m);
+}
+
 float SpatialRenderer::vertical_arc(float aspect) const {
-    return core::panel_vertical_arc(options.arc_deg * kDegToRad, aspect, true);
+    return core::panel_vertical_arc(panel_arc(), aspect, true);
 }
 
 std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) const {
@@ -164,7 +169,7 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
         cells.clear();
         for (int i = 0; i < count_; ++i) cells.push_back({i, 0});
     }
-    return core::grid_layout(cells, options.arc_deg * kDegToRad, vertical_arc(aspect), options.gap_deg * kDegToRad);
+    return core::grid_layout(cells, panel_arc(), vertical_arc(aspect), options.gap_deg * kDegToRad);
 }
 
 float SpatialRenderer::fit_arc_deg(int columns) const {
@@ -174,7 +179,7 @@ float SpatialRenderer::fit_arc_deg(int columns) const {
 
 int SpatialRenderer::panel_at_gaze(const core::Quat& head) const {
     const float aspect = panels_[0].aspect;
-    return core::panel_at_gaze(core::track_axes(head, options.tracking_axes), placements(aspect), options.arc_deg * kDegToRad, vertical_arc(aspect),
+    return core::panel_at_gaze(core::track_axes(head, options.tracking_axes), placements(aspect), panel_arc(), vertical_arc(aspect),
                                options.gap_deg * kDegToRad);
 }
 
@@ -201,7 +206,7 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl) {
         k == p.mesh_curvature) {
         return;
     }
-    const float arc = options.arc_deg * kDegToRad;
+    const float arc = panel_arc();
     const float width = core::panel_width(options.distance_m, arc, true);  // a sheet: bending keeps its width
     core::ScreenMesh mesh =
         core::bent_screen_mesh(options.distance_m, arc, width / p.aspect, k > 0.0f ? 64 : 1, k, pl.yaw_rad);
@@ -359,7 +364,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     // Panels you are not looking at fade to dim_others (core::PanelDimmer, shared with macOS).
     int gaze = -1;
     if (count_ > 1 && options.dim_others < 1.0f) {
-        gaze = core::panel_at_gaze(head, pls, options.arc_deg * kDegToRad, vertical_arc(panels_[0].aspect),
+        gaze = core::panel_at_gaze(head, pls, panel_arc(), vertical_arc(panels_[0].aspect),
                                    options.gap_deg * kDegToRad);
     }
     const float dt = last_frame_ns_ > 0 && target_ns > last_frame_ns_

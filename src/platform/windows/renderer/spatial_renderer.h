@@ -94,6 +94,7 @@ private:
     void compose(Panel& p);
     void ensure_eye_textures(int width, int height);
     float vertical_arc(float aspect) const;
+    float panel_arc() const;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> ctx_;

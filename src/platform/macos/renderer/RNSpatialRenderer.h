@@ -50,6 +50,10 @@ NS_ASSUME_NONNULL_BEGIN
 // Panel arc (deg) that fits `count` panels (columns) in the horizontal FOV of the options.
 - (float)fitArcDegreesForPanels:(NSUInteger)count;
 
+// Glasses in pinned mode: the arc option (deg) for panels of `sizeDegrees` (at 2 m) at the
+// current distance, never wider than what fits `count` columns in the glasses' image.
+- (float)pinnedArcDegreesForPanels:(NSUInteger)count sizeDegrees:(float)sizeDegrees;
+
 // Panel index the given head orientation (core frame) looks at, or -1.
 - (NSInteger)panelAtGaze:(simd_quatf)orientation;
 

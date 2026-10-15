@@ -32,8 +32,9 @@ final class GUIApp: NSObject {
 
     func shutdown() { server.stop() }
 
-    // ⌘⌥1 / ⌘⌥2 / ⌘⌥3: the one-click layouts without opening the panel.
+    // ⌘⌥1 / ⌘⌥2 / ⌘⌥3: the one-click layouts without opening the panel. ⌘⌥N: the panel.
     private func registerLayoutHotKeys() {
+        hotKeys.register(keyCode: kVK_ANSI_N, modifiers: cmdKey | optionKey) { [weak self] in self?.togglePanel() }
         let keys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3]
         for (key, preset) in zip(keys, AppModel.layouts) {
             hotKeys.register(keyCode: key, modifiers: cmdKey | optionKey) { [weak self] in

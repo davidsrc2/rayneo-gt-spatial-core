@@ -811,6 +811,10 @@ void test_yaw_only() {
     const Vec3 vf = v.rotate({1, 0, 0}), hf = (yaw * pitch).rotate({1, 0, 0});
     CHECK(near(vf.z, hf.z, 1e-5f) && near(vf.y, 0.0f, 1e-6f));
     CHECK(track_axes(yaw, TrackingAxes::Both).z == yaw.z);
+    const float arc = 0.66f;  // ~38 deg at the 2 m reference
+    CHECK(near(arc_at_distance(arc, 2.0f), arc, 1e-6f));
+    CHECK(arc_at_distance(arc, 1.2f) > arc && arc_at_distance(arc, 3.0f) < arc);
+    CHECK(near(arc_at_distance(arc_at_distance(arc, 3.0f), 2.0f, 3.0f), arc, 1e-5f));  // inverse
 }
 
 void test_slerp() {

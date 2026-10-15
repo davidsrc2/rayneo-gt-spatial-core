@@ -88,6 +88,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // GUI hooks. Without them (CLI) a stop request quits the process.
     var onStopRequest: ((String) -> Void)?
     var onFovChanged: ((Float) -> Void)?
+    var onNotice: ((String) -> Void)?  // short messages for the user (a notification in the app)
     private(set) var isTracking = false
 
     private let statsLock = NSLock()
@@ -386,8 +387,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let ro = renderer.options
         ro.staticHead = o.glassesPinned
         if o.glassesPinned {
+            // Size and distance can make the panels smaller, never wider than the glasses' image.
             let columns = Set((o.layout ?? []).map(\.col)).count
-            ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(max(1, o.layout == nil ? max(1, panelDisplays.count) : columns)))
+            ro.arcDegrees = renderer.pinnedArcDegrees(forPanels: UInt(max(1, o.layout == nil ? max(1, panelDisplays.count) : columns)),
+                                                      sizeDegrees: o.panelArcDeg)
         }
     }
 
@@ -515,6 +518,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     func recenter() {
+        if options.glassesPinned {
+            // The glasses hold the anchor in their pinned mode and offer no command to move it.
+            log("recenter: the glasses are in pinned mode, recenter with their own control")
+            onNotice?("En modo pinned el centro lo fijan las gafas: recentra desde las gafas")
+            return
+        }
         pose.recenter()
         lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
         log("recenter")

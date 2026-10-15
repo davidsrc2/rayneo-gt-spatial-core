@@ -82,6 +82,11 @@ Quat yaw_only(const Quat& q) {
     return Quat{std::cos(half), 0.0f, 0.0f, std::sin(half)};
 }
 
+float arc_at_distance(float arc_rad, float distance_m, float reference_m) {
+    if (distance_m <= 0.0f) return arc_rad;
+    return 2.0f * std::atan(std::tan(0.5f * arc_rad) * reference_m / distance_m);
+}
+
 Quat pitch_only(const Quat& q) {
     const Vec3 f = q.rotate({1.0f, 0.0f, 0.0f});
     const float elevation = std::asin(std::fmax(-1.0f, std::fmin(1.0f, f.z)));

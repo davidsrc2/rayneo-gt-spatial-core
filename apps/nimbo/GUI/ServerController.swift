@@ -59,6 +59,7 @@ final class ServerController: ObservableObject {
                                 ? "Las gafas se han desconectado; todo ha vuelto a la normalidad" : nil)
         }
         s.onFovChanged = { [weak self] fov in self?.model?.fov = Double(fov) }
+        s.onNotice = { [weak self] text in self?.notifier.post("Nimbo", text) }
         // Setup takes a few seconds (display modes, virtual monitors); the panel stays live.
         let task = Task { @MainActor [weak self] in
             do {
