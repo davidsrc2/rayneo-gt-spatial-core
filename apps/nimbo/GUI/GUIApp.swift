@@ -178,9 +178,20 @@ final class GUIApp: NSObject {
             w.isReleasedWhenClosed = false
             w.backgroundColor = NSColor(Theme.background)
             w.contentView = NSHostingView(rootView: MainView(model: model, server: server))
-            w.minSize = NSSize(width: 820, height: 640)
+            w.minSize = NSSize(width: 600, height: 380)
             w.center()
             window = w
+        }
+        // Fully on the screen it opens on, title bar included (a small virtual monitor is
+        // shorter than the window: its close button ended up off screen).
+        if let w = window, let room = (w.screen ?? NSScreen.main)?.visibleFrame {
+            var f = w.frame
+            f.size.width = min(f.width, room.width - 20)
+            f.size.height = min(f.height, room.height - 20)
+            f.origin.x = max(room.minX + 10, min(f.minX, room.maxX - f.width - 10))
+            f.origin.y = max(room.minY + 10, min(f.minY, room.maxY - f.height - 10))
+            if !room.intersects(w.frame) { f.origin = CGPoint(x: room.midX - f.width / 2, y: room.midY - f.height / 2) }
+            w.setFrame(f, display: false)
         }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

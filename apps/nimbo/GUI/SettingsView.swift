@@ -10,6 +10,45 @@ struct SettingsView: View {
     private var advanced: Bool { advancedBox.value }
 
     var body: some View {
+        // Scrolls, with "Hecho" always in view (also Esc), and never taller than the screen it
+        // opens on: a fixed height cut the button off and the sheet could not be closed.
+        VStack(spacing: 0) {
+            ScrollView { content.padding(28) }
+            Divider().opacity(0.4)
+            HStack {
+                Spacer()
+                Button("Hecho") { dismiss() }
+                    .buttonStyle(CalmButtonStyle(prominent: true))
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 14)
+        }
+        .frame(width: 640, height: min(advanced ? 800 : 620, Self.screenRoom))
+        .background(Theme.background)
+        .preferredColorScheme(.dark)
+        .animation(Theme.ease, value: advanced)
+        .onChange(of: model.fov) { server.settingsChanged() }
+        .onChange(of: model.ipd) { server.settingsChanged() }
+        .onChange(of: model.deadZone) { server.settingsChanged() }
+        .onChange(of: model.stereo) { server.settingsChanged() }
+        .onChange(of: model.gazeCursor) { server.settingsChanged() }
+        .onChange(of: model.dimOthers) { server.settingsChanged() }
+        .onChange(of: model.tracking) { server.settingsChanged() }
+        .onChange(of: model.glassesPinned) { server.settingsChanged() }
+        .onChange(of: model.growFocused) { server.settingsChanged() }
+        .onChange(of: model.focusWindows) { server.settingsChanged() }
+        .onChange(of: model.k1) { server.settingsChanged() }
+        .onChange(of: model.k2) { server.settingsChanged() }
+    }
+
+    // Height the sheet may take: the screen with the key window, less room for its title bar.
+    private static var screenRoom: CGFloat {
+        let screen = NSApp.keyWindow?.screen ?? NSScreen.main
+        return max(320, (screen?.visibleFrame.height ?? 900) - 90)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Ajustes").font(Theme.title).foregroundStyle(Theme.text)
 
@@ -73,28 +112,6 @@ struct SettingsView: View {
             }
             .tint(Theme.secondary)
 
-            Spacer()
-            HStack {
-                Spacer()
-                Button("Hecho") { dismiss() }.buttonStyle(CalmButtonStyle(prominent: true))
-            }
         }
-        .padding(28)
-        .frame(width: 640, height: advanced ? 800 : 440)
-        .background(Theme.background)
-        .preferredColorScheme(.dark)
-        .animation(Theme.ease, value: advanced)
-        .onChange(of: model.fov) { server.settingsChanged() }
-        .onChange(of: model.ipd) { server.settingsChanged() }
-        .onChange(of: model.deadZone) { server.settingsChanged() }
-        .onChange(of: model.stereo) { server.settingsChanged() }
-        .onChange(of: model.gazeCursor) { server.settingsChanged() }
-        .onChange(of: model.dimOthers) { server.settingsChanged() }
-        .onChange(of: model.tracking) { server.settingsChanged() }
-        .onChange(of: model.glassesPinned) { server.settingsChanged() }
-        .onChange(of: model.growFocused) { server.settingsChanged() }
-        .onChange(of: model.focusWindows) { server.settingsChanged() }
-        .onChange(of: model.k1) { server.settingsChanged() }
-        .onChange(of: model.k2) { server.settingsChanged() }
     }
 }
