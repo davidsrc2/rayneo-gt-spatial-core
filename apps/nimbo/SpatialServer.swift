@@ -275,6 +275,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if let layout = options.layout, layout.count == panels {
             renderer.setGridColumns(layout.map { NSNumber(value: $0.col) }, rows: layout.map { NSNumber(value: $0.row) })
         }
+        applyPoses(options)
         if options.fit && options.arcDeg == nil {
             let columns = Set((options.layout ?? []).map(\.col)).count
             ro.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(max(columns, options.layout == nil ? panels : 1)))
@@ -365,6 +366,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.dimOthers = o.dimOthers
         ro.trackingAxes = o.trackingAxes
         if let arc = o.arcDeg { ro.arcDegrees = arc }
+        applyPoses(o)
         options.distanceM = o.distanceM
         options.gapDeg = o.gapDeg
         options.curved = o.curved
@@ -378,9 +380,20 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.gazeCursor = o.gazeCursor
         options.dimOthers = o.dimOthers
         options.trackingAxes = o.trackingAxes
+        options.panelPoses = o.panelPoses
         if o.glassesPinned && !options.glassesPinned, let imu = pose as? ImuPoseSource { imu.setGlassesMode(1) }
         options.glassesPinned = o.glassesPinned
         applyPinned(o)  // last: it overrides the panel width
+        requestRedraw()
+    }
+
+    // Hand-placed monitors (layout editor), live.
+    private func applyPoses(_ o: ServerOptions) {
+        guard let renderer else { return }
+        renderer.options.layoutArcDegrees = o.panelArcDeg
+        let poses = o.panelPoses ?? []
+        renderer.setPanelPosesYaw(poses.map { NSNumber(value: $0.yaw) }, pitch: poses.map { NSNumber(value: $0.pitch) },
+                                  scale: poses.map { NSNumber(value: $0.scale) })
         requestRedraw()
     }
 

@@ -106,7 +106,24 @@ struct GridCell {
 struct PanelPlacement {
     float yaw_rad = 0.0f;
     float pitch_rad = 0.0f;
+    float scale = 1.0f;  // panel size relative to the common panel arc
 };
+
+// A panel placed by hand (Nimbo's layout editor), in degrees, at the 2 m reference with the
+// common panel arc: yaw positive = right, pitch positive = up. Renderers scale the angles
+// with the arc actually shown (distance, pinned fitting) so the arrangement keeps its shape.
+struct PanelPose {
+    float yaw_deg = 0.0f;
+    float pitch_deg = 0.0f;
+    float scale = 1.0f;
+};
+
+// Hand-placed panels as placements, angles multiplied by `angle_scale`.
+std::vector<PanelPlacement> placements_from_poses(const std::vector<PanelPose>& poses, float angle_scale = 1.0f);
+
+// Grid cells for the OS display arrangement (so the cursor crosses to the neighbour you see):
+// panels grouped into columns by yaw and rows by pitch, in panel order, every cell unique.
+std::vector<GridCell> cells_from_poses(const std::vector<PanelPose>& poses, float column_deg, float row_deg);
 
 // Angular height of a panel of horizontal arc `arc_rad` and width/height `aspect`.
 float panel_vertical_arc(float arc_rad, float aspect, bool flat);

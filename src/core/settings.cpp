@@ -127,6 +127,30 @@ std::optional<std::vector<GridCell>> read_cells(Reader& r) {
     return cells;
 }
 
+// [{"yaw": .., "pitch": .., "scale": ..}, ...]; missing fields keep their defaults.
+std::optional<std::vector<PanelPose>> read_poses(Reader& r) {
+    if (!r.eat('[')) return std::nullopt;
+    std::vector<PanelPose> out;
+    while (!r.done() && !r.eat(']')) {
+        if (!r.eat('{')) return std::nullopt;
+        PanelPose p;
+        while (!r.done() && !r.eat('}')) {
+            const auto key = r.string();
+            if (!key || !r.eat(':')) return std::nullopt;
+            const auto v = r.number();
+            if (!v) r.skip();
+            else if (*key == "yaw") p.yaw_deg = static_cast<float>(*v);
+            else if (*key == "pitch") p.pitch_deg = static_cast<float>(*v);
+            else if (*key == "scale") p.scale = static_cast<float>(*v);
+            r.eat(',');
+        }
+        out.push_back(p);
+        r.eat(',');
+    }
+    if (out.size() > 8) return std::nullopt;
+    return out;
+}
+
 void put(std::string& out, const char* key, float v, bool last = false) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "  \"%s\": %g%s\n", key, static_cast<double>(v), last ? "" : ",");
@@ -144,6 +168,14 @@ std::string settings_to_json(const Settings& s) {
     for (size_t i = 0; i < s.cells.size(); ++i) {
         out += (i > 0 ? ", " : "") + std::string("{\"col\": ") + std::to_string(s.cells[i].col) +
                ", \"row\": " + std::to_string(s.cells[i].row) + "}";
+    }
+    out += "],\n  \"panels\": [";
+    for (size_t i = 0; i < s.panels.size(); ++i) {
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "%s{\"yaw\": %g, \"pitch\": %g, \"scale\": %g}", i > 0 ? ", " : "",
+                      static_cast<double>(s.panels[i].yaw_deg), static_cast<double>(s.panels[i].pitch_deg),
+                      static_cast<double>(s.panels[i].scale));
+        out += buf;
     }
     out += "],\n  \"textSize\": " + std::to_string(s.text_size) + ",\n";
     put(out, "distance", s.distance_m);
@@ -192,6 +224,9 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         if (*key == "layoutCells") {
             if (const auto cells = read_cells(r)) s.cells = *cells;
             handled = true;  // malformed: reading stops below, keeping the keys before it
+        } else if (*key == "panels") {
+            if (const auto poses = read_poses(r)) s.panels = *poses;
+            handled = true;
         } else if (*key == "tracking") {
             if (const auto v = r.number()) {
                 s.tracking = std::max(0, std::min(2, static_cast<int>(*v)));

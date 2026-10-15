@@ -822,6 +822,25 @@ void test_yaw_only() {
     CHECK(near(arc_at_distance(arc_at_distance(arc, 3.0f), 2.0f, 3.0f), arc, 1e-5f));  // inverse
 }
 
+// Hand-placed panels: placements in radians with their scale; OS cells by columns and rows.
+void test_panel_poses() {
+    const std::vector<PanelPose> row = {{-20, 0, 1}, {20, 0, 0.6f}, {60, 2, 1}};
+    const auto pl = placements_from_poses(row, 0.5f);
+    CHECK(pl.size() == 3 && near(pl[1].yaw_rad, 0.17453f, 1e-4f) && near(pl[1].scale, 0.6f, 1e-6f));
+    const auto cells = cells_from_poses(row, 38, 22);
+    CHECK(cells[0].col == 0 && cells[1].col == 1 && cells[2].col == 2 && cells[0].row == 0 && cells[2].row == 0);
+    const std::vector<PanelPose> stacked = {{0, 12, 1}, {1, -12, 1}};  // one above the other
+    const auto sc = cells_from_poses(stacked, 38, 22);
+    CHECK(sc[0].col == sc[1].col && sc[0].row == 0 && sc[1].row == 1);
+    const std::vector<PanelPose> same = {{0, 0, 1}, {0, 0, 1}};  // overlapping: still two cells
+    const auto dc = cells_from_poses(same, 38, 22);
+    CHECK(!(dc[0].col == dc[1].col && dc[0].row == dc[1].row));
+    // Gaze honours each panel's size: the small one is narrower.
+    const auto head = Quat::from_axis_angle({0, 0, 1}, -0.30f);  // ~17 deg right of panel 2's centre
+    CHECK(panel_at_gaze(head, placements_from_poses({{0, 0, 1}}), 0.66f, 0.38f, 0.0f) == 0);
+    CHECK(panel_at_gaze(head, placements_from_poses({{0, 0, 0.5f}}), 0.66f, 0.38f, 0.0f) == -1);
+}
+
 void test_slerp() {
     const Quat a{}, b = Quat::from_axis_angle({0, 0, 1}, 1.0f);
     CHECK(quat_near(slerp(a, b, 0.0f), a, 1e-6f) && quat_near(slerp(a, b, 1.0f), b, 1e-6f));
@@ -949,6 +968,7 @@ void test_settings_json() {
     s.dim_others = false;
     s.fov_y_deg = 23.5f;
     s.tracking = 2;
+    s.panels = {{-10.5f, 3, 1.2f}, {25, 0, 0.8f}};
     const std::string json = settings_to_json(s);
     CHECK(json.find("\"layoutCells\"") != std::string::npos && json.find("\"fovY\": 23.5") != std::string::npos);
     const auto back = settings_from_json(json);
@@ -956,6 +976,9 @@ void test_settings_json() {
     CHECK(back->cells.size() == 3 && back->cells[1].col == 0 && back->cells[1].row == 1);
     CHECK(back->text_size == 1 && near(back->distance_m, 1.5f, 1e-6f) && back->stereo && !back->dim_others);
     CHECK(near(back->fov_y_deg, 23.5f, 1e-6f) && back->gaze_cursor && back->tracking == 2);
+    CHECK(back->panels.size() == 2 && near(back->panels[0].yaw_deg, -10.5f, 1e-5f) &&
+          near(back->panels[1].scale, 0.8f, 1e-6f));
+    CHECK(settings_from_json("{}")->panels.empty());  // default: the grid
     CHECK(settings_from_json("{}")->tracking == 1);                    // default: left/right only
     CHECK(settings_from_json(R"({"yawOnly": false})")->tracking == 0);  // earlier builds' switch
 
@@ -1044,6 +1067,7 @@ int main() {
     test_stabilizer_dead_zone();
     test_prediction_gain();
     test_yaw_only();
+    test_panel_poses();
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();

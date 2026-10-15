@@ -255,8 +255,9 @@ void pitch_mesh(ScreenMesh& mesh, float pitch_rad) {
 int panel_at_gaze(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad,
                   float vertical_arc_rad, float gap_rad) {
     const Vec3 f = render_rotation(head_rel).transform_point({0.0f, 0.0f, 1.0f});
-    const float half_w = 0.5f * (arc_rad + gap_rad), half_h = 0.5f * (vertical_arc_rad + gap_rad);
     for (size_t i = 0; i < panels.size(); ++i) {
+        const float half_w = 0.5f * (arc_rad * panels[i].scale + gap_rad);
+        const float half_h = 0.5f * (vertical_arc_rad * panels[i].scale + gap_rad);
         // Undo the panel's pitch, then compare angles in its row.
         const float cp = std::cos(panels[i].pitch_rad), sp = std::sin(panels[i].pitch_rad);
         const float y = f.y * cp - f.z * sp;
@@ -266,6 +267,55 @@ int panel_at_gaze(const Quat& head_rel, const std::vector<PanelPlacement>& panel
         if (std::fabs(yaw) <= half_w && std::fabs(pitch) <= half_h) return static_cast<int>(i);
     }
     return -1;
+}
+
+std::vector<PanelPlacement> placements_from_poses(const std::vector<PanelPose>& poses, float angle_scale) {
+    constexpr float d2r = 0.017453292519943295f;
+    std::vector<PanelPlacement> out;
+    out.reserve(poses.size());
+    for (const auto& p : poses) {
+        out.push_back({p.yaw_deg * d2r * angle_scale, p.pitch_deg * d2r * angle_scale, std::max(0.2f, p.scale)});
+    }
+    return out;
+}
+
+namespace {
+
+// Cluster indices of `values` (any order): sorted ascending, a new cluster wherever the step
+// to the next value exceeds `step`.
+std::vector<int> clusters(const std::vector<float>& values, float step) {
+    std::vector<size_t> order(values.size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return values[a] < values[b]; });
+    std::vector<int> out(values.size(), 0);
+    int c = 0;
+    for (size_t k = 0; k < order.size(); ++k) {
+        if (k > 0 && values[order[k]] - values[order[k - 1]] > step) ++c;
+        out[order[k]] = c;
+    }
+    return out;
+}
+
+}  // namespace
+
+std::vector<GridCell> cells_from_poses(const std::vector<PanelPose>& poses, float column_deg, float row_deg) {
+    std::vector<float> yaws, downs;
+    for (const auto& p : poses) {
+        yaws.push_back(p.yaw_deg);
+        downs.push_back(-p.pitch_deg);  // row 0 = top
+    }
+    const auto cols = clusters(yaws, 0.5f * column_deg);
+    const auto rows = clusters(downs, 0.5f * row_deg);
+    std::vector<GridCell> out;
+    for (size_t i = 0; i < poses.size(); ++i) {
+        GridCell c{cols[i], rows[i]};
+        // Overlapping panels share a cell: the later one moves right to the next free cell.
+        while (std::any_of(out.begin(), out.end(), [&](const GridCell& o) { return o.col == c.col && o.row == c.row; })) {
+            ++c.col;
+        }
+        out.push_back(c);
+    }
+    return out;
 }
 
 float horizontal_fov(float fovy_rad, float aspect) {

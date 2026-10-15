@@ -25,6 +25,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float dimOthers;        // brightness of the panels you are not looking at, 1 = off
 @property(nonatomic) NSInteger trackingAxes; // core::TrackingAxes: 0 both, 1 left/right only, 2 up/down only
 @property(nonatomic) BOOL staticHead;        // glasses in their own pinned mode: they anchor the image, not us
+@property(nonatomic) float layoutArcDegrees; // panel size the hand-placed poses refer to (0 = arcDegrees)
 @end
 
 @interface RNSpatialRenderer : NSObject
@@ -46,6 +47,10 @@ NS_ASSUME_NONNULL_BEGIN
 // Grid cell of each panel (column, row; row 0 = top), in panel order. Empty or mismatched
 // count: one row, left -> right. Any thread.
 - (void)setGridColumns:(NSArray<NSNumber*>*)columns rows:(NSArray<NSNumber*>*)rows;
+
+// Hand-placed position (deg, yaw right / pitch up) and size of each panel, in panel order
+// (Nimbo's layout editor). Empty or a count other than panelCount: the grid. Any thread.
+- (void)setPanelPosesYaw:(NSArray<NSNumber*>*)yaw pitch:(NSArray<NSNumber*>*)pitch scale:(NSArray<NSNumber*>*)scale;
 
 // Panel arc (deg) that fits `count` panels (columns) in the horizontal FOV of the options.
 - (float)fitArcDegreesForPanels:(NSUInteger)count;

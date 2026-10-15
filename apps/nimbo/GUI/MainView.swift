@@ -40,6 +40,10 @@ struct MainView: View {
                     }
                 }
 
+                Section(title: "Colocar a mano") {
+                    SpatialEditor(model: model)
+                }
+
                 Section(title: "Cómo se ven") {
                     LabeledSlider(title: "Tamaño del texto",
                                   value: Binding(get: { Double(model.textSize) }, set: { model.textSize = Int($0.rounded()) }),
@@ -72,6 +76,7 @@ struct MainView: View {
         .onChange(of: model.gap) { server.settingsChanged() }
         .onChange(of: model.curvature) { server.settingsChanged() }
         .onChange(of: model.size) { server.settingsChanged() }
+        .onChange(of: model.panelPoses) { server.settingsChanged() }
         .sheet(isPresented: $showSettings.value) {
             SettingsView(model: model, server: server, onRecalibrate: {
                 showSettings.value = false

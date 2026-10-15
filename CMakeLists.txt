@@ -213,6 +213,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${NIMBO_DIR}/GUI/ServerController.swift
     ${NIMBO_DIR}/GUI/Notifier.swift
     ${NIMBO_DIR}/GUI/LayoutEditor.swift
+    ${NIMBO_DIR}/GUI/SpatialEditor.swift
     ${NIMBO_DIR}/GUI/LayoutPreview.swift
     ${NIMBO_DIR}/GUI/MainView.swift
     ${NIMBO_DIR}/GUI/SettingsView.swift

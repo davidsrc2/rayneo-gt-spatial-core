@@ -56,6 +56,7 @@ struct Panel {
     NSUInteger index_count = 0;
     float mesh_aspect = 0, mesh_distance = 0, mesh_arc = 0, mesh_center = 0, mesh_pitch = 0;
     float mesh_curvature = -1.0f;
+    float mesh_scale = 0.0f;
     float brightness = 1.0f;  // render thread: eased towards 1 (looked at) or dimOthers
 };
 
@@ -79,6 +80,7 @@ struct Panel {
         _dimOthers = 1.0f;
         _trackingAxes = 0;
         _staticHead = NO;
+        _layoutArcDegrees = 0.0f;
     }
     return self;
 }
@@ -100,6 +102,7 @@ static float panel_arc(RNRenderOptions* o) {
     Panel _panels[kMaxPanels];
     NSUInteger _panelCount;  // guarded by _sourceLock
     std::vector<core::GridCell> _cells;  // guarded by _sourceLock
+    std::vector<core::PanelPose> _poses;  // guarded by _sourceLock: hand-placed panels
 
     id<MTLTexture> _placeholder;
     id<MTLTexture> _eyeTextures[2];
@@ -198,11 +201,28 @@ static float panel_arc(RNRenderOptions* o) {
 }
 
 // Layout for `count` panels of `aspect`: the grid cells if they match, else one row.
+- (void)setPanelPosesYaw:(NSArray<NSNumber*>*)yaw pitch:(NSArray<NSNumber*>*)pitch scale:(NSArray<NSNumber*>*)scale {
+    std::vector<core::PanelPose> poses;
+    for (NSUInteger i = 0; i < MIN(yaw.count, MIN(pitch.count, scale.count)); ++i) {
+        poses.push_back({yaw[i].floatValue, pitch[i].floatValue, scale[i].floatValue});
+    }
+    os_unfair_lock_lock(&_sourceLock);
+    _poses = std::move(poses);
+    os_unfair_lock_unlock(&_sourceLock);
+}
+
 - (std::vector<core::PanelPlacement>)placements:(NSUInteger)count aspect:(float)aspect {
     RNRenderOptions* o = _options;
     os_unfair_lock_lock(&_sourceLock);
     std::vector<core::GridCell> cells = _cells;
+    std::vector<core::PanelPose> poses = _poses;
     os_unfair_lock_unlock(&_sourceLock);
+    if (poses.size() == count) {
+        // Placed at the editor's panel size: angles follow the arc actually shown (distance,
+        // pinned fitting), so the arrangement keeps its shape.
+        const float placed = (o.layoutArcDegrees > 0.0f ? o.layoutArcDegrees : o.arcDegrees) * kDegToRad;
+        return core::placements_from_poses(poses, placed > 0.0f ? panel_arc(o) / placed : 1.0f);
+    }
     if (cells.size() != count) {
         cells.clear();
         for (NSUInteger i = 0; i < count; ++i) cells.push_back({static_cast<int>(i), 0});
@@ -269,10 +289,10 @@ static float effective_curvature(RNRenderOptions* o) {
     const float k = effective_curvature(o);
     if (p.vertices != nil && aspect == p.mesh_aspect && o.distanceMeters == p.mesh_distance &&
         o.arcDegrees == p.mesh_arc && center == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
-        k == p.mesh_curvature) {
+        k == p.mesh_curvature && pl.scale == p.mesh_scale) {
         return;
     }
-    const float arc = panel_arc(o);
+    const float arc = panel_arc(o) * pl.scale;
     const float width = core::panel_width(o.distanceMeters, arc, true);  // a sheet: bending keeps its width
     core::ScreenMesh mesh = core::bent_screen_mesh(o.distanceMeters, arc, width / aspect, k > 0.0f ? 64 : 1, k, center);
     core::pitch_mesh(mesh, pl.pitch_rad);
@@ -289,6 +309,7 @@ static float effective_curvature(RNRenderOptions* o) {
     p.mesh_center = center;
     p.mesh_pitch = pl.pitch_rad;
     p.mesh_curvature = k;
+    p.mesh_scale = pl.scale;
 }
 
 // Panels you are not looking at fade to dimOthers (core::PanelDimmer, shared with Windows).

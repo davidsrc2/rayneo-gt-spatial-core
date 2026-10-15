@@ -21,7 +21,16 @@ final class AppModel: ObservableObject {
 
     private let d = UserDefaults.standard
 
-    @Published var cells: [GridPos] { didSet { save(cells, "layoutCells") } }
+    @Published var cells: [GridPos] {
+        didSet {
+            save(cells, "layoutCells")
+            // A new arrangement from the grid editor or a template starts from the grid again.
+            if !keepingPoses && !panelPoses.isEmpty { panelPoses = [] }
+        }
+    }
+    // Hand-placed monitors (layout editor); empty = the grid. Same count and order as cells.
+    @Published var panelPoses: [PanelPos] { didSet { save(panelPoses, "panelPoses") } }
+    private var keepingPoses = false
     @Published var textSize: Int { didSet { d.set(textSize, forKey: "textSize") } }
     @Published var distance: Double { didSet { d.set(distance, forKey: "distance") } }
     @Published var gap: Double { didSet { d.set(gap, forKey: "gap") } }
@@ -51,6 +60,7 @@ final class AppModel: ObservableObject {
     init() {
         cells = Self.load([GridPos].self, "layoutCells", from: UserDefaults.standard)
             ?? [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0)]
+        panelPoses = Self.load([PanelPos].self, "panelPoses", from: UserDefaults.standard) ?? []
         textSize = d.object(forKey: "textSize") as? Int ?? 3
         distance = d.object(forKey: "distance") as? Double ?? 2.0
         gap = d.object(forKey: "gap") as? Double ?? 1.0
@@ -111,6 +121,58 @@ final class AppModel: ObservableObject {
     }
 
     func applyTemplate(_ t: [GridPos]) { cells = t }
+
+    // MARK: hand placement (SpatialEditor)
+
+    static let eyeAspect: Float = 16.0 / 9.0
+
+    // Vertical size (deg) of a flat panel `arc` degrees wide (core::panel_vertical_arc).
+    static func verticalArc(_ arc: Float) -> Float {
+        2 * atan(tan(arc * .pi / 360) / eyeAspect) * 180 / .pi
+    }
+
+    // The grid as hand placements: where the monitors are now (core::grid_layout).
+    func gridPoses() -> [PanelPos] {
+        let n = normalizedCells
+        let cols = n.map(\.col), rows = n.map(\.row)
+        let midC = Float((cols.min() ?? 0) + (cols.max() ?? 0)) / 2, midR = Float((rows.min() ?? 0) + (rows.max() ?? 0)) / 2
+        let w = Float(size) + Float(gap), h = Self.verticalArc(Float(size)) + Float(gap)
+        return n.map { PanelPos(yaw: (Float($0.col) - midC) * w, pitch: (midR - Float($0.row)) * h) }
+    }
+
+    var effectivePoses: [PanelPos] { panelPoses.count == cells.count ? panelPoses : gridPoses() }
+
+    // New hand placement; the OS arrangement (where the cursor crosses) follows the order the
+    // monitors now have, like core::cells_from_poses.
+    func place(_ poses: [PanelPos]) {
+        panelPoses = poses
+        let cols = Self.clusters(poses.map(\.yaw), step: Float(size) / 2)
+        let rows = Self.clusters(poses.map { -$0.pitch }, step: Self.verticalArc(Float(size)) / 2)
+        var derived: [GridPos] = []
+        for i in poses.indices {
+            var c = GridPos(col: cols[i], row: rows[i])
+            while derived.contains(c) { c.col += 1 }
+            derived.append(c)
+        }
+        if derived != cells {
+            keepingPoses = true
+            cells = derived
+            keepingPoses = false
+        }
+    }
+
+    func resetPlacement() { panelPoses = [] }
+
+    private static func clusters(_ values: [Float], step: Float) -> [Int] {
+        let order = values.indices.sorted { values[$0] < values[$1] }
+        var out = [Int](repeating: 0, count: values.count)
+        var c = 0
+        for (k, i) in order.enumerated() {
+            if k > 0, values[i] - values[order[k - 1]] > step { c += 1 }
+            out[i] = c
+        }
+        return out
+    }
 
     // MARK: one-click layouts and profiles
 
@@ -236,6 +298,7 @@ final class AppModel: ObservableObject {
         var o = ServerOptions()
         o.headless = false
         o.layout = normalizedCells
+        o.panelPoses = panelPoses.count == cells.count ? panelPoses : nil
         o.displays = cells.count
         let resolution = Self.textSizes[max(0, min(Self.textSizes.count - 1, textSize))]
         o.vdWidth = resolution.width

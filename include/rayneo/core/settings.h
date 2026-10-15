@@ -13,6 +13,7 @@ namespace rayneo::core {
 // same settings file (settings.json). Keys match the macOS app's UserDefaults keys.
 struct Settings {
     std::vector<GridCell> cells = {{0, 0}, {1, 0}};  // "layoutCells": one cell per virtual monitor
+    std::vector<PanelPose> panels;  // "panels": hand-placed position and size per monitor; empty = the grid
     int text_size = 3;           // "textSize": index into the app's text-size steps (0 = small text)
     float distance_m = 2.0f;     // "distance"
     float gap_deg = 1.0f;        // "gap"

@@ -6,6 +6,14 @@ struct GridPos: Codable, Hashable {
     var row: Int
 }
 
+// A monitor placed by hand (layout editor): degrees right / up at the 2 m reference with the
+// common panel size, and its own size (core::PanelPose).
+struct PanelPos: Codable, Hashable {
+    var yaw: Float
+    var pitch: Float
+    var scale: Float = 1
+}
+
 struct ServerOptions {
     var sideBySide: Bool? = nil   // nil: SBS on the glasses, mono in --windowed
     var ipdMM: Float = 63
@@ -23,6 +31,7 @@ struct ServerOptions {
 
     var displays = 2              // virtual monitors; 0 = capture an existing display
     var layout: [GridPos]? = nil  // grid cell per monitor; nil = one row
+    var panelPoses: [PanelPos]? = nil  // hand-placed monitors (same count as layout); nil = the grid
     var vdWidth = 1152            // points; with hiDPI: large, sharp text
     var vdHeight = 648
     var hiDPI = true
@@ -60,6 +69,7 @@ struct ServerOptions {
       --curved             curved panels (default: flat monitors angled towards you)
       --curvature K        0 flat .. 1 fully curved around you
       --distance M         panel radius in metres (2.0)
+      --poses Y,P,S;...    hand-placed monitors: degrees right, degrees up and size (1 = normal)
       --test-pattern       labelled grid on each virtual monitor
       --keep-main          keep the glasses display as macOS's main display, shown as the left
                            panel (two cursors: macOS draws one on the glasses surface)
@@ -109,6 +119,10 @@ struct ServerOptions {
                 guard !cells.isEmpty, cells.count <= 8, cells.allSatisfy({ $0.count == 2 }) else { return nil }
                 o.layout = cells.map { GridPos(col: $0[0], row: $0[1]) }
                 o.displays = cells.count
+            case "--poses":
+                let poses = value()?.split(separator: ";").map { $0.split(separator: ",").compactMap { Float($0) } } ?? []
+                guard !poses.isEmpty, poses.count <= 8, poses.allSatisfy({ $0.count == 3 }) else { return nil }
+                o.panelPoses = poses.map { PanelPos(yaw: $0[0], pitch: $0[1], scale: $0[2]) }
             case "--dead-zone": guard let v = float() else { return nil }; o.deadZoneDeg = v
             case "--vd-size":
                 let parts = value()?.split(separator: "x").compactMap { Int($0) } ?? []
