@@ -293,8 +293,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
         registerHotKeys()
         if options.headless { statusMenu = StatusMenu { [weak self] in self?.recenter() } }
-        if !options.windowed {
-            log(HardwareCursor.hide() ? "cursor: hardware cursor hidden (the panels show the real one)"
+        // The hardware cursor only needs hiding when the glasses mirror a display: then it is drawn
+        // head-locked over the render. Hidden in any other case it also vanished from the panels
+        // whenever Nimbo itself was the active app (its panel, its window).
+        if !options.windowed, Displays.isMirrored(screenID) {
+            log(HardwareCursor.hide() ? "cursor: hardware cursor hidden (mirrored glasses; the panels show the real one)"
                                       : "cursor: could not hide the hardware cursor")
         }
         try await startCaptures(glasses: glasses)
@@ -392,6 +395,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             if o.brightness > 0 && o.brightness != options.brightness { imu.setGlassesBrightness(o.brightness) }
         }
         options.glassesMode = o.glassesMode
+        options.recenterGlasses = o.recenterGlasses
         options.brightness = o.brightness
         options.glassesPinned = o.glassesPinned
         applyPinned(o)  // last: it overrides the panel width
@@ -547,14 +551,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     func recenter() {
-        if options.glassesPinned {
-            // The glasses hold the anchor in their pinned mode; setting pinned again recentres it.
-            if let imu = pose as? ImuPoseSource {
-                imu.setGlassesMode(1)
-                log("recenter: glasses' pinned anchor")
-            }
-            return
+        // Glasses in their own pinned mode hold an anchor too: setting pinned again recentres it.
+        if options.recenterGlasses || options.glassesPinned, let imu = pose as? ImuPoseSource {
+            imu.setGlassesMode(1)
+            log("recenter: glasses' pinned anchor")
         }
+        if options.glassesPinned { return }  // Nimbo's own pinned behaviour: nothing of ours to move
         pose.recenter()
         lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
         log("recenter")

@@ -3,8 +3,7 @@ import SwiftUI
 
 // Hand placement of the monitors, seen from where you sit: drag each one where you want it
 // (it moves on the glasses at the same time), pick one to change its own size. Edges and
-// centres snap to the other monitors; hold ⌥ to place freely. In pinned mode the monitors
-// stay inside the image the glasses hold.
+// centres snap to the other monitors; hold ⌥ to place freely.
 struct SpatialEditor: View {
     @ObservedObject var model: AppModel
     @StateObject private var selectedBox = Box(0)
@@ -21,15 +20,14 @@ struct SpatialEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.35))
-                // What the glasses show when you look straight ahead (in pinned mode: the
-                // image they hold, the limit for the monitors).
+                // What the glasses show when you look straight ahead.
                 let view = viewFrameDeg
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
                     .foregroundStyle(Theme.secondary.opacity(0.6))
                     .frame(width: CGFloat(view.width) * ppd, height: CGFloat(view.height) * ppd)
                     .position(point(yaw: 0, pitch: 0))
-                Text(model.glassesPinned ? "imagen fija de las gafas" : "lo que ves mirando al frente")
+                Text("lo que ves mirando al frente")
                     .font(Theme.small).foregroundStyle(Theme.secondary.opacity(0.7))
                     .position(x: point(yaw: 0, pitch: 0).x, y: point(yaw: 0, pitch: 0).y + CGFloat(view.height) * ppd / 2 + 10)
                 ForEach(Array(poses.enumerated()), id: \.offset) { i, p in
@@ -85,13 +83,7 @@ struct SpatialEditor: View {
     private var viewFrameDeg: (width: Float, height: Float) {
         let fovY = Float(model.fov)
         let hfov = 2 * atan(tan(fovY * .pi / 360) * AppModel.eyeAspect) * 180 / .pi
-        guard model.glassesPinned else { return (hfov, fovY) }
-        // Pinned: Nimbo shrinks the whole arrangement so the monitors fit the glasses' image
-        // (core fit_panel_arc); in editor units that image is hfov / shrink wide.
-        let columns = Float(max(1, Set(model.cells.map(\.col)).count))
-        let fit = (hfov - 2 - (columns - 1) * Float(model.gap)) / columns
-        let shrink = min(1, fit / Float(model.size))
-        return (hfov / shrink, fovY / shrink)
+        return (hfov, fovY)
     }
 
     // MARK: editing
@@ -104,7 +96,6 @@ struct SpatialEditor: View {
         p.yaw += Float(translation.width / ppd)
         p.pitch -= Float(translation.height / ppd)
         if !NSEvent.modifierFlags.contains(.option) { p = snap(p, index: i, among: poses) }
-        if model.glassesPinned { p = clampToView(p) }
         poses[i] = p
         model.panelPoses = poses  // live on the glasses; the arrangement is settled on release
     }
@@ -139,16 +130,6 @@ struct SpatialEditor: View {
             bestY = abs(p.pitch - t)
             out.pitch = t
         }
-        return out
-    }
-
-    private func clampToView(_ p: PanelPos) -> PanelPos {
-        let view = viewFrameDeg
-        let size = Float(model.size)
-        let halfW = size * p.scale / 2, halfH = AppModel.verticalArc(size * p.scale) / 2
-        var out = p
-        out.yaw = max(-view.width / 2 + halfW, min(view.width / 2 - halfW, p.yaw))
-        out.pitch = max(-view.height / 2 + halfH, min(view.height / 2 - halfH, p.pitch))
         return out
     }
 }

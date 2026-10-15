@@ -67,7 +67,7 @@ public sealed partial class SettingsWindow : Window
         DrawLayout();
         DrawPlacement();
         DimToggle.IsOn = _model.DimOthers;
-        GlassesModeChoice.SelectedIndex = _model.GlassesMode;
+        PinnedToggle.IsOn = _model.GlassesPinned;
         TrackingChoice.SelectedIndex = _model.Tracking switch { 1 => 0, 2 => 1, _ => 2 };
         FovSlider.Value = _model.Fov;
         IpdSlider.Value = _model.Ipd;
@@ -89,7 +89,7 @@ public sealed partial class SettingsWindow : Window
     {
         if (_updating) return;
         _model.DimOthers = DimToggle.IsOn;
-        if (GlassesModeChoice.SelectedIndex >= 0) _model.GlassesMode = GlassesModeChoice.SelectedIndex;
+        _model.GlassesPinned = PinnedToggle.IsOn;
         _model.Tracking = TrackingChoice.SelectedIndex switch { 0 => 1, 1 => 2, _ => 0 };
         _model.Fov = (float)FovSlider.Value;
         _model.Ipd = (float)IpdSlider.Value;
@@ -157,17 +157,12 @@ public sealed partial class SettingsWindow : Window
     private Windows.Foundation.Point ToCanvas(float yaw, float pitch) =>
         new(PlaceCanvas.Width / 2 + yaw * Ppd, PlaceCanvas.Height / 2 - pitch * Ppd);
 
-    // Degrees the glasses show around straight ahead, in editor units; in pinned mode the image
-    // the glasses hold, which Nimbo fits the arrangement into.
+    // Degrees the glasses show around straight ahead, in editor units.
     private (float W, float H) ViewFrame()
     {
         float fovY = _model.Fov;
         float hfov = 2f * MathF.Atan(MathF.Tan(fovY * MathF.PI / 360f) * AppModel.EyeAspect) * 180f / MathF.PI;
-        if (!_model.GlassesPinned) return (hfov, fovY);
-        float columns = Math.Max(1, _model.Cells.Select(c => c.Col).Distinct().Count());
-        float fit = (hfov - 2f - (columns - 1) * _model.Gap) / columns;
-        float shrink = Math.Min(1f, fit / _model.Size);
-        return (hfov / shrink, fovY / shrink);
+        return (hfov, fovY);
     }
 
     private void DrawPlacement()
@@ -260,7 +255,6 @@ public sealed partial class SettingsWindow : Window
         };
         bool free = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
         if (!free) p = Snap(p, i, poses);
-        if (_model.GlassesPinned) p = ClampToView(p);
         poses[i] = p;
         _model.Poses = poses;
         PositionView(i, p);
@@ -301,18 +295,6 @@ public sealed partial class SettingsWindow : Window
             if (MathF.Abs(p.Pitch - t) < by) { by = MathF.Abs(p.Pitch - t); pitch = t; }
         }
         return p with { Yaw = yaw, Pitch = pitch };
-    }
-
-    private PanelPos ClampToView(PanelPos p)
-    {
-        var view = ViewFrame();
-        float size = _model.Size;
-        float halfW = size * p.Scale / 2, halfH = AppModel.VerticalArc(size * p.Scale) / 2;
-        return p with
-        {
-            Yaw = Math.Clamp(p.Yaw, Math.Min(0, -view.W / 2 + halfW), Math.Max(0, view.W / 2 - halfW)),
-            Pitch = Math.Clamp(p.Pitch, Math.Min(0, -view.H / 2 + halfH), Math.Max(0, view.H / 2 - halfH)),
-        };
     }
 
     private void PlaceScale_Changed(object sender, RangeBaseValueChangedEventArgs e)

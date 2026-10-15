@@ -68,6 +68,7 @@ typedef struct {
     float pose_scale[NIMBO_MAX_PANELS]; /* size relative to arc_deg */
     int glasses_mode;                   /* put the glasses in this mode at start: 0 follow, 1 pinned, 2 steady; -1 leave */
     int brightness;                     /* glasses' brightness 1..8 at start; 0 leave */
+    bool recenter_glasses;              /* Ctrl+Alt+C also recentres the glasses' own pinned mode */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -145,7 +146,7 @@ typedef struct {
     float k1, k2;
     bool onboarding_done;
     int tracking;   /* 0 both, 1 left/right only, 2 up/down only */
-    int glasses_mode; /* 0 follow, 1 pinned, 2 steady */
+    int glasses_mode; /* 1 = the user keeps the glasses in their pinned mode (recentre them too) */
     int brightness;   /* 1..8, 0 = leave as is */
     int pose_count; /* "panels": hand-placed monitors, same order as the cells; 0 = the grid */
     float pose_yaw[NIMBO_MAX_PANELS];

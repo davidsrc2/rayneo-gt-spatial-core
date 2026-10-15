@@ -49,6 +49,7 @@ internal static unsafe class NimboNative
         public fixed float PoseScale[MaxPanels];
         public int GlassesMode;  // 0 follow, 1 pinned, 2 steady; -1 leave
         public int Brightness;   // 1..8; 0 leave
+        public byte RecenterGlasses;
     }
 
     public enum State

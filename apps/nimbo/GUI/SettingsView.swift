@@ -23,8 +23,8 @@ struct SettingsView: View {
                 Toggle("Atenuar los monitores que no miras", isOn: $model.dimOthers)
                     .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
-                    GlassesModePicker(model: model)
-                    Text("Nimbo pone las gafas en este modo al empezar. Pinned: las gafas fijan la imagen y Nimbo coloca los monitores dentro, enteros (⌘⌥C recentra). Follow: Nimbo fija los monitores. ⌘⌥M cambia de modo.")
+                    Toggle("Mis gafas están en modo pinned", isOn: $model.glassesPinned)
+                    Text("El modo se cambia con el botón de las gafas. Con esto activado, ⌘⌥C recentra también las gafas.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
@@ -83,7 +83,7 @@ struct SettingsView: View {
         .onChange(of: model.gazeCursor) { server.settingsChanged() }
         .onChange(of: model.dimOthers) { server.settingsChanged() }
         .onChange(of: model.tracking) { server.settingsChanged() }
-        .onChange(of: model.glassesMode) { server.settingsChanged() }
+        .onChange(of: model.glassesPinned) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }

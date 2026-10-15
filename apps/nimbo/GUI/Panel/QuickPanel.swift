@@ -34,9 +34,8 @@ struct QuickPanel: View {
                     HStack {
                         Text("Gafas").font(.system(size: 13, weight: .medium))
                         Spacer()
-                        Text("⌘⌥M · ⌘⌥[ ]").font(.system(size: 11, design: .rounded)).foregroundStyle(.secondary)
+                        Text("Brillo · ⌘⌥[ ]").font(.system(size: 11, design: .rounded)).foregroundStyle(.secondary)
                     }
-                    GlassesModePicker(model: model, showLabel: false)
                     BrightnessSlider(model: model)
                 }
             }
@@ -50,7 +49,6 @@ struct QuickPanel: View {
         .onChange(of: model.distance) { server.settingsChanged() }
         .onChange(of: model.curvature) { server.settingsChanged() }
         .onChange(of: model.size) { server.settingsChanged() }
-        .onChange(of: model.glassesMode) { server.settingsChanged() }
         .onChange(of: model.brightness) { server.settingsChanged() }
     }
 

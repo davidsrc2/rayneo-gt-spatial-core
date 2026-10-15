@@ -80,6 +80,7 @@ struct Options {
     std::vector<core::PanelPose> poses;  // hand-placed monitors; empty = the grid
     int glasses_mode = -1;               // set the glasses' mode: 0 follow, 1 pinned, 2 steady; -1 leave
     int brightness = 0;                  // set the glasses' brightness 1..8; 0 leave
+    bool recenter_glasses = false;       // Ctrl+Alt+C also recentres the glasses' pinned mode
 
     int displays = 2;                      // virtual monitors; 0 = show an existing display
     std::vector<core::GridCell> layout;    // grid cell per monitor; empty = one row
@@ -136,6 +137,7 @@ Options from_c(const nimbo_options& c) {
     }
     o.glasses_mode = std::clamp(c.glasses_mode, -1, 2);
     o.brightness = std::clamp(c.brightness, 0, 8);
+    o.recenter_glasses = c.recenter_glasses;
     return o;
 }
 
@@ -1129,11 +1131,12 @@ void Server::on_hotkey(int id) {
     constexpr float step = 10;
     switch (id) {
     case kRecenter:
-        if (opt_.glasses_pinned) {  // the glasses hold the anchor; setting pinned again recentres it
+        // Glasses in their own pinned mode hold an anchor too: setting pinned again recentres it.
+        if (opt_.recenter_glasses || opt_.glasses_pinned) {
             pose_->set_glasses_mode(1);
             logln("recenter: glasses' pinned anchor");
-            break;
         }
+        if (opt_.glasses_pinned) break;  // Nimbo's own pinned behaviour: nothing of ours to move
         pose_->recenter();
         last_gaze_panel_ = -2;  // re-evaluate: the cursor follows to the panel in front
         logln("recenter");
@@ -1265,6 +1268,7 @@ void Server::apply_pending() {
     if (o->brightness > 0 && o->brightness != opt_.brightness) pose_->set_glasses_brightness(o->brightness);
     opt_.glasses_mode = o->glasses_mode;
     opt_.brightness = o->brightness;
+    opt_.recenter_glasses = o->recenter_glasses;
     opt_.glasses_pinned = o->glasses_pinned;
     apply_pinned(*o);  // after the width above: it overrides it
     opt_.gaze_cursor = o->gaze_cursor;
@@ -1561,8 +1565,10 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.dim_others = s.dim_others ? 0.55f : 1.0f;  // linear light: ~80 % perceived brightness
     o.gather_windows = s.gather_windows;
     o.tracking_axes = s.tracking;
-    o.glasses_mode = s.glasses_mode;
-    o.glasses_pinned = s.glasses_mode == 1;
+    // The glasses' mode is changed with their own button: the app only recentres them.
+    o.glasses_mode = -1;
+    o.glasses_pinned = false;
+    o.recenter_glasses = s.glasses_mode == 1;
     o.brightness = s.brightness;
     o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;
     for (int i = 0; i < o.pose_count; ++i) {

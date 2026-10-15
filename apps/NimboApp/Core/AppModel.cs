@@ -82,10 +82,9 @@ internal sealed unsafe class AppModel
     public float K1 { get => _s.K1; set => _s.K1 = value; }
     public float K2 { get => _s.K2; set => _s.K2 = value; }
     public bool OnboardingDone { get => _s.OnboardingDone != 0; set => _s.OnboardingDone = B(value); }
-    // The glasses' own mode, set by Nimbo: 0 follow, 1 pinned (they anchor the image), 2 steady.
-    public static readonly string[] GlassesModeNames = { "Follow", "Pinned", "Steady" };
-    public int GlassesMode { get => _s.GlassesMode; set => _s.GlassesMode = Math.Clamp(value, 0, 2); }
-    public bool GlassesPinned => _s.GlassesMode == 1;
+    // The user keeps the glasses in their own pinned mode (changed only with the glasses' button):
+    // Ctrl+Alt+C then recentres the glasses too. Nimbo renders the same either way.
+    public bool GlassesPinned { get => _s.GlassesMode == 1; set => _s.GlassesMode = value ? 1 : 0; }
     public int Brightness { get => _s.Brightness; set => _s.Brightness = Math.Clamp(value, 0, 8); }  // 1..8, 0 = leave
     public int Tracking { get => _s.Tracking; set => _s.Tracking = Math.Clamp(value, 0, 2); }  // 0 both, 1 left/right, 2 up/down
 

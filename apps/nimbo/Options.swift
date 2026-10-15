@@ -45,6 +45,7 @@ struct ServerOptions {
     var glassesPinned = false     // glasses in their own pinned mode: panels fixed in the image, fitted inside it
     var glassesMode = -1          // set the glasses' mode at start: 0 follow, 1 pinned, 2 steady; -1 = leave
     var brightness = 0            // set the glasses' brightness 1..8 at start; 0 = leave
+    var recenterGlasses = false   // ⌘⌥C also recentres the glasses' own pinned mode (0x08 pinned)
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
     var calibrationPath = "calibration.json"
@@ -82,6 +83,7 @@ struct ServerOptions {
                            panels stay put in it and are sized to fit inside it (sets that mode)
       --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
       --brightness N       glasses' brightness 1..8 (8 = factory level)
+      --recenter-glasses   Cmd+Opt+C also recentres the glasses' own pinned mode
       --track AXES         head rotations that move the panels: h (left/right, default: still
                            vertically), v (up/down, for stacked monitors) or both
     optics
@@ -155,6 +157,7 @@ struct ServerOptions {
                 guard let v = value(), let m = ["follow": 0, "pinned": 1, "steady": 2][v] else { return nil }
                 o.glassesMode = m
                 o.glassesPinned = m == 1
+            case "--recenter-glasses": o.recenterGlasses = true
             case "--brightness": guard let v = value().flatMap({ Int($0) }), (1...8).contains(v) else { return nil }; o.brightness = v
             case "--dim": guard let v = float() else { return nil }; o.dimOthers = max(0, min(1, v))
             case "--mono": o.sideBySide = false

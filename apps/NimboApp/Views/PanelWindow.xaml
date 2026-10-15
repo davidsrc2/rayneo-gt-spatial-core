@@ -71,13 +71,8 @@
                 <StackPanel Spacing="8">
                     <Grid>
                         <TextBlock Text="Gafas" FontSize="13" FontWeight="Medium" />
-                        <TextBlock Text="Ctrl+Alt+M · Ctrl+Alt+[ ]" HorizontalAlignment="Right" FontSize="11" Opacity="0.6" />
+                        <TextBlock Text="Brillo · Ctrl+Alt+[ ]" HorizontalAlignment="Right" FontSize="11" Opacity="0.6" />
                     </Grid>
-                    <RadioButtons x:Name="GlassesMode" MaxColumns="3" SelectionChanged="GlassesMode_Changed">
-                        <x:String>Follow</x:String>
-                        <x:String>Pinned</x:String>
-                        <x:String>Steady</x:String>
-                    </RadioButtons>
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />

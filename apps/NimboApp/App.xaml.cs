@@ -46,14 +46,7 @@ public partial class App : Application
         // Ctrl+Alt+1 / 2 / 3: the one-click layouts without opening the panel. Ctrl+Alt+N: the panel.
         _hotKeys = new HotKeys();
         _hotKeys.Register('N', () => _panel.Toggle());
-        // Ctrl+Alt+M: next glasses mode (follow -> pinned -> steady); Ctrl+Alt+[ / ]: brightness.
-        _hotKeys.Register('M', () =>
-        {
-            _model.GlassesMode = (_model.GlassesMode + 1) % AppModel.GlassesModeNames.Length;
-            _server.SettingsChanged();
-            _panel.Refresh();
-            _tray?.ShowNotification("Gafas", AppModel.GlassesModeNames[_model.GlassesMode]);
-        });
+        // Ctrl+Alt+[ / ]: the glasses' brightness (their mode stays on their own button).
         foreach (var (vk, step) in new[] { (0xDBu, -1), (0xDDu, 1) })
         {
             _hotKeys.Register(vk, () =>

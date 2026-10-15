@@ -1,25 +1,7 @@
 import SwiftUI
 
-// The glasses' own mode and brightness, set by Nimbo over USB (see docs/PROTOCOL.md: 0x08, 0x09).
-struct GlassesModePicker: View {
-    @ObservedObject var model: AppModel
-    var showLabel = true
-
-    var body: some View {
-        Picker("Modo de las gafas", selection: $model.glassesMode) {
-            ForEach(0..<AppModel.glassesModeNames.count, id: \.self) { Text(AppModel.glassesModeNames[$0]).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden(!showLabel)
-    }
-}
-
-private extension View {
-    @ViewBuilder func labelsHidden(_ hidden: Bool) -> some View {
-        if hidden { labelsHidden() } else { self }
-    }
-}
-
+// The glasses' brightness, set by Nimbo over USB (docs/PROTOCOL.md: 0x09). Their mode stays on
+// their own button.
 struct BrightnessSlider: View {
     @ObservedObject var model: AppModel
 

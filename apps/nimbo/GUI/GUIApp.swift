@@ -35,13 +35,7 @@ final class GUIApp: NSObject {
     // ⌘⌥1 / ⌘⌥2 / ⌘⌥3: the one-click layouts without opening the panel. ⌘⌥N: the panel.
     private func registerLayoutHotKeys() {
         hotKeys.register(keyCode: kVK_ANSI_N, modifiers: cmdKey | optionKey) { [weak self] in self?.togglePanel() }
-        // ⌘⌥M: next glasses mode (follow -> pinned -> steady); ⌘⌥[ / ⌘⌥]: brightness.
-        hotKeys.register(keyCode: kVK_ANSI_M, modifiers: cmdKey | optionKey) { [weak self] in
-            guard let self else { return }
-            self.model.glassesMode = (self.model.glassesMode + 1) % AppModel.glassesModeNames.count
-            self.server.settingsChanged()
-            self.server.tell("Gafas: " + AppModel.glassesModeNames[self.model.glassesMode])
-        }
+        // ⌘⌥[ / ⌘⌥]: the glasses' brightness.
         for (key, step) in [(kVK_ANSI_LeftBracket, -1), (kVK_ANSI_RightBracket, 1)] {
             hotKeys.register(keyCode: key, modifiers: cmdKey | optionKey) { [weak self] in
                 guard let self else { return }
