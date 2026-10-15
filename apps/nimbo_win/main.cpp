@@ -23,6 +23,14 @@
 namespace {
 
 const char* kUsage = R"(usage: nimbo_win [options]
+  --app                start from the app's own settings (%LOCALAPPDATA%\Nimbo\settings.json and
+                       calibration.json), as Nimbo.exe would; options after it change them
+space at real size (the app's mode)
+  --space              glasses put in follow, every panel as large as their image, fixed in the
+                       room on both axes (back to pinned on exit)
+  --anchor             with --space: panels frozen while the head holds still
+  --tilt K             panels above / below: 1 face you (default) .. 0 upright
+  --laptop-screen      the computer's own (primary) screen is panel 1, the rest virtual
 layout
   --displays N         virtual monitors around you (2; needs the Virtual Display Driver);
                        0 = show an existing display
@@ -218,8 +226,35 @@ bool parse(int argc, char** argv, Cli* cli) {
         else if (a == "--60hz") o.refresh120 = false;
         else if (a == "--duration" && number(&f)) cli->duration_s = f;
         else if (a == "--restore") cli->restore = true;
+        else if (a == "--app") {}  // applied before parsing (load_app_settings)
+        else if (a == "--space") {
+            o.glasses_mode = 0;
+            o.glasses_pinned = false;
+            o.recenter_glasses = false;
+            o.real_size = true;
+            if (o.dead_zone_deg >= 0) o.dead_zone_deg = -1.0f;  // world-locked
+        }
+        else if (a == "--anchor") o.dead_zone_deg = -1.3f;  // world-locked, frozen within 0.3 deg
+        else if (a == "--tilt" && number(&f) && f >= 0 && f <= 1) o.tilt = f;
+        else if (a == "--laptop-screen") o.laptop_screen = true;
         else return false;
     }
+    return true;
+}
+
+// --app: the options the Windows app would start with, from its settings file.
+bool load_app_settings(nimbo_options* o) {
+    char dir[MAX_PATH] = {};
+    if (GetEnvironmentVariableA("LOCALAPPDATA", dir, sizeof(dir)) == 0) return false;
+    const std::string base = std::string(dir) + "\\Nimbo\\";
+    nimbo_settings s{};
+    if (!nimbo_load_settings((base + "settings.json").c_str(), &s)) return false;
+    nimbo_options_from_settings(&s, o);
+    const std::string calib = base + "calibration.json";
+    if (GetFileAttributesA(calib.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        copy_arg(o->calibration_path, sizeof(o->calibration_path), calib.c_str());
+    }
+    std::printf("settings: %ssettings.json\n", base.c_str());
     return true;
 }
 
@@ -243,6 +278,12 @@ int main(int argc, char** argv) {
         }
     }
     Cli cli;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--app" && !load_app_settings(&cli.options)) {
+            std::printf("--app: could not read the app's settings file\n");
+            return 1;
+        }
+    }
     if (!parse(argc, argv, &cli)) {
         std::printf("%s", kUsage);
         return 1;
