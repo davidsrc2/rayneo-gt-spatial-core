@@ -11,6 +11,9 @@ final class GUIApp: NSObject {
     private var window: NSWindow?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var panel: KeyPanel?
+    private let panelLayout = PanelLayout()
+    private var panelPlacing = false  // our own setFrame: not a move by the user
+    private static let panelTopLeftKey = "quickPanelTopLeft"
     private let hotKeys = HotKeys()
 
     func launch() {
@@ -86,7 +89,7 @@ final class GUIApp: NSObject {
 
     func showPanel() {
         if panel == nil {
-            let host = NSHostingView(rootView: QuickPanel(model: model, server: server) { [weak self] in
+            let host = NSHostingView(rootView: QuickPanelContainer(layout: panelLayout, model: model, server: server) { [weak self] in
                 self?.panel?.orderOut(nil)
                 self?.openLayout()
             }
@@ -102,22 +105,46 @@ final class GUIApp: NSObject {
             p.appearance = NSAppearance(named: .darkAqua)
             p.hidesOnDeactivate = false
             p.onResignKey = { [weak p] in p?.orderOut(nil) }  // click elsewhere: close, like a popover
+            // Dragged like a window (the top bar, or any empty part of it); it opens there again.
+            p.isMovable = true
+            p.isMovableByWindowBackground = true
+            NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: p, queue: .main) { [weak self, weak p] _ in
+                guard let self, let p, !self.panelPlacing else { return }
+                UserDefaults.standard.set([p.frame.minX, p.frame.maxY], forKey: Self.panelTopLeftKey)
+            }
             panel = p
         }
         guard let panel, let host = panel.contentView else { return }
-        // Under the ◎ item when it is on screen, else at the right edge; always below the menu
-        // bar and fully inside the visible area.
+        // Where it was dragged to last, else under the ◎ item when it is on screen, else at the
+        // right edge. Always fully inside the visible area; taller than it, it scrolls, so
+        // "Más opciones" can always be reached.
         let item = statusItem.button?.window
-        let screen = item?.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        let saved = (UserDefaults.standard.array(forKey: Self.panelTopLeftKey) as? [Double]).flatMap {
+            $0.count == 2 ? NSPoint(x: $0[0], y: $0[1]) : nil
+        }
+        let screen = saved.flatMap { p in NSScreen.screens.first { $0.frame.insetBy(dx: -1, dy: -1).contains(p) } }
+            ?? item?.screen ?? NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
+        panelLayout.maxHeight = nil
+        host.layoutSubtreeIfNeeded()
         var size = host.fittingSize
-        size.height = min(size.height, visible.height - 12)
+        if size.height > visible.height - 12 {
+            size.height = visible.height - 12
+            panelLayout.maxHeight = size.height
+        }
         var x = visible.maxX - size.width - 10
-        if let item, item.occlusionState.contains(.visible), screen.frame.contains(item.frame) {
+        var top = visible.maxY - 6
+        if let saved {
+            x = saved.x
+            top = saved.y
+        } else if let item, item.occlusionState.contains(.visible), screen.frame.contains(item.frame) {
             x = item.frame.midX - size.width / 2
         }
         x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
-        panel.setFrame(NSRect(x: x, y: visible.maxY - size.height - 6, width: size.width, height: size.height), display: true)
+        top = max(visible.minY + size.height + 6, min(top, visible.maxY - 6))
+        panelPlacing = true
+        panel.setFrame(NSRect(x: x, y: top - size.height, width: size.width, height: size.height), display: true)
+        panelPlacing = false
         // Key without activating the app: Nimbo hides the hardware cursor, and as the active
         // app that hiding also took the cursor out of the captured panels until another app
         // was clicked.
@@ -205,6 +232,30 @@ final class GUIApp: NSObject {
 }
 
 // Borderless panel that can take key focus (sliders, toggles) and closes when it loses it.
+// The quick panel's height limit when the screen is shorter than it (nil: its natural height).
+final class PanelLayout: ObservableObject {
+    @Published var maxHeight: CGFloat?
+}
+
+@available(macOS 14.0, *)
+struct QuickPanelContainer: View {
+    @ObservedObject var layout: PanelLayout
+    @ObservedObject var model: AppModel
+    @ObservedObject var server: ServerController
+    let openMore: () -> Void
+
+    var body: some View {
+        if let h = layout.maxHeight {
+            ScrollView(.vertical, showsIndicators: true) {
+                QuickPanel(model: model, server: server, openMore: openMore)
+            }
+            .frame(width: 380, height: h)
+        } else {
+            QuickPanel(model: model, server: server, openMore: openMore)
+        }
+    }
+}
+
 final class KeyPanel: NSPanel {
     var onResignKey: (() -> Void)?
     private(set) var closedAt = Date.distantPast

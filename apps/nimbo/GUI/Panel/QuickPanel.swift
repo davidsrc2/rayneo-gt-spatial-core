@@ -10,6 +10,7 @@ struct QuickPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            grabber
             header
             LayoutCards(model: model, gaze: server.gazePanel) { server.settingsChanged() }
             recenter
@@ -53,13 +54,26 @@ struct QuickPanel: View {
         .onChange(of: model.brightness) { server.settingsChanged() }
     }
 
+    // Drag here (or on any empty part) to move the panel like a window.
+    private var grabber: some View {
+        Capsule()
+            .fill(.white.opacity(0.25))
+            .frame(width: 44, height: 5)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .background(WindowDragArea())
+            .padding(.top, -10)
+            .padding(.bottom, -8)
+            .help("Arrastra para mover el panel")
+    }
+
     private var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Nimbo").font(.system(size: 17, weight: .semibold))
                 StatusLight(server: server)
             }
-            Spacer()
+            Spacer().frame(maxHeight: .infinity).background(WindowDragArea())
             Toggle("", isOn: Binding(get: { server.isRunning }, set: { $0 ? server.start() : server.stop() }))
                 .toggleStyle(.switch)
                 .tint(Color(red: 0.48, green: 0.78, blue: 0.60))
@@ -133,4 +147,15 @@ struct QuickPanel: View {
             }
         }
     }
+}
+
+// A patch of the panel that drags the whole window, like a title bar.
+struct WindowDragArea: NSViewRepresentable {
+    final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+        override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    }
+
+    func makeNSView(context: Context) -> NSView { DragView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
