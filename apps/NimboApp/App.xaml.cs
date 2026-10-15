@@ -78,9 +78,9 @@ public partial class App : Application
             Exit();  // already running: its icon is in the tray
             return;
         }
-        Trace("launch: nimbo.dll");
+        Trace("launch: nimbo_server.dll");
         NimboNative.nimbo_restore_displays();  // a previous run that crashed
-        Trace("launch: nimbo.dll ok, settings");
+        Trace("launch: nimbo_server.dll ok, settings");
 
         _model = new AppModel();
         _server = new ServerController(_model, DispatcherQueue.GetForCurrentThread());

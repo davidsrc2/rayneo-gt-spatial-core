@@ -4,7 +4,7 @@ using Nimbo.Native;
 
 namespace Nimbo.Core;
 
-// Runs the spatial server (nimbo.dll) for the app and turns its state into calm status text.
+// Runs the spatial server (nimbo_server.dll) for the app and turns its state into calm status text.
 // UI thread only; the blocking start / stop calls run on the thread pool.
 internal sealed class ServerController : IDisposable
 {
@@ -19,7 +19,7 @@ internal sealed class ServerController : IDisposable
     private int _glassesCheck;
     private bool _stoppedByUnplug;
 
-    // Keeps the log callback alive while nimbo.dll holds it.
+    // Keeps the log callback alive while nimbo_server.dll holds it.
     private static readonly NimboNative.LogFn LogCallback = OnLog;
 
     public event Action? Changed;

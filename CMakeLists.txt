@@ -307,6 +307,9 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
   target_compile_definitions(nimbo PRIVATE NIMBO_BUILD_DLL)
   target_include_directories(nimbo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(nimbo PRIVATE rayneo::engine rayneo_windows winmm)
+  # nimbo_server.dll, not nimbo.dll: next to the app's own Nimbo.dll (its .NET assembly)
+  # the two names are the same file on Windows and one overwrote the other.
+  set_target_properties(nimbo PROPERTIES OUTPUT_NAME nimbo_server)
   rayneo_warnings(nimbo)
 
   add_executable(nimbo_win apps/nimbo_win/main.cpp)

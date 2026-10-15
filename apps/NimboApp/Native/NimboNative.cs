@@ -3,12 +3,12 @@ using System.Text;
 
 namespace Nimbo.Native;
 
-// P/Invoke over nimbo.dll. The structs mirror include/rayneo/platform/nimbo_win.h field by
+// P/Invoke over nimbo_server.dll. The structs mirror include/rayneo/platform/nimbo_win.h field by
 // field and are blittable (fixed buffers, C bool as byte), so they cross by value as is;
 // keep both in sync.
 internal static unsafe class NimboNative
 {
-    private const string Dll = "nimbo.dll";
+    private const string Dll = "nimbo_server.dll";
     public const int MaxPanels = 8;
 
     [StructLayout(LayoutKind.Sequential)]
