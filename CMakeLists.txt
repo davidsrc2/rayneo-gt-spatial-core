@@ -222,6 +222,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${NIMBO_DIR}/GUI/Panel/StatusLight.swift
     ${NIMBO_DIR}/GUI/Panel/SnapSlider.swift
     ${NIMBO_DIR}/GUI/Panel/LayoutCards.swift
+    ${NIMBO_DIR}/GUI/Panel/GlassesControls.swift
     ${NIMBO_DIR}/GUI/Panel/QuickPanel.swift
     ${NIMBO_DIR}/GUI/GUIApp.swift)
   target_compile_options(nimbo PRIVATE

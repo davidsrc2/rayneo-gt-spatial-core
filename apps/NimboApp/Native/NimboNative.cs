@@ -47,6 +47,8 @@ internal static unsafe class NimboNative
         public fixed float PoseYaw[MaxPanels];
         public fixed float PosePitch[MaxPanels];
         public fixed float PoseScale[MaxPanels];
+        public int GlassesMode;  // 0 follow, 1 pinned, 2 steady; -1 leave
+        public int Brightness;   // 1..8; 0 leave
     }
 
     public enum State
@@ -88,7 +90,8 @@ internal static unsafe class NimboNative
         public float K1, K2;
         public byte OnboardingDone;
         public int Tracking;
-        public byte GlassesPinned;
+        public int GlassesMode;  // 0 follow, 1 pinned, 2 steady
+        public int Brightness;   // 1..8; 0 leave
         public int PoseCount;
         public fixed float PoseYaw[MaxPanels];
         public fixed float PosePitch[MaxPanels];

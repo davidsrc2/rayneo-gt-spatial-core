@@ -26,6 +26,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)recenter;
 // The glasses' own display mode: 0 follow, 1 pinned, 2 steady. Setting pinned recentres its anchor.
 - (void)setGlassesMode:(NSInteger)mode;
+// The glasses' brightness, 1 (dim) .. 8 (factory level).
+- (void)setGlassesBrightness:(NSInteger)level;
 - (nullable RNPose*)latestPose;
 
 // Loads calibration.json (sensor_to_head). Applied immediately, implies a recenter.

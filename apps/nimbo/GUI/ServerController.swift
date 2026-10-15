@@ -110,6 +110,9 @@ final class ServerController: ObservableObject {
         }
     }
 
+    // A short notification (shortcuts change things with no panel on screen).
+    func tell(_ title: String, _ body: String = "") { notifier.post(title, body) }
+
     // Layout switched by shortcut: no panel on screen, so tell it with a notice.
     func announce(_ layout: String) {
         notifier.post(layout, isRunning ? "Preparando los monitores…" : "Se aplicará al empezar")

@@ -29,10 +29,13 @@ internal sealed class HotKeys : IDisposable
     }
 
     // Ctrl+Alt+<key>; false if another app owns it.
-    public bool Register(char key, Action action)
+    public bool Register(char key, Action action) => Register((uint)key, action);
+
+    // Ctrl+Alt+<virtual key> (e.g. 0xDB '[' and 0xDD ']' on a US layout).
+    public bool Register(uint vk, Action action)
     {
         int id = _nextId++;
-        if (!RegisterHotKey(_hwnd, id, ModControl | ModAlt | ModNoRepeat, key)) return false;
+        if (!RegisterHotKey(_hwnd, id, ModControl | ModAlt | ModNoRepeat, vk)) return false;
         _actions[id] = action;
         return true;
     }

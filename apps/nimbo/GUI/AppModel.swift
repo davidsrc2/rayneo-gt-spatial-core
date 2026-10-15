@@ -51,7 +51,11 @@ final class AppModel: ObservableObject {
     @Published var dimOthers: Bool { didSet { d.set(dimOthers, forKey: "dimOthers") } }
     @Published var gatherWindows: Bool { didSet { d.set(gatherWindows, forKey: "gatherWindows") } }
     @Published var tracking: Int { didSet { d.set(tracking, forKey: "tracking") } }  // 0 both, 1 left/right, 2 up/down
-    @Published var glassesPinned: Bool { didSet { d.set(glassesPinned, forKey: "glassesPinned") } }
+    // The glasses' own mode, set by Nimbo: 0 follow, 1 pinned (they anchor the image), 2 steady.
+    @Published var glassesMode: Int { didSet { d.set(glassesMode, forKey: "glassesMode") } }
+    @Published var brightness: Int { didSet { d.set(brightness, forKey: "brightness") } }  // 1..8, 0 = leave
+    var glassesPinned: Bool { glassesMode == 1 }
+    static let glassesModeNames = ["Follow", "Pinned", "Steady"]
     @Published var k1: Double { didSet { d.set(k1, forKey: "k1") } }
     @Published var k2: Double { didSet { d.set(k2, forKey: "k2") } }
 
@@ -75,7 +79,8 @@ final class AppModel: ObservableObject {
         dimOthers = d.object(forKey: "dimOthers") as? Bool ?? false  // optical see-through: dimmed reads as cut off
         gatherWindows = d.object(forKey: "gatherWindows") as? Bool ?? true
         tracking = d.object(forKey: "tracking") as? Int ?? ((d.object(forKey: "yawOnly") as? Bool ?? true) ? 1 : 0)
-        glassesPinned = d.bool(forKey: "glassesPinned")
+        glassesMode = d.object(forKey: "glassesMode") as? Int ?? (d.bool(forKey: "glassesPinned") ? 1 : 0)
+        brightness = d.object(forKey: "brightness") as? Int ?? 0
         k1 = d.object(forKey: "k1") as? Double ?? 0
         k2 = d.object(forKey: "k2") as? Double ?? 0
         onboardingDone = d.bool(forKey: "onboardingDone")
@@ -317,6 +322,8 @@ final class AppModel: ObservableObject {
         o.gatherWindows = gatherWindows
         o.trackingAxes = tracking
         o.glassesPinned = glassesPinned
+        o.glassesMode = glassesMode
+        o.brightness = brightness
         o.unmirror = true  // mirrored glasses run at the Mac's resolution and composited (reverted on exit)
         o.k1 = Float(k1)
         o.k2 = Float(k2)

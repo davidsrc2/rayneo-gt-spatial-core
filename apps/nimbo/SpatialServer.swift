@@ -154,9 +154,15 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             pose = imu
         }
         try pose.start()
-        if options.glassesPinned, let imu = pose as? ImuPoseSource {
-            imu.setGlassesMode(1)  // the glasses switch to pinned themselves, centred in front of you
-            log("glasses: pinned mode")
+        if let imu = pose as? ImuPoseSource {
+            if options.glassesMode >= 0 {
+                imu.setGlassesMode(options.glassesMode)  // pinned: centred in front of you
+                log("glasses: " + ["follow", "pinned", "steady"][min(2, options.glassesMode)] + " mode")
+            }
+            if options.brightness > 0 {
+                imu.setGlassesBrightness(options.brightness)
+                log("glasses: brightness \(options.brightness)")
+            }
         }
         if let imu = pose as? ImuPoseSource {
             log("calibration: " + (imu.calibrationLoaded ? options.calibrationPath : "none (identity)"))
@@ -381,7 +387,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.dimOthers = o.dimOthers
         options.trackingAxes = o.trackingAxes
         options.panelPoses = o.panelPoses
-        if o.glassesPinned && !options.glassesPinned, let imu = pose as? ImuPoseSource { imu.setGlassesMode(1) }
+        if let imu = pose as? ImuPoseSource {
+            if o.glassesMode >= 0 && o.glassesMode != options.glassesMode { imu.setGlassesMode(o.glassesMode) }
+            if o.brightness > 0 && o.brightness != options.brightness { imu.setGlassesBrightness(o.brightness) }
+        }
+        options.glassesMode = o.glassesMode
+        options.brightness = o.brightness
         options.glassesPinned = o.glassesPinned
         applyPinned(o)  // last: it overrides the panel width
         requestRedraw()

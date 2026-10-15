@@ -51,7 +51,9 @@ struct TimerResolution {
 
 }  // namespace
 
-ImuStreamReader::ImuStreamReader() : transport_(create_transport()) {}
+ImuStreamReader::ImuStreamReader() : transport_(create_transport()) {
+    for (auto& p : pending_) p.store(-1, std::memory_order_relaxed);
+}
 
 ImuStreamReader::~ImuStreamReader() { stop(); }
 
@@ -121,9 +123,10 @@ void ImuStreamReader::run() {
     [[maybe_unused]] const TimerResolution timer;
     RawReport rr{};
     while (running_.load(std::memory_order_acquire)) {
-        const int pending = pending_command_.exchange(-1, std::memory_order_acq_rel);
-        if (pending >= 0) {
-            const auto frame = gt::build_command(static_cast<uint8_t>(pending >> 8), static_cast<uint8_t>(pending & 0xFF));
+        for (int cmd = 0; cmd < 16; ++cmd) {
+            const int value = pending_[cmd].exchange(-1, std::memory_order_acq_rel);
+            if (value < 0) continue;
+            const auto frame = gt::build_command(static_cast<uint8_t>(cmd), static_cast<uint8_t>(value));
             transport_->write(frame.data(), frame.size());
         }
         const int n = transport_->read(rr.data, sizeof(rr.data), kReadTimeoutMs);

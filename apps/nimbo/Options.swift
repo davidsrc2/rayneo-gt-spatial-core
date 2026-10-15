@@ -43,6 +43,8 @@ struct ServerOptions {
     var dimOthers: Float = 1      // brightness of the panels you are not looking at (1 = off)
     var trackingAxes = 1          // head rotations that move the panels: 0 both, 1 left/right, 2 up/down
     var glassesPinned = false     // glasses in their own pinned mode: panels fixed in the image, fitted inside it
+    var glassesMode = -1          // set the glasses' mode at start: 0 follow, 1 pinned, 2 steady; -1 = leave
+    var brightness = 0            // set the glasses' brightness 1..8 at start; 0 = leave
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
     var calibrationPath = "calibration.json"
@@ -77,7 +79,9 @@ struct ServerOptions {
       --no-gaze-cursor     keep the cursor where it is when you look at another panel
       --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
       --pinned             the glasses are in their pinned mode: they anchor the image, so the
-                           panels stay put in it and are sized to fit inside it
+                           panels stay put in it and are sized to fit inside it (sets that mode)
+      --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
+      --brightness N       glasses' brightness 1..8 (8 = factory level)
       --track AXES         head rotations that move the panels: h (left/right, default: still
                            vertically), v (up/down, for stacked monitors) or both
     optics
@@ -146,7 +150,12 @@ struct ServerOptions {
                 guard let v = value(), let axes = ["both": 0, "h": 1, "v": 2][v] else { return nil }
                 o.trackingAxes = axes
             case "--full-tracking": o.trackingAxes = 0
-            case "--pinned": o.glassesPinned = true
+            case "--pinned": o.glassesPinned = true; o.glassesMode = 1
+            case "--glasses-mode":
+                guard let v = value(), let m = ["follow": 0, "pinned": 1, "steady": 2][v] else { return nil }
+                o.glassesMode = m
+                o.glassesPinned = m == 1
+            case "--brightness": guard let v = value().flatMap({ Int($0) }), (1...8).contains(v) else { return nil }; o.brightness = v
             case "--dim": guard let v = float() else { return nil }; o.dimOthers = max(0, min(1, v))
             case "--mono": o.sideBySide = false
             case "--sbs": o.sideBySide = true

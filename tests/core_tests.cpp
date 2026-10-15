@@ -969,6 +969,8 @@ void test_settings_json() {
     s.fov_y_deg = 23.5f;
     s.tracking = 2;
     s.panels = {{-10.5f, 3, 1.2f}, {25, 0, 0.8f}};
+    s.glasses_mode = 2;
+    s.brightness = 5;
     const std::string json = settings_to_json(s);
     CHECK(json.find("\"layoutCells\"") != std::string::npos && json.find("\"fovY\": 23.5") != std::string::npos);
     const auto back = settings_from_json(json);
@@ -979,6 +981,8 @@ void test_settings_json() {
     CHECK(back->panels.size() == 2 && near(back->panels[0].yaw_deg, -10.5f, 1e-5f) &&
           near(back->panels[1].scale, 0.8f, 1e-6f));
     CHECK(settings_from_json("{}")->panels.empty());  // default: the grid
+    CHECK(back->glasses_mode == 2 && back->brightness == 5);
+    CHECK(settings_from_json(R"({"glassesPinned": true})")->glasses_mode == 1);  // earlier builds' switch
     CHECK(settings_from_json("{}")->tracking == 1);                    // default: left/right only
     CHECK(settings_from_json(R"({"yawOnly": false})")->tracking == 0);  // earlier builds' switch
 

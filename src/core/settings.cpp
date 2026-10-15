@@ -190,7 +190,8 @@ std::string settings_to_json(const Settings& s) {
     put(out, "gazeCursor", s.gaze_cursor);
     put(out, "dimOthers", s.dim_others);
     put(out, "gatherWindows", s.gather_windows);
-    put(out, "glassesPinned", s.glasses_pinned);
+    out += "  \"glassesMode\": " + std::to_string(s.glasses_mode) + ",\n";
+    out += "  \"brightness\": " + std::to_string(s.brightness) + ",\n";
     out += "  \"tracking\": " + std::to_string(s.tracking) + ",\n";
     put(out, "k1", s.k1);
     put(out, "k2", s.k2);
@@ -213,8 +214,8 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         bool* value;
     } bools[] = {{"autoStart", &s.auto_start},       {"stereo", &s.stereo},
                  {"gazeCursor", &s.gaze_cursor},     {"dimOthers", &s.dim_others},
-                 {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done},
-                 {"glassesPinned", &s.glasses_pinned}};
+                 {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done}};
+    bool has_mode = false, legacy_pinned = false;
     bool has_tracking = false, legacy_yaw_only = true, has_legacy = false;
 
     while (!r.done() && !r.eat('}')) {
@@ -227,6 +228,21 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         } else if (*key == "panels") {
             if (const auto poses = read_poses(r)) s.panels = *poses;
             handled = true;
+        } else if (*key == "glassesMode") {
+            if (const auto v = r.number()) {
+                s.glasses_mode = std::max(0, std::min(2, static_cast<int>(*v)));
+                has_mode = handled = true;
+            }
+        } else if (*key == "glassesPinned") {  // earlier builds: a pinned switch
+            if (const auto v = r.boolean()) {
+                legacy_pinned = *v;
+                handled = true;
+            }
+        } else if (*key == "brightness") {
+            if (const auto v = r.number()) {
+                s.brightness = std::max(0, std::min(8, static_cast<int>(*v)));
+                handled = true;
+            }
         } else if (*key == "tracking") {
             if (const auto v = r.number()) {
                 s.tracking = std::max(0, std::min(2, static_cast<int>(*v)));
@@ -264,6 +280,7 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         if (!r.eat(',') && !r.peek('}')) break;  // garbage: keep what was read
     }
     if (!has_tracking && has_legacy) s.tracking = legacy_yaw_only ? 1 : 0;
+    if (!has_mode && legacy_pinned) s.glasses_mode = 1;
     return s;
 }
 

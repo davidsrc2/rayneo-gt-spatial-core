@@ -78,6 +78,8 @@ struct Options {
     int tracking_axes = 1;  // 0 both, 1 left/right, 2 up/down
     bool glasses_pinned = false;
     std::vector<core::PanelPose> poses;  // hand-placed monitors; empty = the grid
+    int glasses_mode = -1;               // set the glasses' mode: 0 follow, 1 pinned, 2 steady; -1 leave
+    int brightness = 0;                  // set the glasses' brightness 1..8; 0 leave
 
     int displays = 2;                      // virtual monitors; 0 = show an existing display
     std::vector<core::GridCell> layout;    // grid cell per monitor; empty = one row
@@ -132,6 +134,8 @@ Options from_c(const nimbo_options& c) {
     for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
         o.poses.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
     }
+    o.glasses_mode = std::clamp(c.glasses_mode, -1, 2);
+    o.brightness = std::clamp(c.brightness, 0, 8);
     return o;
 }
 
@@ -202,6 +206,7 @@ public:
     virtual std::optional<PoseSample> latest() = 0;
     virtual void nudge(float, float) {}
     virtual void set_glasses_mode(int) {}  // the glasses' own display mode (IMU only)
+    virtual void set_glasses_brightness(int) {}
 };
 
 class ImuPose final : public PoseSource {
@@ -232,6 +237,7 @@ public:
     }
     void recenter() override { rayneo_engine_recenter(engine_); }
     void set_glasses_mode(int mode) override { rayneo_engine_set_glasses_mode(engine_, mode); }
+    void set_glasses_brightness(int level) override { rayneo_engine_set_glasses_brightness(engine_, level); }
     std::optional<PoseSample> latest() override {
         rayneo_pose p;
         if (!rayneo_engine_latest_pose(engine_, &p)) return std::nullopt;
@@ -579,9 +585,14 @@ bool Server::start() {
         logln("imu: streaming, leave the glasses still on the table ~6 s until TRACK");
         pose_ = std::move(imu);
         imu_ = true;
-        if (opt_.glasses_pinned) {
-            pose_->set_glasses_mode(1);  // the glasses switch to pinned themselves, centred in front of you
-            logln("glasses: pinned mode");
+        if (opt_.glasses_mode >= 0) {
+            pose_->set_glasses_mode(opt_.glasses_mode);  // pinned: centred in front of you
+            static const char* kModes[] = {"follow", "pinned", "steady"};
+            logln("glasses: %s mode", kModes[opt_.glasses_mode]);
+        }
+        if (opt_.brightness > 0) {
+            pose_->set_glasses_brightness(opt_.brightness);
+            logln("glasses: brightness %d", opt_.brightness);
         }
     }
 
@@ -1250,7 +1261,10 @@ void Server::apply_pending() {
     ro.k2 = o->k2;
     ro.dim_others = o->dim_others;
     ro.tracking_axes = static_cast<core::TrackingAxes>(o->tracking_axes);
-    if (o->glasses_pinned && !opt_.glasses_pinned) pose_->set_glasses_mode(1);
+    if (o->glasses_mode >= 0 && o->glasses_mode != opt_.glasses_mode) pose_->set_glasses_mode(o->glasses_mode);
+    if (o->brightness > 0 && o->brightness != opt_.brightness) pose_->set_glasses_brightness(o->brightness);
+    opt_.glasses_mode = o->glasses_mode;
+    opt_.brightness = o->brightness;
     opt_.glasses_pinned = o->glasses_pinned;
     apply_pinned(*o);  // after the width above: it overrides it
     opt_.gaze_cursor = o->gaze_cursor;
@@ -1315,7 +1329,8 @@ core::Settings to_core(const nimbo_settings& c) {
     s.k2 = c.k2;
     s.onboarding_done = c.onboarding_done;
     s.tracking = std::clamp(c.tracking, 0, 2);
-    s.glasses_pinned = c.glasses_pinned;
+    s.glasses_mode = std::clamp(c.glasses_mode, 0, 2);
+    s.brightness = std::clamp(c.brightness, 0, 8);
     for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
         s.panels.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
     }
@@ -1346,7 +1361,8 @@ nimbo_settings to_c(const core::Settings& s) {
     c.k2 = s.k2;
     c.onboarding_done = s.onboarding_done;
     c.tracking = s.tracking;
-    c.glasses_pinned = s.glasses_pinned;
+    c.glasses_mode = s.glasses_mode;
+    c.brightness = s.brightness;
     c.pose_count = static_cast<int>(std::min<size_t>(s.panels.size(), NIMBO_MAX_PANELS));
     for (int i = 0; i < c.pose_count; ++i) {
         c.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;
@@ -1391,6 +1407,7 @@ nimbo_options nimbo_default_options(void) {
     o.refresh120 = true;
     o.hotkeys = true;
     o.tracking_axes = 1;
+    o.glasses_mode = -1;
     return o;
 }
 
@@ -1544,7 +1561,9 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.dim_others = s.dim_others ? 0.55f : 1.0f;  // linear light: ~80 % perceived brightness
     o.gather_windows = s.gather_windows;
     o.tracking_axes = s.tracking;
-    o.glasses_pinned = s.glasses_pinned;
+    o.glasses_mode = s.glasses_mode;
+    o.glasses_pinned = s.glasses_mode == 1;
+    o.brightness = s.brightness;
     o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;
     for (int i = 0; i < o.pose_count; ++i) {
         o.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;

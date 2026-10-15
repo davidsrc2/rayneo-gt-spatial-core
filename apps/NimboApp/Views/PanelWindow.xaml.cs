@@ -124,6 +124,8 @@ public sealed partial class PanelWindow : Window
         var activeProfile = _model.ActiveProfile;
         foreach (var (profile, button) in _profiles) button.IsChecked = profile.Id == activeProfile;
         AutoStart.IsOn = _model.AutoStart;
+        GlassesMode.SelectedIndex = _model.GlassesMode;
+        BrightnessSlider.Value = _model.Brightness == 0 ? 8 : _model.Brightness;
         NoticeText.Text = _server.Notice ?? "";
         _updating = false;
     }
@@ -237,6 +239,20 @@ public sealed partial class PanelWindow : Window
         _model.Size = (float)SizeSlider.Value;
         _model.TextSize = (int)Math.Round(TextSlider.Value);
         UpdateValueLabels();
+        _server.SettingsChanged();
+    }
+
+    private void GlassesMode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updating || GlassesMode.SelectedIndex < 0) return;
+        _model.GlassesMode = GlassesMode.SelectedIndex;
+        _server.SettingsChanged();
+    }
+
+    private void Brightness_Changed(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_updating) return;
+        _model.Brightness = (int)Math.Round(BrightnessSlider.Value);
         _server.SettingsChanged();
     }
 

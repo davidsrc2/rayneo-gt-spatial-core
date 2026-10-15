@@ -29,6 +29,17 @@ struct QuickPanel: View {
                                onCommit: server.settingsChanged)
                 }
             }
+            Tile {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Gafas").font(.system(size: 13, weight: .medium))
+                        Spacer()
+                        Text("⌘⌥M · ⌘⌥[ ]").font(.system(size: 11, design: .rounded)).foregroundStyle(.secondary)
+                    }
+                    GlassesModePicker(model: model, showLabel: false)
+                    BrightnessSlider(model: model)
+                }
+            }
             footer
         }
         .padding(18)
@@ -39,6 +50,8 @@ struct QuickPanel: View {
         .onChange(of: model.distance) { server.settingsChanged() }
         .onChange(of: model.curvature) { server.settingsChanged() }
         .onChange(of: model.size) { server.settingsChanged() }
+        .onChange(of: model.glassesMode) { server.settingsChanged() }
+        .onChange(of: model.brightness) { server.settingsChanged() }
     }
 
     private var header: some View {

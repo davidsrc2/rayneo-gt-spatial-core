@@ -30,7 +30,9 @@ struct Settings {
     bool gather_windows = true;  // "gatherWindows"
     int tracking = 1;            // "tracking": head rotations that move the panels, TrackingAxes
                                  // (0 both, 1 left/right only, 2 up/down only)
-    bool glasses_pinned = false; // "glassesPinned": the glasses anchor the image (their pinned mode)
+    int glasses_mode = 0;        // "glassesMode": the glasses' own mode set by Nimbo: 0 follow, 1 pinned
+                                 // (they anchor the image), 2 steady (reads the earlier "glassesPinned")
+    int brightness = 0;          // "brightness": glasses' brightness 1..8 set by Nimbo; 0 = leave as is
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"

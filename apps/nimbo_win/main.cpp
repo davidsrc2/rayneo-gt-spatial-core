@@ -35,6 +35,8 @@ layout
   --no-gaze-cursor     keep the cursor where it is when you look at another panel
   --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
   --pinned             the glasses are in their pinned mode: panels stay put, fitted inside the image
+  --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
+  --brightness N       glasses' brightness 1..8 (8 = factory level)
   --track AXES         head rotations that move the panels: h (left/right, default), v (up/down,
                        for stacked monitors) or both
   --curved             curved panels (default: flat monitors angled towards you)
@@ -137,7 +139,18 @@ bool parse(int argc, char** argv, Cli* cli) {
             else return false;
         }
         else if (a == "--full-tracking") o.tracking_axes = 0;
-        else if (a == "--pinned") o.glasses_pinned = true;
+        else if (a == "--pinned") { o.glasses_pinned = true; o.glasses_mode = 1; }
+        else if (a == "--glasses-mode") {
+            const char* v = value();
+            if (v == nullptr) return false;
+            const std::string m = v;
+            if (m == "follow") o.glasses_mode = 0;
+            else if (m == "pinned") o.glasses_mode = 1;
+            else if (m == "steady") o.glasses_mode = 2;
+            else return false;
+            o.glasses_pinned = o.glasses_mode == 1;
+        }
+        else if (a == "--brightness" && number(&f) && f >= 1 && f <= 8) o.brightness = static_cast<int>(f);
         else if (a == "--dim" && number(&f)) o.dim_others = f;
         else if (a == "--arc" && number(&f)) o.arc_deg = f;
         else if (a == "--gap" && number(&f)) o.gap_deg = f;
