@@ -52,8 +52,10 @@ public:
     void set_grid(std::vector<core::GridCell> cells) { cells_ = std::move(cells); }
     // Hand-placed position and size per panel (layout editor); empty or another count: the grid.
     void set_poses(std::vector<core::PanelPose> poses) { poses_ = std::move(poses); }
+    // Floating windows: the last N panels (after the monitors), placed at these poses.
+    void set_floating(std::vector<core::PanelPose> poses) { floating_ = std::move(poses); }
     // The capture feeding a panel (not owned; must outlive the renderer's use).
-    void set_source(int panel, DesktopDuplication* source);
+    void set_source(int panel, FrameSource* source);
 
     float fit_arc_deg(int columns) const;
     int panel_at_gaze(const core::Quat& head) const;
@@ -69,7 +71,7 @@ public:
 
 private:
     struct Panel {
-        DesktopDuplication* source = nullptr;
+        FrameSource* source = nullptr;
         uint64_t composed_generation = ~0ull;
         float aspect = 16.0f / 9.0f;
 
@@ -119,6 +121,7 @@ private:
     int count_ = 1;
     std::vector<core::GridCell> cells_;
     std::vector<core::PanelPose> poses_;
+    std::vector<core::PanelPose> floating_;
     core::PanelDimmer dimmer_;
     core::FrameSkipper skipper_;
     uint64_t last_frame_ns_ = 0;

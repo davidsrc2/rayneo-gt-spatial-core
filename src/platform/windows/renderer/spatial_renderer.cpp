@@ -148,7 +148,7 @@ bool SpatialRenderer::init(ID3D11Device* device, std::string* error) {
 
 void SpatialRenderer::set_panel_count(int count) { count_ = std::clamp(count, 1, kMaxPanels); }
 
-void SpatialRenderer::set_source(int panel, DesktopDuplication* source) {
+void SpatialRenderer::set_source(int panel, FrameSource* source) {
     if (panel < 0 || panel >= kMaxPanels) return;
     panels_[panel].source = source;
     panels_[panel].composed_generation = ~0ull;
@@ -163,19 +163,28 @@ float SpatialRenderer::vertical_arc(float aspect) const {
     return core::panel_vertical_arc(panel_arc(), aspect, true);
 }
 
+// Monitors first (grid or hand-placed), then the floating windows.
 std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) const {
-    if (static_cast<int>(poses_.size()) == count_) {
-        // Placed at the editor's panel size: angles follow the arc actually shown (distance,
-        // pinned fitting), so the arrangement keeps its shape.
-        const float placed = (options.layout_arc_deg > 0.0f ? options.layout_arc_deg : options.arc_deg) * kDegToRad;
-        return core::placements_from_poses(poses_, placed > 0.0f ? panel_arc() / placed : 1.0f);
+    const int floats = std::min(static_cast<int>(floating_.size()), std::max(0, count_ - 1));
+    const int monitors = count_ - floats;
+    // Placed at the editor's panel size: angles follow the arc actually shown (distance,
+    // pinned fitting), so the arrangement keeps its shape.
+    const float placed = (options.layout_arc_deg > 0.0f ? options.layout_arc_deg : options.arc_deg) * kDegToRad;
+    const float k = placed > 0.0f ? panel_arc() / placed : 1.0f;
+    std::vector<core::PanelPlacement> out;
+    if (static_cast<int>(poses_.size()) == monitors) {
+        out = core::placements_from_poses(poses_, k);
+    } else {
+        std::vector<core::GridCell> cells = cells_;
+        if (static_cast<int>(cells.size()) != monitors) {
+            cells.clear();
+            for (int i = 0; i < monitors; ++i) cells.push_back({i, 0});
+        }
+        out = core::grid_layout(cells, panel_arc(), vertical_arc(aspect), options.gap_deg * kDegToRad);
     }
-    std::vector<core::GridCell> cells = cells_;
-    if (static_cast<int>(cells.size()) != count_) {
-        cells.clear();
-        for (int i = 0; i < count_; ++i) cells.push_back({i, 0});
-    }
-    return core::grid_layout(cells, panel_arc(), vertical_arc(aspect), options.gap_deg * kDegToRad);
+    const std::vector<core::PanelPose> fl(floating_.begin(), floating_.begin() + floats);
+    for (const auto& pl : core::placements_from_poses(fl, k)) out.push_back(pl);
+    return out;
 }
 
 float SpatialRenderer::fit_arc_deg(int columns) const {
@@ -242,7 +251,7 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl) {
 
 void SpatialRenderer::compose(Panel& p) {
     if (p.source == nullptr) return;
-    const DesktopDuplication::Frame f = p.source->latest();
+    const FrameSource::Frame f = p.source->latest();
     if (!f.texture || f.generation == p.composed_generation) return;
     // The capture thread is writing it: keep the previous composite, retry next frame.
     if (f.mutex->AcquireSync(0, 0) != S_OK) return;

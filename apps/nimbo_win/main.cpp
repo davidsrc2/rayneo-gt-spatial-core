@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
 #include <sstream>
 #include <string>
@@ -34,6 +35,8 @@ layout
   --no-gather          do not move windows from the glasses display to panel 1
   --no-gaze-cursor     keep the cursor where it is when you look at another panel
   --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
+  --window TEXT[@Y,P,S] float the window whose title or app contains TEXT as a panel of its own
+                       (default: centred above the monitors); repeatable
   --pinned             the glasses are in their pinned mode: panels stay put, fitted inside the image
   --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
   --brightness N       glasses' brightness 1..8 (8 = factory level)
@@ -139,6 +142,46 @@ bool parse(int argc, char** argv, Cli* cli) {
             else return false;
         }
         else if (a == "--full-tracking") o.tracking_axes = 0;
+        else if (a == "--window") {
+            const char* v = value();
+            if (v == nullptr || o.floating_count >= NIMBO_MAX_PANELS) return false;
+            std::string text = v, pose;
+            if (const size_t at = text.find('@'); at != std::string::npos) {
+                pose = text.substr(at + 1);
+                text = text.substr(0, at);
+            }
+            // Case-insensitive match on title or executable name.
+            auto lower = [](std::string s) {
+                for (auto& ch : s) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                return s;
+            };
+            nimbo_window list[64];
+            const int n = nimbo_list_windows(list, 64);
+            int found = -1;
+            for (int k = 0; k < n && found < 0; ++k) {
+                if (lower(list[k].title).find(lower(text)) != std::string::npos ||
+                    lower(list[k].app).find(lower(text)) != std::string::npos) {
+                    found = k;
+                }
+            }
+            if (found < 0) {
+                std::printf("--window: no window matches \"%s\"\n", text.c_str());
+                return false;
+            }
+            const int i = o.floating_count++;
+            o.floating_window[i] = list[found].hwnd;
+            o.floating_scale[i] = 0;  // centred above the monitors
+            if (!pose.empty()) {  // Y,P,S
+                float* dst[3] = {&o.floating_yaw[i], &o.floating_pitch[i], &o.floating_scale[i]};
+                const char* c = pose.c_str();
+                for (int k = 0; k < 3; ++k) {
+                    char* end = nullptr;
+                    *dst[k] = std::strtof(c, &end);
+                    if (end == c || (k < 2 && *end != ',') || (k == 2 && *end != '\0')) return false;
+                    c = end + 1;
+                }
+            }
+        }
         else if (a == "--pinned") { o.glasses_pinned = true; o.glasses_mode = 1; }
         else if (a == "--glasses-mode") {
             const char* v = value();

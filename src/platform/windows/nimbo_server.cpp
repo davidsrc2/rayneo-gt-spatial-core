@@ -40,6 +40,7 @@
 #include "rayneo/platform/rayneo_engine.h"
 #include "spatial_renderer.h"
 #include "virtual_displays.h"
+#include "window_capture.h"
 #include "window_gatherer.h"
 
 #ifndef WDA_EXCLUDEFROMCAPTURE
@@ -81,6 +82,12 @@ struct Options {
     int glasses_mode = -1;               // set the glasses' mode: 0 follow, 1 pinned, 2 steady; -1 leave
     int brightness = 0;                  // set the glasses' brightness 1..8; 0 leave
     bool recenter_glasses = false;       // Ctrl+Alt+C also recentres the glasses' pinned mode
+    struct Floating {
+        HWND hwnd = nullptr;
+        core::PanelPose pose;
+        bool placed = false;  // false: centred above the monitors
+    };
+    std::vector<Floating> floating;      // single windows as panels, after the monitors
 
     int displays = 2;                      // virtual monitors; 0 = show an existing display
     std::vector<core::GridCell> layout;    // grid cell per monitor; empty = one row
@@ -138,6 +145,13 @@ Options from_c(const nimbo_options& c) {
     o.glasses_mode = std::clamp(c.glasses_mode, -1, 2);
     o.brightness = std::clamp(c.brightness, 0, 8);
     o.recenter_glasses = c.recenter_glasses;
+    for (int i = 0; i < std::clamp(c.floating_count, 0, NIMBO_MAX_PANELS); ++i) {
+        Options::Floating f;
+        f.hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(c.floating_window[i]));
+        f.placed = c.floating_scale[i] > 0.0f;
+        f.pose = {c.floating_yaw[i], c.floating_pitch[i], f.placed ? c.floating_scale[i] : 1.0f};
+        o.floating.push_back(f);
+    }
     return o;
 }
 
@@ -352,6 +366,8 @@ private:
     void follow_gaze(uint64_t now);
     void apply_pinned(const Options& o);
     void jump_cursor_to_gaze();
+    void start_floating(std::vector<Options::Floating> specs);
+    core::PanelPose default_floating_pose(int index) const;
     void apply_pending();
     void set_state(nimbo_state st);
 
@@ -379,6 +395,10 @@ private:
     std::unique_ptr<PoseSource> pose_;
     bool imu_ = false;
     std::vector<std::unique_ptr<win::DesktopDuplication>> captures_;
+    std::vector<std::unique_ptr<win::WindowCapture>> window_captures_;  // floating windows
+    std::vector<HWND> floating_hwnds_;
+    int monitor_panels_ = 1;
+    ComPtr<IDXGIAdapter> render_adapter_;
     win::SpatialRenderer renderer_;
 
     // Virtual monitors (W3).
@@ -681,6 +701,9 @@ bool Server::start() {
         logln("capture: panel %d <- %s %dx%d", i + 1, win::narrow(src->gdi_name).c_str(), src->width(), src->height());
     }
     refresh_rects();
+    monitor_panels_ = panels;
+    render_adapter_ = first->adapter;
+    start_floating(opt_.floating);
 
     const UINT mods = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT;
     struct Key {
@@ -903,6 +926,7 @@ void Server::periodic() {
     stats_.tracking = s.tracking;
     uint64_t cap = 0;
     for (const auto& c : captures_) cap += c->frames();
+    for (const auto& c : window_captures_) cap += c->frames();
     const uint64_t cap_fps = cap - last_capture_frames_;
     last_capture_frames_ = cap;
     if (!s.tracking && imu_ && ++calib_s_ % 3 == 1) {
@@ -998,6 +1022,54 @@ void Server::jump_cursor_to_gaze() {
     last_cursor_ = {(r.left + r.right) / 2, (r.top + r.bottom) / 2};
     last_gaze_panel_ = i;
     logln("cursor: jump to panel %d", i + 1);
+}
+
+// Where a new floating window goes: centred above the monitors, one monitor wide.
+core::PanelPose Server::default_floating_pose(int index) const {
+    const float size = opt_.panel_arc_deg(), gap = opt_.gap_deg;
+    const float v = 2.0f * std::atan(std::tan(size * 0.00872664626f) / (16.0f / 9.0f)) / 0.0174532925f;
+    float top = v / 2;
+    if (!opt_.poses.empty()) {
+        top = -1e9f;
+        for (const auto& p : opt_.poses) top = std::max(top, p.pitch_deg + v * p.scale / 2);
+    } else if (!opt_.layout.empty()) {
+        int r0 = opt_.layout.front().row, r1 = r0;
+        for (const auto& c : opt_.layout) {
+            r0 = std::min(r0, c.row);
+            r1 = std::max(r1, c.row);
+        }
+        top = static_cast<float>(r1 - r0) * (v + gap) / 2 + v / 2;
+    }
+    return {0.0f, top + gap + v / 2 + static_cast<float>(index) * (v + gap), 1.0f};
+}
+
+// (Re)starts the floating windows' captures and makes them panels after the monitors.
+void Server::start_floating(std::vector<Options::Floating> specs) {
+    for (auto& c : window_captures_) c->stop();
+    window_captures_.clear();
+    floating_hwnds_.clear();
+    std::vector<core::PanelPose> poses;
+    std::string error;
+    for (auto& f : specs) {
+        if (monitor_panels_ + static_cast<int>(poses.size()) >= win::SpatialRenderer::kMaxPanels) break;
+        auto cap = std::make_unique<win::WindowCapture>();
+        if (!cap->start(render_adapter_.Get(), f.hwnd, device_.Get(), &error)) {
+            logln("window: %s", error.c_str());
+            continue;
+        }
+        if (!f.placed) f.pose = default_floating_pose(static_cast<int>(poses.size()));
+        const int panel = monitor_panels_ + static_cast<int>(poses.size());
+        renderer_.set_source(panel, cap.get());
+        wchar_t title[128];
+        const int n = GetWindowTextW(f.hwnd, title, 128);
+        logln("window: panel %d <- %s", panel + 1, win::narrow(std::wstring(title, static_cast<size_t>(std::max(0, n)))).c_str());
+        poses.push_back(f.pose);
+        floating_hwnds_.push_back(f.hwnd);
+        window_captures_.push_back(std::move(cap));
+    }
+    renderer_.set_floating(poses);
+    renderer_.set_panel_count(monitor_panels_ + static_cast<int>(poses.size()));
+    redraw_ = true;
 }
 
 void Server::refresh_rects() {
@@ -1203,6 +1275,8 @@ void Server::shutdown() {
     if (shut_) return;
     shut_ = true;
     for (int id = kRecenter; id <= kJump; ++id) UnregisterHotKey(hwnd_, id);
+    for (auto& c : window_captures_) c->stop();
+    window_captures_.clear();
     for (auto& c : captures_) c->stop();
     captures_.clear();
     pose_.reset();  // stream-off
@@ -1276,6 +1350,20 @@ void Server::apply_pending() {
     if (o->arc_deg) ro.arc_deg = *o->arc_deg;
     ro.layout_arc_deg = o->panel_arc_deg();
     renderer_.set_poses(o->poses);
+    {
+        std::vector<HWND> hwnds;
+        for (const auto& f : o->floating) hwnds.push_back(f.hwnd);
+        if (hwnds != floating_hwnds_) {
+            opt_.floating = o->floating;
+            start_floating(o->floating);
+        } else {
+            std::vector<core::PanelPose> poses;
+            for (size_t i = 0; i < o->floating.size(); ++i) {
+                poses.push_back(o->floating[i].placed ? o->floating[i].pose : default_floating_pose(static_cast<int>(i)));
+            }
+            renderer_.set_floating(poses);
+        }
+    }
     if (o->fov_from_cli) ro.fov_y_deg = o->fov_y_deg;
     ro.ipd_m = o->ipd_mm / 1000.0f;
     ro.side_by_side = o->side_by_side.value_or(!opt_.windowed);
@@ -1598,6 +1686,19 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.k1 = s.k1;
     o.k2 = s.k2;
     *out = o;
+}
+
+int nimbo_list_windows(nimbo_window* out, int max) {
+    int n = 0;
+    for (const auto& w : win::list_windows()) {
+        if (n >= max) break;
+        out[n] = nimbo_window{};
+        out[n].hwnd = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(w.hwnd));
+        copy_str(out[n].title, sizeof(out[n].title), w.title);
+        copy_str(out[n].app, sizeof(out[n].app), w.app);
+        ++n;
+    }
+    return n;
 }
 
 int nimbo_layout_count(void) { return static_cast<int>(core::layout_presets().size()); }

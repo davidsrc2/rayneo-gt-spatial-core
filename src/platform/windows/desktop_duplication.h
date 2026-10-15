@@ -36,16 +36,28 @@ struct PointerState {
     uint64_t shape_generation = 0;
 };
 
-class DesktopDuplication {
+// What the renderer reads from: the latest frame of a display (DesktopDuplication) or of a
+// single window (WindowCapture), handed over in a keyed-mutex shared texture.
+class FrameSource {
 public:
     struct Frame {
-        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;  // render device, B8G8R8A8_UNORM, output size
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;  // render device, B8G8R8A8_UNORM
         Microsoft::WRL::ComPtr<IDXGIKeyedMutex> mutex;    // hold (key 0) while reading `texture`
         uint64_t generation = 0;  // bumps on every new frame or pointer change
         int width = 0;
         int height = 0;
-        PointerState pointer;
+        PointerState pointer;     // windows: never visible (the capture draws the cursor itself)
     };
+
+    virtual ~FrameSource() = default;
+    virtual Frame latest() = 0;  // render thread
+    virtual uint64_t generation() const = 0;
+    // Copies the pointer shape if its generation differs from `have`; false otherwise.
+    virtual bool pointer_shape(uint64_t have, PointerShape* out) = 0;
+};
+
+class DesktopDuplication final : public FrameSource {
+public:
 
     DesktopDuplication() = default;
     ~DesktopDuplication();
@@ -56,10 +68,9 @@ public:
     bool start(IDXGIAdapter* adapter, IDXGIOutput1* output, ID3D11Device* render_device, std::string* error);
     void stop();
 
-    Frame latest();  // render thread
-    uint64_t generation() const { return generation_.load(std::memory_order_acquire); }
-    // Copies the shape if its generation differs from `have`; returns false otherwise.
-    bool pointer_shape(uint64_t have, PointerShape* out);
+    Frame latest() override;  // render thread
+    uint64_t generation() const override { return generation_.load(std::memory_order_acquire); }
+    bool pointer_shape(uint64_t have, PointerShape* out) override;
     uint64_t frames() const { return frames_.load(std::memory_order_relaxed); }
 
 private:

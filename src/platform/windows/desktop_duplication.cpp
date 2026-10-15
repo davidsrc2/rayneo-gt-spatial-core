@@ -50,7 +50,7 @@ bool DesktopDuplication::open(std::string* error) {
     return true;
 }
 
-DesktopDuplication::Frame DesktopDuplication::latest() {
+FrameSource::Frame DesktopDuplication::latest() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (shared_handle_ != opened_handle_) {
         render_texture_.Reset();

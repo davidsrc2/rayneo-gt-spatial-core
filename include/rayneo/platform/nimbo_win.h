@@ -69,6 +69,11 @@ typedef struct {
     int glasses_mode;                   /* put the glasses in this mode at start: 0 follow, 1 pinned, 2 steady; -1 leave */
     int brightness;                     /* glasses' brightness 1..8 at start; 0 leave */
     bool recenter_glasses;              /* Ctrl+Alt+C also recentres the glasses' own pinned mode */
+    int floating_count;                 /* single windows as panels of their own, after the monitors */
+    uint64_t floating_window[NIMBO_MAX_PANELS];  /* HWND (nimbo_list_windows) */
+    float floating_yaw[NIMBO_MAX_PANELS];        /* pose like pose_*; scale <= 0: centred above the monitors */
+    float floating_pitch[NIMBO_MAX_PANELS];
+    float floating_scale[NIMBO_MAX_PANELS];
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -118,6 +123,14 @@ NIMBO_API void nimbo_get_status(nimbo_server* s, nimbo_status* out);
  * stdout. */
 typedef void (*nimbo_log_fn)(void* ctx, const char* line);
 NIMBO_API void nimbo_set_log(nimbo_log_fn fn, void* ctx);
+
+/* Windows worth floating (visible, titled, not ours). Returns how many were written. */
+typedef struct {
+    uint64_t hwnd;
+    char title[256];
+    char app[64];  /* executable name */
+} nimbo_window;
+NIMBO_API int nimbo_list_windows(nimbo_window* out, int max);
 
 /* ---------------------------------------------------------------------------------------
  * Environment

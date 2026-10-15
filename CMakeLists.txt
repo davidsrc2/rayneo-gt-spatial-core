@@ -290,11 +290,14 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
     ${RAYNEO_WIN_DIR}/desktop_duplication.cpp
     ${RAYNEO_WIN_DIR}/virtual_displays.cpp
     ${RAYNEO_WIN_DIR}/window_gatherer.cpp
+    ${RAYNEO_WIN_DIR}/window_capture.cpp
     ${RAYNEO_WIN_DIR}/renderer/spatial_renderer.cpp)
   target_include_directories(rayneo_windows
     PUBLIC  ${RAYNEO_WIN_DIR} ${RAYNEO_WIN_DIR}/renderer
     PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
-  target_link_libraries(rayneo_windows PUBLIC rayneo::core d3d11 dxgi d3dcompiler dwmapi shell32 ole32)
+  target_link_libraries(rayneo_windows PUBLIC rayneo::core d3d11 dxgi d3dcompiler dwmapi shell32 ole32 windowsapp)
+  # C++/WinRT (Windows.Graphics.Capture) headers are large.
+  set_source_files_properties(${RAYNEO_WIN_DIR}/window_capture.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
   rayneo_warnings(rayneo_windows)
 
   # nimbo.dll: the server behind the C ABI of rayneo/platform/nimbo_win.h, for the Windows
