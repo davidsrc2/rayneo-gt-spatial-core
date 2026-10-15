@@ -64,6 +64,10 @@ public:
 
     float fit_arc_deg(int columns) const;
     int panel_at_gaze(const core::Quat& head) const;
+    // Where the panels are drawn (monitors, then floating windows) and the common panel width
+    // (radians), for laying the OS displays out to match.
+    std::vector<core::PanelPlacement> current_placements() const { return placements(panels_[0].aspect); }
+    float shown_arc_rad() const { return panel_arc(); }
 
     // True when the frame about to be drawn equals the one on screen: skip it.
     bool can_skip_frame(const core::Quat& orientation, const core::Vec3& angular_velocity, bool tracking, bool forced);

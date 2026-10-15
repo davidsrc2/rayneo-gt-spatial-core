@@ -547,6 +547,32 @@ int attach_detached_virtual(int width, int height, int limit) {
     return count;
 }
 
+std::vector<std::wstring> spare_virtual_monitors(const std::vector<std::wstring>& exclude) {
+    std::vector<std::wstring> out;
+    DISPLAY_DEVICEW dev{};
+    dev.cb = sizeof(dev);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dev, 0); ++i) {
+        const std::wstring name = dev.DeviceName;
+        if (std::wstring(dev.DeviceString).find(L"Virtual Display Driver") != std::wstring::npos &&
+            std::find(exclude.begin(), exclude.end(), name) == exclude.end()) {
+            DISPLAY_DEVICEW mon{};
+            mon.cb = sizeof(mon);
+            if (EnumDisplayDevicesW(name.c_str(), 0, &mon, 0)) out.push_back(name);
+        }
+        dev = DISPLAY_DEVICEW{};
+        dev.cb = sizeof(dev);
+    }
+    return out;
+}
+
+bool attach_display(const std::wstring& gdi_name, int x, int y, int width, int height) {
+    if (place(gdi_name, x, y, width, height, 60) != DISP_CHANGE_SUCCESSFUL &&
+        place(gdi_name, x, y, width, height, 0) != DISP_CHANGE_SUCCESSFUL) {
+        return false;
+    }
+    return apply() == DISP_CHANGE_SUCCESSFUL;
+}
+
 int detach_unused_virtual(const std::vector<OutputInfo>& outputs, const std::vector<std::wstring>& keep) {
     int n = 0;
     for (const auto& o : outputs) {

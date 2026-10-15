@@ -90,6 +90,13 @@ private:
 // change it does): attached to the right of everything at width x height. Returns how many.
 int attach_detached_virtual(int width, int height, int limit = 8);
 
+// The Virtual Display Driver's monitors not in `exclude` (spare ones of the pool, on the
+// desktop or not), by GDI name.
+std::vector<std::wstring> spare_virtual_monitors(const std::vector<std::wstring>& exclude);
+
+// One display placed at x,y with width x height (attached if it was off the desktop).
+bool attach_display(const std::wstring& gdi_name, int x, int y, int width, int height);
+
 // The drivers' monitors on the desktop that are not in `keep` (the spare ones of the pool)
 // taken off it. Returns how many.
 int detach_unused_virtual(const std::vector<OutputInfo>& outputs, const std::vector<std::wstring>& keep);

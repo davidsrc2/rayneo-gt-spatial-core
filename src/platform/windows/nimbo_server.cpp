@@ -441,6 +441,10 @@ private:
     bool redraw_ = true;
     bool display_changed_ = false;
     std::wstring laptop_gdi_;           // the computer's own screen as panel 1 (empty: all virtual)
+    // A monitor of its own per floating window (GDI name, empty: none), from the driver's pool
+    // and placed where the window floats, so the cursor reaches it as on macOS.
+    std::vector<std::wstring> floating_monitors_;
+    void assign_floating_monitors();
     std::optional<DISPLAYCONFIG_TOPOLOGY_ID> saved_topology_;  // Win+P mode before we extended
     uint64_t arranged_ns_ = 0;          // our own arrangement: its display-change messages are ours
     void rearrange_displays();
@@ -1262,6 +1266,98 @@ void Server::start_floating(std::vector<Options::Floating> specs) {
     renderer_.set_floating(poses);
     renderer_.set_panel_count(monitor_panels_ + static_cast<int>(poses.size()));
     redraw_ = true;
+    assign_floating_monitors();
+}
+
+// Each floating window onto a spare monitor of the Virtual Display Driver's pool (no reload),
+// that monitor laid out where the window floats: above the monitors it touches their top edge,
+// so the cursor goes up into it. The window is maximised on it and stays captured as itself
+// (its panel shows the window, the cursor over it included).
+void Server::assign_floating_monitors() {
+    // Monitors that were floating windows' and are no longer: off the desktop (Windows moves
+    // any window left there back to a monitor).
+    for (const auto& name : floating_monitors_) {
+        if (!name.empty()) win::attach_display(name, 0, 0, 0, 0);  // zero size: detached
+    }
+    floating_monitors_.assign(floating_hwnds_.size(), std::wstring());
+    refresh_rects();
+    if (floating_hwnds_.empty() || !virtual_ || opt_.windowed || !backend_ ||
+        std::string(backend_->name()) != "Virtual Display Driver" || panel_rects_.empty()) {
+        return;
+    }
+    const auto pls = renderer_.current_placements();
+    const float arc = renderer_.shown_arc_rad();
+    const RECT r0 = panel_rects_[0];
+    if (pls.empty() || arc <= 0.0f || r0.right <= r0.left) return;
+    const float ppr = static_cast<float>(r0.right - r0.left) / (arc * pls[0].scale);  // pixels per radian
+    RECT all = r0;  // the monitors' bounding box
+    for (const RECT& r : panel_rects_) {
+        all.left = std::min(all.left, r.left);
+        all.top = std::min(all.top, r.top);
+        all.right = std::max(all.right, r.right);
+        all.bottom = std::max(all.bottom, r.bottom);
+    }
+    std::vector<std::wstring> used = panel_names_;
+    std::vector<RECT> placed;
+    const int w = opt_.vd_width, h = opt_.vd_height;
+    arranged_ns_ = steady_ns();
+    for (size_t i = 0; i < floating_hwnds_.size(); ++i) {
+        const size_t k = static_cast<size_t>(monitor_panels_) + i;
+        if (k >= pls.size()) break;
+        const auto spare = win::spare_virtual_monitors(used);
+        if (spare.empty()) {
+            logln("window: no spare virtual monitor left for floating window %zu (the cursor will not reach it)", i + 1);
+            continue;
+        }
+        const float cx = 0.5f * static_cast<float>(r0.left + r0.right) + (pls[k].yaw_rad - pls[0].yaw_rad) * ppr;
+        const float cy = 0.5f * static_cast<float>(r0.top + r0.bottom) - (pls[k].pitch_rad - pls[0].pitch_rad) * ppr;
+        // Touching the monitors on the side where it floats, overlapping them along that edge.
+        int x = static_cast<int>(cx) - w / 2, y = static_cast<int>(cy) - h / 2;
+        const auto clamp_x = [&] { x = std::clamp(x, static_cast<int>(all.left) - w + 64, static_cast<int>(all.right) - 64); };
+        const auto clamp_y = [&] { y = std::clamp(y, static_cast<int>(all.top) - h + 64, static_cast<int>(all.bottom) - 64); };
+        if (cy < all.top) {
+            y = all.top - h;
+            clamp_x();
+        } else if (cy > all.bottom) {
+            y = all.bottom;
+            clamp_x();
+        } else if (cx < all.left) {
+            x = all.left - w;
+            clamp_y();
+        } else {
+            x = all.right;
+            clamp_y();
+        }
+        // Clear of the floating monitors placed before: further out on the same side.
+        for (bool clash = true; clash;) {
+            clash = false;
+            for (const RECT& r : placed) {
+                if (x < r.right && x + w > r.left && y < r.bottom && y + h > r.top) {
+                    if (cy < all.top) y = r.top - h;
+                    else if (cy > all.bottom) y = r.bottom;
+                    else if (cx < all.left) x = r.left - w;
+                    else x = r.right;
+                    clash = true;
+                }
+            }
+        }
+        const std::wstring& name = spare.front();
+        if (!win::attach_display(name, x, y, w, h)) {
+            logln("window: could not place a monitor for floating window %zu", i + 1);
+            continue;
+        }
+        used.push_back(name);
+        placed.push_back(RECT{x, y, x + w, y + h});
+        floating_monitors_[i] = name;
+        const HWND hwnd = floating_hwnds_[i];
+        ShowWindow(hwnd, SW_RESTORE);
+        SetWindowPos(hwnd, nullptr, x + 40, y + 40, w - 80, h - 80, SWP_NOZORDER | SWP_NOACTIVATE);
+        ShowWindow(hwnd, SW_MAXIMIZE);  // fills its monitor
+        logln("window: floating window %zu on %s at %d,%d", i + 1, win::narrow(name).c_str(), x, y);
+    }
+    Sleep(300);
+    outputs_ = win::enumerate_outputs();
+    refresh_rects();
 }
 
 void Server::refresh_rects() {
@@ -1269,6 +1365,16 @@ void Server::refresh_rects() {
     for (const auto& name : panel_names_) {
         const auto* o = find_output(name);
         panel_rects_.push_back(o != nullptr ? o->desktop : RECT{});
+    }
+    // Floating windows' monitors after the monitors, in panel order: the gaze cursor goes there
+    // too. Only when every floating window has one (else the indexes would not line up).
+    const bool all_floating = !floating_monitors_.empty() &&
+        std::none_of(floating_monitors_.begin(), floating_monitors_.end(), [](const std::wstring& n) { return n.empty(); });
+    if (all_floating && static_cast<int>(panel_rects_.size()) == monitor_panels_) {
+        for (const auto& name : floating_monitors_) {
+            const auto* o = find_output(name);
+            panel_rects_.push_back(o != nullptr ? o->desktop : RECT{});
+        }
     }
     const auto* g = glasses_gdi_.empty() ? nullptr : find_output(glasses_gdi_);
     glasses_rect_ = g != nullptr ? g->desktop : RECT{};
