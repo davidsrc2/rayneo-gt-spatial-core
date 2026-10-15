@@ -22,6 +22,7 @@ final class ServerController: ObservableObject {
     private var autoStartChecked = false
     private let notifier = Notifier()
     private var glassesPresent = Displays.glassesScreen() != nil  // the display itself, for notices
+    private var restarting: Task<Void, Never>?
 
     var isRunning: Bool { state != .stopped }
 
@@ -82,7 +83,28 @@ final class ServerController: ObservableObject {
         pending = (s, task)
     }
 
+    // Stop, then start once macOS has put the displays back (mirroring, arrangement, the
+    // virtual monitors gone): starting straight away found the glasses still mirrored and laid
+    // the new monitors out on both sides of the Mac's screen.
+    private func restart() {
+        restarting?.cancel()
+        stop()
+        state = .starting
+        restarting = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            for _ in 0..<20 where Displays.glassesScreen() == nil {  // the glasses come back last
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.restarting = nil
+            self.state = .stopped
+            self.start()
+        }
+    }
+
     func stop(notice: String? = nil) {
+        restarting?.cancel()
+        restarting = nil
         // Still starting: cancel, and the start task tears down what it built so far.
         pending?.task.cancel()
         pending = nil
@@ -105,8 +127,7 @@ final class ServerController: ObservableObject {
         let needsRestart = next.layout != running.layout || next.vdWidth != running.vdWidth ||
             next.deadZoneDeg != running.deadZoneDeg
         if needsRestart {
-            stop()
-            start()
+            restart()
         } else {
             server.applyLive(next)
             let ids = { (o: ServerOptions) in o.floatingWindows.map(\.windowID) }
