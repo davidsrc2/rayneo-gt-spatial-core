@@ -90,6 +90,10 @@ private:
 // change it does): attached to the right of everything at width x height. Returns how many.
 int attach_detached_virtual(int width, int height, int limit = 8);
 
+// The drivers' monitors on the desktop that are not in `keep` (the spare ones of the pool)
+// taken off it. Returns how many.
+int detach_unused_virtual(const std::vector<OutputInfo>& outputs, const std::vector<std::wstring>& keep);
+
 // Every display device Windows knows, attached to the desktop or not, with its monitors: one
 // line each, for the log when monitors do not show up.
 std::vector<std::string> describe_display_devices();

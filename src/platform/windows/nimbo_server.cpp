@@ -1361,6 +1361,16 @@ bool Server::setup_virtual_displays() {
     if (!laptop_gdi_.empty()) panel_names_.push_back(laptop_gdi_);
     for (const auto* p : panels) panel_names_.push_back(p->gdi_name);
 
+    // Spare monitors of the driver's pool are not panels: off the desktop.
+    if (const int spare = win::detach_unused_virtual(outputs_, panel_names_); spare > 0) {
+        logln("virtual monitors: %d spare one(s) kept off the desktop", spare);
+        Sleep(500);
+        outputs_ = win::enumerate_outputs();
+        panels.clear();
+        for (const auto& name : panel_names_) {
+            if (const auto* o = find_output(name); o != nullptr && name != laptop_gdi_) panels.push_back(o);
+        }
+    }
     const win::OutputInfo* glasses = glasses_gdi_.empty() ? nullptr : find_output(glasses_gdi_);
     const win::OutputInfo* laptop = laptop_gdi_.empty() ? nullptr : find_output(laptop_gdi_);
     arranged_ns_ = steady_ns();

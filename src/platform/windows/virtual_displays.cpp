@@ -547,6 +547,16 @@ int attach_detached_virtual(int width, int height, int limit) {
     return count;
 }
 
+int detach_unused_virtual(const std::vector<OutputInfo>& outputs, const std::vector<std::wstring>& keep) {
+    int n = 0;
+    for (const auto& o : outputs) {
+        if (!is_virtual_panel(o) || std::find(keep.begin(), keep.end(), o.gdi_name) != keep.end()) continue;
+        if (detach(o.gdi_name) == DISP_CHANGE_SUCCESSFUL) ++n;
+    }
+    if (n > 0) apply();
+    return n;
+}
+
 std::vector<std::string> describe_display_devices() {
     std::vector<std::string> out;
     DISPLAY_DEVICEW dev{};
