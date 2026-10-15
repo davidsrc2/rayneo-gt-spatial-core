@@ -23,8 +23,14 @@ struct SettingsView: View {
                 Toggle("Atenuar los monitores que no miras", isOn: $model.dimOthers)
                     .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
-                    Toggle("Mis gafas están en modo pinned", isOn: $model.glassesPinned)
-                    Text("El modo se cambia con el botón de las gafas. Actívalo si las usas en pinned: Nimbo coloca todo (monitores y ventanas) dentro de la imagen que fijan las gafas, así nada se corta y nada se mueve solo: una ventana puesta arriba se ve mirando hacia arriba. ⌘⌥C vuelve a centrar la imagen delante.")
+                    Picker("Cómo ves las pantallas", selection: $model.glassesPinned) {
+                        Text("Una pantalla grande").tag(true)
+                        Text("Espacio a tamaño real").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(model.glassesPinned
+                         ? "Las gafas en pinned (Nimbo las pone): su imagen queda fija y todo cabe dentro, nada se mueve solo. ⌘⌥C vuelve a centrar la imagen delante."
+                         : "Las gafas en follow (Nimbo las pone; al parar vuelven a pinned): cada pantalla del tamaño de la imagen de las gafas, como sin Nimbo, quietas en la habitación. Gira la cabeza para ver la de al lado o mira arriba para la ventana de arriba. ⌘⌥C las vuelve a poner delante.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     if model.glassesPinned {
                         Toggle("Agrandar la pantalla que miras", isOn: $model.growFocused)
@@ -36,17 +42,6 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Incluir ventanas flotantes", isOn: $model.focusWindows)
                     Text("Si una ventana flotante puede ser la pantalla agrandada en pinned o la del modo enfoque (⌘⌥O) y cine (⌘⌥P). Desactivado: solo los monitores.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                }
-                .font(Theme.body).foregroundStyle(Theme.text)
-                VStack(alignment: .leading, spacing: 6) {
-                    Picker("Las pantallas siguen", selection: $model.tracking) {
-                        Text("Solo horizontal").tag(1)
-                        Text("Solo vertical").tag(2)
-                        Text("Ambos").tag(0)
-                    }
-                    .pickerStyle(.segmented)
-                    Text("Horizontal: monitores en fila, quietos al mirar arriba o abajo. Vertical: monitores uno encima de otro.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)

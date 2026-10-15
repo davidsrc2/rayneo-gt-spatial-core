@@ -16,10 +16,17 @@ struct QuickPanel: View {
             recenter
             Tile {
                 VStack(spacing: 14) {
+                    if !model.glassesPinned {
+                        Text("Espacio a tamaño real: cada pantalla mide lo que la imagen de las gafas.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     SnapSlider(title: "Distancia", value: $model.distance, range: 1.2...3.0,
                                anchors: [(1.2, "Cerca"), (2.0, "Normal"), (3.0, "Lejos")],
                                format: { String(format: "%.1f m", $0) },
                                onCommit: server.settingsChanged)
+                        .disabled(!model.glassesPinned)
+                        .opacity(model.glassesPinned ? 1 : 0.4)
                     SnapSlider(title: "Curvatura", value: $model.curvature, range: 0...1,
                                anchors: [(0, "Plana"), (0.5, "Suave"), (1, "Envolvente")],
                                format: { $0 < 0.02 ? "Plana" : String(format: "%.0f %%", $0 * 100) },
@@ -28,6 +35,8 @@ struct QuickPanel: View {
                                anchors: [(32, "Pequeña"), (38, "Media"), (46, "Grande"), (56, "Enorme")],
                                format: { String(format: "%.0f°", $0) },
                                onCommit: server.settingsChanged)
+                        .disabled(!model.glassesPinned)
+                        .opacity(model.glassesPinned ? 1 : 0.4)
                 }
             }
             Tile {

@@ -65,8 +65,8 @@ final class AppModel: ObservableObject {
     @Published var dimOthers: Bool { didSet { d.set(dimOthers, forKey: "dimOthers") } }
     @Published var gatherWindows: Bool { didSet { d.set(gatherWindows, forKey: "gatherWindows") } }
     @Published var tracking: Int { didSet { d.set(tracking, forKey: "tracking") } }  // 0 both, 1 left/right, 2 up/down
-    // The user keeps the glasses in their own pinned mode (changed only with the glasses' button):
-    // ⌘⌥C then recentres the glasses too. Nimbo renders the same either way.
+    // How the panels are seen: true = one panel large in the glasses' pinned image, false = the
+    // space at real size with the glasses in follow. Nimbo sets the glasses' mode to match.
     @Published var glassesPinned: Bool { didSet { d.set(glassesPinned ? 1 : 0, forKey: "glassesMode") } }
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
     @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
@@ -342,10 +342,12 @@ final class AppModel: ObservableObject {
         o.dimOthers = dimOthers ? 0.55 : 1  // linear light: ~80 % perceived brightness
         o.gatherWindows = gatherWindows
         o.trackingAxes = tracking
-        // The mode itself is the glasses' business (their button). Pinned: they anchor the image,
-        // so Nimbo fits everything in it and ⌘⌥C recentres them.
         o.glassesPinned = glassesPinned
         o.recenterGlasses = glassesPinned
+        // The two ways of seeing the panels set the glasses' mode themselves: pinned for one
+        // panel large in their fixed image, follow for the space at real size.
+        o.glassesMode = glassesPinned ? 1 : 0
+        o.realSize = !glassesPinned
         o.growFocused = growFocused
         o.focusWindows = focusWindows
         o.brightness = brightness

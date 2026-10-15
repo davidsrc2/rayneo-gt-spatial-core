@@ -57,6 +57,7 @@ struct ServerOptions {
     var dimOthers: Float = 1      // brightness of the panels you are not looking at (1 = off)
     var trackingAxes = 1          // head rotations that move the panels: 0 both, 1 left/right, 2 up/down
     var glassesPinned = false     // glasses in their own pinned mode: panels fixed in the image, fitted inside it
+    var realSize = false          // not pinned: each panel the size of the glasses' own image, the space moves with the head
     var growFocused = true        // pinned: the panel you look at (1 s) or take the mouse to fills the image
     var focusWindows = true       // floating windows can be that panel (and focus / cinema's) too
     var glassesMode = -1          // set the glasses' mode at start: 0 follow, 1 pinned, 2 steady; -1 = leave
@@ -101,6 +102,8 @@ struct ServerOptions {
       --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
       --pinned             the glasses are in their pinned mode: they anchor the image, so the
                            panels stay put in it and are sized to fit inside it (sets that mode)
+      --real-size          glasses in follow: every panel as large as the glasses' own image, fixed in
+                           the room on both axes (turn to see the next one)
       --no-grow            pinned: always the whole arrangement (else the panel you look at fills the image)
       --focus-monitors     only monitors fill the image / are focused, never floating windows
       --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
@@ -188,6 +191,7 @@ struct ServerOptions {
             case "--full-tracking": o.trackingAxes = 0
             case "--pinned": o.glassesPinned = true; o.glassesMode = 1
             case "--no-grow": o.growFocused = false
+            case "--real-size": o.realSize = true
             case "--focus-monitors": o.focusWindows = false
             case "--glasses-mode":
                 guard let v = value(), let m = ["follow": 0, "pinned": 1, "steady": 2][v] else { return nil }

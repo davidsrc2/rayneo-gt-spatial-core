@@ -425,6 +425,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.brightness = o.brightness
         options.glassesPinned = o.glassesPinned
         options.growFocused = o.growFocused
+        options.realSize = o.realSize
         options.focusWindows = o.focusWindows
         applyPinned(o)  // last: it overrides the panel width
         requestRedraw()
@@ -707,6 +708,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // reached by looking up.
         if o.glassesPinned { ro.trackingAxes = 0 }
         if !(o.glassesPinned && o.growFocused) { renderer.growPanel = -1 }
+        // Space at real size (glasses in follow): every panel as large as the glasses' own image,
+        // as the Mac's screen looks without Nimbo, fixed in the room on both axes; turning the
+        // head brings the next one in. The arc is set so the distance scaling cancels out.
+        if !o.glassesPinned && o.realSize {
+            ro.trackingAxes = 0
+            let fw = 2 * atan(tan(ro.fovYDegrees * .pi / 360) * ro.eyeAspect)
+            ro.arcDegrees = 2 * atan(tan(fw / 2) * ro.distanceMeters / 2) * 180 / .pi
+        }
     }
 
     // Pinned: the panel in use fills the glasses' image. It is the one you look at for a second
@@ -845,6 +854,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         renderThread = nil
         hotKeys = nil  // unregisters the global hotkeys
         statusMenu = nil
+        // Space at real size put the glasses in follow: back to pinned, how they are used without
+        // Nimbo (the command goes out with the next IMU read, a few ms).
+        if options.realSize && !options.glassesPinned && options.glassesMode == 0, let imu = pose as? ImuPoseSource {
+            imu.setGlassesMode(1)
+            Thread.sleep(forTimeInterval: 0.15)
+        }
         pose?.stop()
         physicalDisplay = nil
         glassesID = nil
