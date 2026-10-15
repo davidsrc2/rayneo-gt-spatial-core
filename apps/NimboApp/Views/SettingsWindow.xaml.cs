@@ -66,6 +66,8 @@ public sealed partial class SettingsWindow : Window
         StartupToggle.IsOn = Startup.Enabled;
         DrawLayout();
         DrawPlacement();
+        DrawFloating();
+        DrawRules();
         DimToggle.IsOn = _model.DimOthers;
         PinnedToggle.IsOn = _model.GlassesPinned;
         TrackingChoice.SelectedIndex = _model.Tracking switch { 1 => 0, 2 => 1, _ => 2 };
@@ -140,6 +142,95 @@ public sealed partial class SettingsWindow : Window
         if (_model.RemoveMonitor()) _server.SettingsChanged();
         DrawLayout();
         DrawPlacement();
+    }
+
+    // --- floating windows ------------------------------------------------------------------------
+
+    private List<(ulong Hwnd, string Title, string App)> _windows = new();
+
+    private void DrawFloating()
+    {
+        FloatList.Children.Clear();
+        for (int i = 0; i < _model.Floating.Count; ++i)
+        {
+            int index = i;
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            row.Children.Add(new TextBlock { Text = $"V{i + 1}", Width = 30, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(new TextBlock
+            {
+                Text = _model.Floating[i].Title,
+                Width = 360,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            var remove = new Button { Content = "Quitar" };
+            remove.Click += (_, _) =>
+            {
+                _model.Floating.RemoveAt(index);
+                _server.SettingsChanged();
+                DrawFloating();
+                DrawPlacement();
+            };
+            row.Children.Add(remove);
+            FloatList.Children.Add(row);
+        }
+        _windows = NimboNative.ListWindows().Where(w => _model.Floating.All(f => f.Hwnd != w.Hwnd)).ToList();
+        FloatChoice.ItemsSource = _windows.Select(w => $"{w.App} — {w.Title}").ToList();
+    }
+
+    private void FloatRefresh_Click(object sender, RoutedEventArgs e) => DrawFloating();
+
+    private void FloatAdd_Click(object sender, RoutedEventArgs e)
+    {
+        int i = FloatChoice.SelectedIndex;
+        if (i < 0 || i >= _windows.Count || _model.Floating.Count + _model.Cells.Length >= NimboNative.MaxPanels) return;
+        var w = _windows[i];
+        _model.Floating.Add(new AppModel.FloatingWin { Hwnd = w.Hwnd, Title = $"{w.App} — {w.Title}", Pose = _model.DefaultFloatingPose() });
+        _server.SettingsChanged();
+        DrawFloating();
+        DrawPlacement();
+    }
+
+    // --- per-app profiles ------------------------------------------------------------------------
+
+    private void DrawRules()
+    {
+        RuleList.Children.Clear();
+        foreach (var rule in _model.AppRules.ToList())
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            row.Children.Add(new TextBlock { Text = rule.Name, Width = 220, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(new TextBlock
+            {
+                Text = AppModel.Profiles.FirstOrDefault(p => p.Id == rule.Profile)?.Title ?? rule.Profile,
+                Width = 120,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            var remove = new Button { Content = "Quitar" };
+            remove.Click += (_, _) =>
+            {
+                _model.AppRules.Remove(rule);
+                _model.SaveRules();
+                DrawRules();
+            };
+            row.Children.Add(remove);
+            RuleList.Children.Add(row);
+        }
+        RuleApp.ItemsSource = NimboNative.ListWindows().Select(w => w.App).Where(a => a.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(a => _model.AppRules.All(r => !r.App.Equals(a, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(a => a).ToList();
+        RuleProfile.ItemsSource = AppModel.Profiles.Select(p => p.Title).ToList();
+        if (RuleProfile.SelectedIndex < 0 && AppModel.Profiles.Count > 0) RuleProfile.SelectedIndex = 0;
+    }
+
+    private void RuleAdd_Click(object sender, RoutedEventArgs e)
+    {
+        if (RuleApp.SelectedItem is not string app || RuleProfile.SelectedIndex < 0) return;
+        var profile = AppModel.Profiles[RuleProfile.SelectedIndex];
+        _model.AppRules.Add(new AppModel.AppRule(app, app, profile.Id));
+        _model.SaveRules();
+        DrawRules();
     }
 
     // --- hand placement (SpatialEditor.swift on macOS) -------------------------------------------
