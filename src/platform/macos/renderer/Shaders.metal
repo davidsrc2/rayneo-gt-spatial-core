@@ -64,7 +64,7 @@ fragment float4 stereo_screen_fragment(VOut in [[stage_in]],
                                        texture2d<float> depth [[texture(1)]],
                                        sampler s [[sampler(0)]],
                                        constant StereoUniforms& u [[buffer(0)]]) {
-    constexpr int kSteps = 6;
+    constexpr int kSteps = 8;
     const float k = -u.eye;  // the direction near things move in this eye
     const float near_t = 0.5 * u.strength * (1.0 - u.convergence);
     const float far_t = 0.5 * u.strength * (0.0 - u.convergence);

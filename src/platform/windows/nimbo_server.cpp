@@ -101,7 +101,7 @@ struct Options {
     bool real_size = false;                // not pinned: every panel as large as the glasses' image, both axes
     bool laptop_screen = false;            // the computer's own (primary) screen is panel 1
     bool depth3d = false;                  // AI 3D: the cinema panel in depth (needs side by side)
-    float depth_strength = 0.015f;         // parallax between the eyes at the nearest depth, in panel widths
+    float depth_strength = 0.03f;         // parallax between the eyes at the nearest depth, in panel widths
     float depth_plane = 0.35f;             // depth left on the panel's plane, 0 far .. 1 near
 
     float panel_arc_deg() const { return arc_deg.value_or(displays > 0 ? 38.0f : 50.0f); }
@@ -162,7 +162,7 @@ Options from_c(const nimbo_options& c) {
     o.real_size = c.real_size;
     o.laptop_screen = c.laptop_screen;
     o.depth3d = c.depth3d;
-    if (c.depth_strength > 0) o.depth_strength = std::min(c.depth_strength, 0.05f);
+    if (c.depth_strength > 0) o.depth_strength = std::min(c.depth_strength, 0.08f);
     o.depth_plane = std::clamp(c.depth_plane, 0.0f, 1.0f);
     return o;
 }
@@ -412,6 +412,12 @@ private:
     win::DepthEngine depth_;
     bool depth_failed_logged_ = false;
     bool overlay_shown_ = false;  // start-up message on the glasses until tracking starts
+    // A short message on the glasses ("Modo 3D de las gafas activado"), on the start-up card;
+    // two in a row share it. Waits for the start-up message to end.
+    void flash(const std::wstring& line, double seconds = 2.5);
+    std::vector<std::wstring> flash_lines_, pending_flash_;
+    uint64_t flash_at_ns_ = 0, flash_until_ns_ = 0;
+    bool cinema_for_3d_ = false;  // cinema entered because of AI 3D (glasses to 3D, Ctrl+Alt+T)
     void start_floating(std::vector<Options::Floating> specs);
     core::PanelPose default_floating_pose(int index) const;
     void apply_pending();
@@ -1094,6 +1100,11 @@ void Server::periodic() {
     next_stats_ns_ += 1000000000ull;
     if (next_stats_ns_ < now) next_stats_ns_ = now + 1000000000ull;
     if (glasses_lost_ns_ != 0) handle_display_change();  // waiting for the glasses' display to come back
+    if (flash_until_ns_ != 0 && now >= flash_until_ns_ && !overlay_shown_) {
+        renderer_.set_overlay_text(L"");
+        flash_until_ns_ = 0;
+        redraw_ = true;
+    }
 
     keep_floating_windows();
 
@@ -1122,6 +1133,9 @@ void Server::periodic() {
         overlay_shown_ = false;
         logln("ready: tracking");
         redraw_ = true;
+        const auto waiting = std::move(pending_flash_);
+        pending_flash_.clear();
+        for (const auto& line : waiting) flash(line);
     } else if (overlay_shown_) {
         renderer_.set_overlay_text(L"Nimbo se está preparando\nDeja las gafas quietas · " +
                                    std::to_wstring(std::max(1, 6 - calib_s_)) + L" s");
@@ -1246,6 +1260,16 @@ void Server::handle_display_change() {
         renderer_.options.side_by_side = opt_.side_by_side.value_or(auto_side_by_side());
         logln("surface: %dx%d px, %s", width_, height_,
               renderer_.options.side_by_side ? "side by side (glasses in 3D)" : "mono (glasses in 2D)");
+        flash(renderer_.options.side_by_side ? L"Modo 3D de las gafas activado" : L"Gafas en modo 2D");
+        // With AI 3D on, the glasses going 3D means watching in 3D: cinema on the panel looked
+        // at; back in 2D, all the panels again (if that is how cinema started).
+        if (renderer_.options.side_by_side && opt_.depth3d && focus_mode_ == 0) {
+            toggle_focus(true);
+            cinema_for_3d_ = true;
+        } else if (!renderer_.options.side_by_side && cinema_for_3d_ && focus_mode_ == 2) {
+            toggle_focus(true);
+        }
+        if (!renderer_.options.side_by_side) cinema_for_3d_ = false;
         update_depth3d();
         renderer_.invalidate_skipped_frame();
         redraw_ = true;
@@ -1317,10 +1341,35 @@ void Server::toggle_focus(bool cinema) {
     redraw_ = true;
 }
 
+// On: cinema on the panel looked at, in depth (glasses in 3D). Off: flat, still in cinema.
 void Server::toggle_depth3d() {
     opt_.depth3d = !opt_.depth3d;
-    logln("3d: %s%s", opt_.depth3d ? "on" : "off", opt_.depth3d && focus_mode_ != 2 ? " (in cinema mode, Ctrl+Alt+P)" : "");
+    logln("3d: %s", opt_.depth3d ? "on" : "off");
+    if (opt_.depth3d && focus_mode_ != 2) {
+        toggle_focus(true);
+        cinema_for_3d_ = true;
+    }
     update_depth3d();
+}
+
+void Server::flash(const std::wstring& line, double seconds) {
+    if (overlay_shown_) {
+        pending_flash_.push_back(line);
+        if (pending_flash_.size() > 2) pending_flash_.erase(pending_flash_.begin());
+        return;
+    }
+    const uint64_t now = steady_ns();
+    if (now - flash_at_ns_ < 600000000ull) {
+        flash_lines_.push_back(line);
+        if (flash_lines_.size() > 2) flash_lines_.erase(flash_lines_.begin());
+    } else {
+        flash_lines_ = {line};
+    }
+    flash_at_ns_ = now;
+    flash_until_ns_ = now + static_cast<uint64_t>(seconds * 1e9);
+    renderer_.set_overlay_text(flash_lines_.size() > 1 ? flash_lines_[0] + L"\n" + flash_lines_[1] : flash_lines_[0]);
+    renderer_.invalidate_skipped_frame();
+    redraw_ = true;
 }
 
 void Server::update_depth3d() {
@@ -1329,16 +1378,22 @@ void Server::update_depth3d() {
     ro.depth_convergence = opt_.depth_plane;
     const bool cinema = focus_mode_ == 2 && ro.focus_panel >= 0;
     const int wanted = opt_.depth3d && cinema && ro.side_by_side ? ro.focus_panel : -1;
-    if (opt_.depth3d && cinema && !ro.side_by_side) logln("3d: put the glasses in their 3D mode");
+    if (opt_.depth3d && cinema && !ro.side_by_side) {
+        logln("3d: put the glasses in their 3D mode");
+        flash(L"Pon las gafas en modo 3D");
+    }
     if (wanted >= 0 && depth_.state() == win::DepthEngine::State::Idle) {
         logln("3d: preparing the depth model");
+        flash(L"Preparando el 3D con IA…", 6.0);
         depth_.start([](const std::string& line) { logln("%s", line.c_str()); });
     }
     if (wanted != ro.depth_panel) {
         if (wanted >= 0) {
             logln("3d: depth on panel %d (strength %.3f, plane %.2f)", wanted + 1, ro.depth_strength, ro.depth_convergence);
+            flash(L"Cine en 3D con IA activado");
         } else {
             logln("3d: off");
+            flash(L"Cine en 3D con IA desactivado");
         }
     }
     ro.depth_panel = wanted;
@@ -2150,7 +2205,7 @@ nimbo_options nimbo_default_options(void) {
     o.tracking_axes = 1;
     o.glasses_mode = -1;
     o.tilt = 1.0f;
-    o.depth_strength = 0.015f;
+    o.depth_strength = 0.03f;
     o.depth_plane = 0.35f;
     return o;
 }

@@ -118,6 +118,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var statsTimer: Timer?
     private var calibSeconds = 0
     private var overlayShown = false  // start-up message on the glasses until tracking starts
+    // A short message on the glasses (main thread): until when, its lines, the one waiting for
+    // the start-up message to end.
+    private var flashWork: DispatchWorkItem?
+    private var flashLines: [String] = []
+    private var flashAt = Date.distantPast
+    private var pendingFlash: [String] = []
 
     // Idle skip (render thread): with the head still and no monitor changing, the last
     // frame is still correct, so nothing is drawn. Settings changes force one redraw.
@@ -549,6 +555,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         renderer.invalidateSkippedFrame()
         log(String(format: "surface: %.0fx%.0f px, %@", size.width, size.height, sbs ? "side by side (glasses in 3D)" : "mono (glasses in 2D)"))
         onNotice?(sbs ? "Gafas en 3D: una imagen para cada ojo" : "Gafas en 2D")
+        flash(sbs ? "Modo 3D de las gafas activado" : "Gafas en modo 2D")
         // With AI 3D on, putting the glasses in 3D means watching in 3D: cinema on the panel you
         // look at; back in 2D, all the panels again (if it was this that went to cinema).
         if sbs && options.depth3D && focusMode == 0 {
@@ -560,6 +567,29 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if !sbs { cinemaFor3D = false }
         updateDepth3D()
         requestRedraw()
+    }
+
+    // A card in front of the eyes for a few seconds (the start-up message's), e.g. "Modo 3D de
+    // las gafas activado". Two messages in a row share it, one per line.
+    private func flash(_ line: String, seconds: Double = 2.5) {
+        guard let renderer else { return }
+        if overlayShown {  // the start-up message is up: after it
+            pendingFlash = Array((pendingFlash + [line]).suffix(2))
+            return
+        }
+        flashLines = Date().timeIntervalSince(flashAt) < 0.6 ? Array((flashLines + [line]).suffix(2)) : [line]
+        flashAt = Date()
+        renderer.setOverlayText(flashLines.joined(separator: "\n"))
+        renderer.invalidateSkippedFrame()
+        requestRedraw()
+        flashWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.overlayShown else { return }
+            self.renderer?.setOverlayText(nil)
+            self.requestRedraw()
+        }
+        flashWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     private func shutDown(_ reason: String) {
@@ -1180,12 +1210,18 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     // ⌘⌥T: AI 3D on / off for this session (⌘⌥1/2/3 are the app's layouts) (the app's setting is applied again when it changes).
+    // On: cinema on the panel you look at, in depth (with the glasses in 3D). Off: flat, still
+    // in cinema, to compare.
     func toggleDepth3D() {
         options.depth3D.toggle()
         log("3d: \(options.depth3D ? "on" : "off")")
-        if options.depth3D && focusMode != 2 {
-            onNotice?("3D con IA activado: entra en modo cine (⌘⌥P)")
-        } else if !options.depth3D {
+        if options.depth3D {
+            if focusMode != 2 {
+                toggleFocus(cinema: true)
+                cinemaFor3D = true
+            }
+            if renderer?.options.sideBySide == false { onNotice?("Pon las gafas en modo 3D para ver el relieve") }
+        } else {
             onNotice?("3D con IA desactivado")
         }
         updateDepth3D()
@@ -1200,10 +1236,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let wanted = options.depth3D && cinema && ro.sideBySide ? ro.focusPanel : -1
         if options.depth3D && cinema && !ro.sideBySide {
             onNotice?("Pon las gafas en modo 3D para ver el cine en 3D")
+            flash("Pon las gafas en modo 3D")
         }
         if wanted >= 0 && !depth3D.isLoaded {
             guard depthLoading == nil else { return }
             onNotice?("Preparando el 3D con IA…")
+            flash("Preparando el 3D con IA…", seconds: 6)
             let engine = depth3D
             let owner = WeakServer(self)
             depthLoading = Task.detached(priority: .userInitiated) {
@@ -1227,8 +1265,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if wanted >= 0 {
             log("3d: depth on panel \(wanted + 1) (strength \(ro.depthStrength), plane \(ro.depthConvergence))")
             onNotice?("Cine en 3D con IA (⌘⌥T para quitarlo)")
+            flash("Cine en 3D con IA activado")
         } else if depthPanel >= 0 {
             log("3d: off")
+            flash("Cine en 3D con IA desactivado")
         }
         depthPanel = wanted
         requestRedraw()
@@ -1524,6 +1564,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             renderer.setOverlayText(nil)
             overlayShown = false
             log("ready: tracking")
+            if !pendingFlash.isEmpty {
+                let lines = pendingFlash
+                pendingFlash = []
+                lines.forEach { flash($0) }
+            }
         } else if overlayShown {
             let left = max(1, 6 - calibSeconds)
             renderer.setOverlayText("Nimbo se está preparando\nDeja las gafas quietas · \(left) s")

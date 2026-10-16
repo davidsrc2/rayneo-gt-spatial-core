@@ -31,7 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) NSInteger focusPanel;   // focus mode: only this panel is drawn (-1 = all)
 @property(nonatomic) BOOL cinema;            // with focusPanel: centred straight ahead and large
 // AI 3D: panels given a depth map (setSourcePixelBuffer:depth:...) are drawn in depth when side by side.
-@property(nonatomic) float depthStrength;    // parallax between the eyes at the nearest depth, in panel widths (0.015)
+@property(nonatomic) float depthStrength;    // parallax between the eyes at the nearest depth, in panel widths (0.03)
 @property(nonatomic) float depthConvergence; // depth (0 far .. 1 near) left on the panel's plane (0.35)
 @property(nonatomic) float depthSmoothing;   // weight of each new depth map against the previous ones (0.35)
 @end

@@ -114,7 +114,9 @@ final class AppModel: ObservableObject {
         anchorAtRest = d.bool(forKey: "anchorAtRest")
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
         depth3D = d.bool(forKey: "depth3D")
-        depthStrength = d.object(forKey: "depthStrength") as? Double ?? 0.015
+        // 0.015 was the first default: barely noticeable, so it moves to the new one.
+        let strength = d.object(forKey: "depthStrength") as? Double ?? 0.03
+        depthStrength = abs(strength - 0.015) < 1e-6 ? 0.03 : strength
         depthPlane = d.object(forKey: "depthPlane") as? Double ?? 0.35
         brightness = d.object(forKey: "brightness") as? Int ?? 0
         k1 = d.object(forKey: "k1") as? Double ?? 0

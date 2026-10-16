@@ -107,7 +107,7 @@
                 <ToggleSwitch x:Name="Depth3DToggle" Header="Ver el modo cine en 3D" Toggled="Changed" />
                 <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
                            Text="Una IA calcula la profundidad de cada fotograma y la pantalla del modo cine (Ctrl+Alt+P) se ve en relieve. Pon las gafas en modo 3D (Nimbo lo detecta solo, también con Nimbo ya abierto). La primera vez descarga el modelo (50 MB). Ctrl+Alt+T lo activa y lo quita. Netflix y otras plataformas con protección se ven en negro; YouTube y tus vídeos, sí." />
-                <Slider x:Name="DepthStrengthSlider" Header="Intensidad (%)" Minimum="0.5" Maximum="3" StepFrequency="0.1"
+                <Slider x:Name="DepthStrengthSlider" Header="Intensidad (%)" Minimum="0.5" Maximum="8" StepFrequency="0.25"
                         ValueChanged="SliderChanged" />
                 <Slider x:Name="DepthPlaneSlider" Header="Plano de la pantalla (0 todo sale hacia ti, 1 todo hacia el fondo)"
                         Minimum="0" Maximum="1" StepFrequency="0.05" ValueChanged="SliderChanged" />

@@ -42,7 +42,7 @@ space at real size (the app's mode)
 AI 3D (cinema mode, Ctrl+Alt+P)
   --depth3d            the cinema panel in depth from a depth map per frame (Ctrl+Alt+T); needs
                        --sbs and the glasses in 3D mode. ONNX Runtime + DirectML, model downloaded once
-  --depth-strength F   parallax at the nearest depth, in panel widths (0.015)
+  --depth-strength F   parallax at the nearest depth, in panel widths (0.03)
   --depth-plane F      depth left on the panel's plane, 0 far .. 1 near (0.35)
 layout
   --displays N         virtual monitors around you (2; needs the Virtual Display Driver);
@@ -257,7 +257,7 @@ bool parse(int argc, char** argv, Cli* cli) {
         else if (a == "--tilt" && number(&f) && f >= 0 && f <= 1) o.tilt = f;
         else if (a == "--laptop-screen") o.laptop_screen = true;
         else if (a == "--depth3d") o.depth3d = true;
-        else if (a == "--depth-strength" && number(&f) && f > 0 && f <= 0.05f) o.depth_strength = f;
+        else if (a == "--depth-strength" && number(&f) && f > 0 && f <= 0.08f) o.depth_strength = f;
         else if (a == "--depth-plane" && number(&f) && f >= 0 && f <= 1) o.depth_plane = f;
         else return false;
     }

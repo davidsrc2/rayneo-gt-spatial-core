@@ -1,6 +1,7 @@
 #include "rayneo/core/settings.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -291,6 +292,8 @@ std::optional<Settings> settings_from_json(std::string_view json) {
     }
     if (!has_tracking && has_legacy) s.tracking = legacy_yaw_only ? 1 : 0;
     if (!has_mode && legacy_pinned) s.glasses_mode = 1;
+    // 0.015 was the first default AI 3D strength, barely noticeable: saved files move to the new one.
+    if (std::abs(s.depth_strength - 0.015f) < 1e-6f) s.depth_strength = Settings{}.depth_strength;
     return s;
 }
 

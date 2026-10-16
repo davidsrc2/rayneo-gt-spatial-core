@@ -59,7 +59,7 @@ internal static unsafe class NimboNative
         public byte RealSize;       // every panel as large as the glasses' image, both axes
         public byte LaptopScreen;   // the computer's own screen is panel 1
         public byte Depth3D;        // AI 3D: the cinema panel in depth (needs SideBySide)
-        public float DepthStrength; // parallax at the nearest depth, in panel widths (0.015)
+        public float DepthStrength; // parallax at the nearest depth, in panel widths (0.03)
         public float DepthPlane;    // depth left on the panel's plane, 0 far .. 1 near (0.35)
     }
 

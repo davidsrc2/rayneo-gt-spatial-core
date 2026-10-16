@@ -93,7 +93,7 @@ struct SettingsView: View {
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
                 if model.depth3D {
-                    LabeledSlider(title: "Intensidad", value: $model.depthStrength, range: 0.005...0.03, step: 0.001,
+                    LabeledSlider(title: "Intensidad", value: $model.depthStrength, range: 0.005...0.08, step: 0.0025,
                                   caption: String(format: "%.1f %%", model.depthStrength * 100))
                     LabeledSlider(title: "Plano de la pantalla", value: $model.depthPlane, range: 0...1, step: 0.05,
                                   caption: model.depthPlane < 0.2 ? "todo sale hacia ti"

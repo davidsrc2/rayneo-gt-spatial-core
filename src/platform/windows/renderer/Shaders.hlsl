@@ -123,7 +123,7 @@ float stereo_shift(float x, float y) {
 // Backward mapping, nearest candidate first: occlusions resolve to the nearer surface and no
 // output pixel is left without a source.
 float4 stereo_screen_fragment(VOut i) : SV_Target {
-    const int kSteps = 6;
+    const int kSteps = 8;
     const float k = -stereo_eye;
     const float near_t = 0.5 * stereo_strength * (1.0 - stereo_convergence);
     const float far_t = 0.5 * stereo_strength * (0.0 - stereo_convergence);

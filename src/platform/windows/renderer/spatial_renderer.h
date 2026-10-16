@@ -43,7 +43,7 @@ struct RenderOptions {
     // AI 3D: this panel's frames go through the depth engine and it is drawn in depth when side
     // by side (-1: none).
     int depth_panel = -1;
-    float depth_strength = 0.015f;     // parallax between the eyes at the nearest depth, in panel widths
+    float depth_strength = 0.03f;     // parallax between the eyes at the nearest depth, in panel widths
     float depth_convergence = 0.35f;   // depth (0 far .. 1 near) left on the panel's plane
     float depth_smoothing = 0.35f;     // weight of each new depth map against the previous ones
 };

@@ -116,7 +116,7 @@ struct Panel {
         _layoutArcDegrees = 0.0f;
         _focusPanel = -1;
         _cinema = NO;
-        _depthStrength = 0.015f;
+        _depthStrength = 0.03f;
         _depthConvergence = 0.35f;
         _depthSmoothing = 0.35f;
     }

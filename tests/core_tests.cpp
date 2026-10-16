@@ -1212,7 +1212,8 @@ void test_settings_json() {
     CHECK(near(back->tilt, 0.4f, 1e-6f) && back->anchor_at_rest && !back->mac_screen);
     CHECK(near(settings_from_json("{}")->tilt, 1.0f, 1e-6f) && settings_from_json("{}")->mac_screen);
     CHECK(back->depth3d && near(back->depth_strength, 0.02f, 1e-6f) && near(back->depth_plane, 0.5f, 1e-6f));
-    CHECK(!settings_from_json("{}")->depth3d && near(settings_from_json("{}")->depth_strength, 0.015f, 1e-6f));
+    CHECK(!settings_from_json("{}")->depth3d && near(settings_from_json("{}")->depth_strength, 0.03f, 1e-6f));
+    CHECK(near(settings_from_json(R"({"depthStrength": 0.015})")->depth_strength, 0.03f, 1e-6f));  // first default moved
     CHECK(settings_from_json(R"({"glassesPinned": true})")->glasses_mode == 1);  // earlier builds' switch
     CHECK(settings_from_json("{}")->tracking == 1);                    // default: left/right only
     CHECK(settings_from_json(R"({"yawOnly": false})")->tracking == 0);  // earlier builds' switch
