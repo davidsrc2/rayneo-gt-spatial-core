@@ -70,11 +70,37 @@ public sealed partial class PanelWindow : Window
     public void ShowNearTray()
     {
         Refresh();
-        Root.Measure(new Windows.Foundation.Size(PanelWidth, double.PositiveInfinity));
-        double height = Root.DesiredSize.Height > 200 ? Root.DesiredSize.Height : 660;
+        // Before the window has been shown once its content is not in a live tree yet and
+        // Measure throws E_UNEXPECTED (it did at start-up): show it first at a default height,
+        // then fit it once the content is measurable.
+        double height = 660;
+        try
+        {
+            Root.Measure(new Windows.Foundation.Size(PanelWidth, double.PositiveInfinity));
+            if (Root.DesiredSize.Height > 200) height = Root.DesiredSize.Height;
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            DispatcherQueue.TryEnqueue(FitHeight);
+        }
         WindowHelpers.Resize(this, PanelWidth, height);
         WindowHelpers.MoveNearTray(this);
         WindowHelpers.BringToFront(this);
+    }
+
+    // Once shown: the panel's real height, kept near the tray.
+    private void FitHeight()
+    {
+        try
+        {
+            Root.Measure(new Windows.Foundation.Size(PanelWidth, double.PositiveInfinity));
+            if (Root.DesiredSize.Height <= 200) return;
+            WindowHelpers.Resize(this, PanelWidth, Root.DesiredSize.Height);
+            WindowHelpers.MoveNearTray(this);
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+        }
     }
 
     public void Destroy()
