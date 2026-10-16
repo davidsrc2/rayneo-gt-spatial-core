@@ -143,7 +143,7 @@ public sealed partial class SettingsWindow : Window
     // The one-click layouts of the macOS window (Templates in MainView.swift).
     private void Template_Click(object sender, RoutedEventArgs e)
     {
-        (int, int)[] cells = (sender as Button)?.Tag as string switch
+        (int, int)[] cells = ((sender as Button)?.Tag as string) switch
         {
             "one" => new[] { (0, 0) },
             "twoStacked" => new[] { (0, 0), (0, 1) },
