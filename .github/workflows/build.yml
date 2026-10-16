@@ -86,6 +86,18 @@ jobs:
           if (-not (Test-Path build/NimboApp/onnxruntime.dll)) { throw "onnxruntime.dll not copied next to the app" }
           if (-not (Test-Path build/NimboApp/DirectML.dll)) { throw "DirectML.dll not copied next to the app" }
 
+      - name: Windows installer (Inno Setup)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/windows/make_installer.ps1 -AppDir build/NimboApp -OutDir build/installer
+
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-setup-win-x64
+          path: build/installer/Nimbo-Setup-*.exe
+
       - name: Upload Windows app
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

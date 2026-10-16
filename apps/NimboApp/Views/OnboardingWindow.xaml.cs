@@ -118,12 +118,15 @@ public sealed partial class OnboardingWindow : Window
 
     private void RefreshDriver()
     {
-        bool ok = NimboNative.nimbo_virtual_driver_available() != 0;
+        // Installed counts too while switched off: Nimbo switches it on when it starts.
+        bool ok = NimboNative.nimbo_virtual_driver_available() != 0 || DisplaySetup.DriverInstalled;
         DriverInfo.Severity = ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
         DriverInfo.Title = ok ? "Instalado" : "No instalado";
         DriverInfo.Message = ok
             ? "Nimbo puede crear los monitores virtuales."
-            : "Descárgalo, ejecuta «VDD Control» y pulsa Install. Luego vuelve aquí y pulsa «Comprobar de nuevo».";
+            : DisplaySetup.DriverShipped
+                ? "Pulsa «Preparar pantallas virtuales»: instala el driver que viene con Nimbo (pide permiso de administrador)."
+                : "Descárgalo, ejecuta «VDD Control» y pulsa Install. Luego vuelve aquí y pulsa «Comprobar de nuevo».";
     }
 
     private void DownloadDriver_Click(object sender, RoutedEventArgs e) =>

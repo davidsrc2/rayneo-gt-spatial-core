@@ -10,6 +10,8 @@
 
 #include <devguid.h>
 #include <setupapi.h>
+#include <newdev.h>  // after setupapi.h
+#include <wincrypt.h>
 
 #include <atomic>
 #include <chrono>
@@ -57,8 +59,10 @@ layout
   --window TEXT[@Y,P,S] float the window whose title or app contains TEXT as a panel of its own
                        (default: centred above the monitors); repeatable
   --list-windows       print the windows that can float (app and title), then exit
-  --setup-displays     (administrator) prepare the Virtual Display Driver once: a pool of 6
-                       monitors, duplicate devices removed, the driver restarted; then exit
+  --setup-displays     (administrator) prepare the Virtual Display Driver once: installed from the
+                       "driver" folder next to this program if missing, a pool of 6 monitors,
+                       duplicate devices removed, the driver restarted, switched on only with Nimbo
+  --uninstall-driver   (administrator, the uninstaller) undo --setup-displays
   --pinned             the glasses are in their pinned mode: panels stay put, fitted inside the image
   --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
   --brightness N       glasses' brightness 1..8 (8 = factory level)
@@ -344,12 +348,210 @@ int live_vdd_monitors() {
     return n;
 }
 
+// --- the driver shipped with Nimbo ------------------------------------------------------------
+// The installer puts the Virtual Display Driver (MIT, signed by the SignPath Foundation) in a
+// "driver" folder next to this program. What VDD Control did by hand: its settings folder, its
+// publisher trusted (or Windows asks to confirm the install), the package in the driver store
+// and a root device for it. What Nimbo did is kept in HKLM\SOFTWARE\Nimbo, so the uninstaller
+// removes only that and leaves a driver the user had installed alone.
+
+constexpr const wchar_t* kVddHardwareId = L"Root\\MttVDD";
+constexpr const wchar_t* kVddDir = L"C:\\VirtualDisplayDriver";
+constexpr const wchar_t* kNimboKey = L"SOFTWARE\\Nimbo";
+
+std::wstring exe_dir() {
+    wchar_t path[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, path, MAX_PATH);
+    std::wstring p(path);
+    return p.substr(0, p.find_last_of(L"\\/"));
+}
+
+bool exists(const std::wstring& path) { return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; }
+
+void set_state(const wchar_t* name, const std::wstring& value) {
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, kNimboKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) return;
+    RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
+                   static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+    RegCloseKey(key);
+}
+
+std::wstring get_state(const wchar_t* name) {
+    wchar_t buf[MAX_PATH] = {};
+    DWORD size = sizeof(buf);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, kNimboKey, name, RRF_RT_REG_SZ, nullptr, buf, &size) != ERROR_SUCCESS) return {};
+    return buf;
+}
+
+// The certificate that signed the driver's catalog.
+PCCERT_CONTEXT catalog_signer(const std::wstring& cat) {
+    HCERTSTORE store = nullptr;
+    HCRYPTMSG msg = nullptr;
+    if (!CryptQueryObject(CERT_QUERY_OBJECT_FILE, cat.c_str(), CERT_QUERY_CONTENT_FLAG_ALL, CERT_QUERY_FORMAT_FLAG_ALL, 0,
+                          nullptr, nullptr, nullptr, &store, &msg, nullptr)) {
+        return nullptr;
+    }
+    PCCERT_CONTEXT cert = nullptr;
+    DWORD size = 0;
+    if (CryptMsgGetParam(msg, CMSG_SIGNER_CERT_INFO_PARAM, 0, nullptr, &size) && size > 0) {
+        std::vector<BYTE> info(size);
+        if (CryptMsgGetParam(msg, CMSG_SIGNER_CERT_INFO_PARAM, 0, info.data(), &size)) {
+            cert = CertFindCertificateInStore(store, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0, CERT_FIND_SUBJECT_CERT,
+                                              info.data(), nullptr);
+        }
+    }
+    CryptMsgClose(msg);
+    CertCloseStore(store, 0);
+    return cert;
+}
+
+// The driver's publisher in the machine's Trusted Publishers: installed without a prompt.
+// true if it was added now (false: it was there already, or it failed).
+bool trust_publisher(const std::wstring& cat, bool remove) {
+    PCCERT_CONTEXT cert = catalog_signer(cat);
+    if (cert == nullptr) return false;
+    bool changed = false;
+    if (HCERTSTORE trusted = CertOpenStore(CERT_STORE_PROV_SYSTEM_W, 0, 0, CERT_SYSTEM_STORE_LOCAL_MACHINE, L"TrustedPublisher")) {
+        if (remove) {
+            if (PCCERT_CONTEXT found = CertFindCertificateInStore(trusted, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0,
+                                                                  CERT_FIND_EXISTING, cert, nullptr)) {
+                changed = CertDeleteCertificateFromStore(found) != FALSE;  // frees `found`
+            }
+        } else {
+            changed = CertAddCertificateContextToStore(trusted, cert, CERT_STORE_ADD_NEW, nullptr) != FALSE;
+        }
+        CertCloseStore(trusted, 0);
+    }
+    CertFreeCertificateContext(cert);
+    return changed;
+}
+
+// Devices with the driver's hardware id, present or not.
+std::vector<std::wstring> vdd_root_devices(bool remove) {
+    std::vector<std::wstring> out;
+    HDEVINFO set = SetupDiGetClassDevsW(&GUID_DEVCLASS_DISPLAY, nullptr, nullptr, 0);
+    if (set == INVALID_HANDLE_VALUE) return out;
+    SP_DEVINFO_DATA d{};
+    d.cbSize = sizeof(d);
+    for (DWORD i = 0; SetupDiEnumDeviceInfo(set, i, &d); ++i) {
+        wchar_t ids[512] = {};
+        if (!SetupDiGetDeviceRegistryPropertyW(set, &d, SPDRP_HARDWAREID, nullptr, reinterpret_cast<PBYTE>(ids),
+                                               sizeof(ids) - 2 * sizeof(wchar_t), nullptr)) {
+            continue;
+        }
+        bool match = false;
+        for (const wchar_t* id = ids; *id != 0; id += std::wcslen(id) + 1) match = match || _wcsicmp(id, kVddHardwareId) == 0;
+        if (!match) continue;
+        wchar_t instance[512] = {};
+        SetupDiGetDeviceInstanceIdW(set, &d, instance, 512, nullptr);
+        out.push_back(instance);
+        if (remove) {
+            BOOL reboot = FALSE;
+            DiUninstallDevice(nullptr, set, &d, 0, &reboot);
+        }
+    }
+    SetupDiDestroyDeviceInfoList(set);
+    return out;
+}
+
+// Installs the driver from `dir` (MttVDD.inf, .cat, .dll, vdd_settings.xml) with a pool of 6
+// monitors from the start. 0 ok, else an exit code for the app (8).
+int install_vdd(const std::wstring& dir) {
+    const std::wstring inf = dir + L"\\MttVDD.inf";
+    std::printf("setup: installing the Virtual Display Driver shipped with Nimbo\n");
+    // Its settings, with the pool already in them: it starts with 6 monitors.
+    const std::wstring settings = std::wstring(kVddDir) + L"\\vdd_settings.xml";
+    if (!exists(settings)) {
+        CreateDirectoryW(kVddDir, nullptr);
+        std::ifstream in(dir + L"\\vdd_settings.xml", std::ios::binary);
+        const std::string xml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::ofstream(settings, std::ios::binary) << std::regex_replace(
+            xml, std::regex(R"(<count>\s*\d+\s*</count>)"), "<count>6</count>", std::regex_constants::format_first_only);
+        set_state(L"VddSettingsCreated", L"1");
+    }
+    std::wstring cat = dir + L"\\mttvdd.cat";
+    if (!exists(cat)) cat = dir + L"\\MttVDD.cat";
+    if (trust_publisher(cat, false)) set_state(L"VddTrustAdded", L"1");
+
+    wchar_t oem[MAX_PATH] = {};
+    PWSTR oem_name = nullptr;
+    if (!SetupCopyOEMInfW(inf.c_str(), nullptr, SPOST_PATH, 0, oem, MAX_PATH, nullptr, &oem_name)) {
+        std::printf("setup: the driver package was not accepted (error %lu)\n", GetLastError());
+        return 8;
+    }
+    set_state(L"VddOemInf", oem_name != nullptr ? oem_name : oem);
+
+    if (vdd_root_devices(false).empty()) {
+        HDEVINFO set = SetupDiCreateDeviceInfoList(&GUID_DEVCLASS_DISPLAY, nullptr);
+        SP_DEVINFO_DATA d{};
+        d.cbSize = sizeof(d);
+        const wchar_t hwid[] = L"Root\\MttVDD\0";  // REG_MULTI_SZ: ends in two NULs
+        const bool created =
+            set != INVALID_HANDLE_VALUE &&
+            SetupDiCreateDeviceInfoW(set, L"Display", &GUID_DEVCLASS_DISPLAY, nullptr, nullptr, DICD_GENERATE_ID, &d) &&
+            SetupDiSetDeviceRegistryPropertyW(set, &d, SPDRP_HARDWAREID, reinterpret_cast<const BYTE*>(hwid), sizeof(hwid)) &&
+            SetupDiCallClassInstaller(DIF_REGISTERDEVICE, set, &d);
+        if (set != INVALID_HANDLE_VALUE) SetupDiDestroyDeviceInfoList(set);
+        if (!created) {
+            std::printf("setup: could not create the driver's device (error %lu)\n", GetLastError());
+            return 8;
+        }
+    }
+    BOOL reboot = FALSE;
+    if (!UpdateDriverForPlugAndPlayDevicesW(nullptr, kVddHardwareId, inf.c_str(), INSTALLFLAG_FORCE, &reboot)) {
+        std::printf("setup: the driver did not install on its device (error %lu)\n", GetLastError());
+        return 8;
+    }
+    set_state(L"VddInstalled", L"1");
+    for (int waited = 0; waited < 10000 && vdd_devices().empty(); waited += 500) Sleep(500);
+    std::printf("setup: driver installed%s\n", reboot ? " (Windows asks for a restart)" : "");
+    return 0;
+}
+
+// --uninstall-driver (the uninstaller, as administrator): the on/off tasks go; a driver Nimbo
+// installed is removed with what came with it; one the user had is switched on again with its
+// own monitor count back.
+int uninstall_driver() {
+    if (!elevated()) return 2;
+    run_quiet(L"schtasks /Delete /F /TN \"Nimbo\\DisplaysOn\"");
+    run_quiet(L"schtasks /Delete /F /TN \"Nimbo\\DisplaysOff\"");
+    const std::wstring settings = std::wstring(kVddDir) + L"\\vdd_settings.xml";
+    if (get_state(L"VddInstalled") == L"1") {
+        vdd_root_devices(true);
+        const std::wstring oem = get_state(L"VddOemInf");
+        if (!oem.empty()) SetupUninstallOEMInfW(oem.c_str(), SUOI_FORCEDELETE, nullptr);
+        if (get_state(L"VddTrustAdded") == L"1") {
+            const std::wstring dir = exe_dir() + L"\\driver";
+            trust_publisher(exists(dir + L"\\mttvdd.cat") ? dir + L"\\mttvdd.cat" : dir + L"\\MttVDD.cat", true);
+        }
+        if (get_state(L"VddSettingsCreated") == L"1") {
+            DeleteFileW(settings.c_str());
+            DeleteFileW((settings + L".nimbo-backup").c_str());
+            RemoveDirectoryW(kVddDir);
+        }
+        std::printf("uninstall: driver removed\n");
+    } else {
+        const std::wstring backup = settings + L".nimbo-backup";
+        if (exists(backup)) MoveFileExW(backup.c_str(), settings.c_str(), MOVEFILE_REPLACE_EXISTING);
+        for (const auto& id : vdd_devices()) run_quiet(L"pnputil /enable-device \"" + id + L"\"");
+        std::printf("uninstall: your own driver left on, with its settings back\n");
+    }
+    RegDeleteKeyW(HKEY_LOCAL_MACHINE, kNimboKey);
+    return 0;
+}
+
 // Exit codes the app reads: 0 ok, 2 not administrator, 3 driver not installed, 4 settings file
-// not understood, 5 no device, 6 could not restart it.
+// not understood, 5 no device, 6 could not restart it, 7 no on/off tasks, 8 the shipped driver
+// did not install.
 int setup_displays() {
     if (!elevated()) {
         std::printf("setup: run as administrator\n");
         return 2;
+    }
+    // No driver yet and one shipped next to this program (the installer): install it first.
+    const std::wstring shipped = exe_dir() + L"\\driver";
+    if (vdd_devices().empty() && exists(shipped + L"\\MttVDD.inf")) {
+        if (const int r = install_vdd(shipped); r != 0) return r;
     }
     const char* path = "C:\\VirtualDisplayDriver\\vdd_settings.xml";
     std::ifstream in(path, std::ios::binary);
@@ -425,6 +627,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (std::string(argv[i]) == "--setup-displays") return setup_displays();
+        if (std::string(argv[i]) == "--uninstall-driver") return uninstall_driver();
         if (std::string(argv[i]) == "--list-windows") {
             nimbo_window list[64];
             const int n = nimbo_list_windows(list, 64);
