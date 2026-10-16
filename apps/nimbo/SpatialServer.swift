@@ -491,6 +491,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             glassesLost()
         } else {
             glassesLostSince = nil
+            rememberAudio()
         }
         guard pose is ImuPoseSource, let p = pose.latest() else { return }
         stalePoseSeconds = p.hostTimeNs == lastPoseNs ? stalePoseSeconds + 1 : 0
@@ -576,6 +577,40 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         arrangingUntil = Date()
         log("glasses: set up again")
+        restoreAudio()
+    }
+
+    // MARK: sound
+
+    // The sound output in use, while the glasses are connected. A device that has just gone
+    // away (the glasses switching 2D / 3D) is kept: macOS has already moved to the Mac's
+    // speakers, which must not replace it. A deliberate change (both devices there) is followed.
+    private var audioUID: String?
+    private var audioRestore: Task<Void, Never>?
+
+    private func rememberAudio() {
+        guard !reconnecting, let now = AudioOutput.defaultUID(), now != audioUID else { return }
+        if let old = audioUID, AudioOutput.device(uid: old) == nil { return }
+        audioUID = now
+    }
+
+    // After the glasses come back: the sound goes back to the output it was on (the glasses'
+    // speakers) as soon as that device reappears (a few seconds at most).
+    private func restoreAudio() {
+        guard let uid = audioUID else { return }
+        audioRestore?.cancel()
+        audioRestore = Task { @MainActor [weak self] in
+            for _ in 0..<20 {
+                guard let self, !Task.isCancelled, !self.stopped else { return }
+                if AudioOutput.defaultUID() == uid { return }
+                if let device = AudioOutput.device(uid: uid) {
+                    let ok = AudioOutput.setDefault(device)
+                    self.log("audio: " + (ok ? "back to \(AudioOutput.name(uid: uid))" : "could not switch back to \(uid)"))
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
     }
 
     // Drawable at the display's pixel size; side by side with the glasses in 3D.
@@ -593,6 +628,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         renderer.options.sideBySide = sbs
         renderer.invalidateSkippedFrame()
         log(String(format: "surface: %.0fx%.0f px, %@", size.width, size.height, sbs ? "side by side (glasses in 3D)" : "mono (glasses in 2D)"))
+        restoreAudio()  // the glasses' speakers went away with the display
         onNotice?(sbs ? "Gafas en 3D: una imagen para cada ojo" : "Gafas en 2D")
         flash(sbs ? "Modo 3D de las gafas activado" : "Gafas en modo 2D")
         // Back in 2D: the cinema ⌘⌥T opened (for the depth) closes, and all panels come back.
@@ -1132,6 +1168,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if isRecording { toggleRecording() }  // the file is finished, not lost
         depthLoading?.cancel()
         depthLoading = nil
+        audioRestore?.cancel()
         depth3D.route(panel: -1)
         depth3D.onFrame = nil
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
