@@ -47,7 +47,9 @@ VOut screen_vertex(ScreenVertex v) {
 
 // Textures are sRGB views: sampling, mipmaps and this brightness work on linear light.
 float4 screen_fragment(VOut i) : SV_Target {
-    return float4(source.Sample(samp, i.uv).rgb * brightness, 1.0);
+    // A slight bias towards the full-size level: a panel drawn a little smaller than its capture
+    // blended in the half-size mipmap and softened the text.
+    return float4(source.SampleBias(samp, i.uv, -0.5).rgb * brightness, 1.0);
 }
 
 // Pass 2: per-eye barrel pre-distortion into the back buffer viewport (half for SBS).

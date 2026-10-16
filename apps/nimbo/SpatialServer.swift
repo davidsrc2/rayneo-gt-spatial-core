@@ -790,7 +790,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 .map { Float($0.width / $0.height) }.min() ?? ro.eyeAspect
             let wide = 2 * atan(tan(fovY / 2) * ro.eyeAspect)   // the image's width
             let tall = 2 * atan(tan(fovY / 2) * tallest)        // width at which the tallest panel fills its height
-            let fw = 0.94 * min(wide, tall)
+            // Flat: exactly the image (1:1 pixels looking straight at it, the sharpest). Curved:
+            // 94 %, its edges come closer and would leave the image.
+            let fw = (ro.curvature > 0.01 || ro.curved ? 0.94 : 1.0) * min(wide, tall)
             ro.arcDegrees = 2 * atan(tan(fw / 2) * ro.distanceMeters / 2) * 180 / .pi
         }
     }

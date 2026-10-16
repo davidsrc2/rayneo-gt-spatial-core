@@ -33,7 +33,9 @@ fragment float4 screen_fragment(VOut in [[stage_in]],
                                 texture2d<float> source [[texture(0)]],
                                 sampler s [[sampler(0)]],
                                 constant float& brightness [[buffer(0)]]) {
-    return float4(source.sample(s, in.uv).rgb * brightness, 1.0);
+    // A slight bias towards the full-size level: a panel drawn a little smaller than its capture
+    // blended in the half-size mipmap and softened the text.
+    return float4(source.sample(s, in.uv, bias(-0.5)).rgb * brightness, 1.0);
 }
 
 // Pass 2: per-eye barrel pre-distortion into the drawable viewport (half for SBS).

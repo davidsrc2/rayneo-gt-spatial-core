@@ -1165,7 +1165,9 @@ void Server::apply_pinned(const Options& o) {
         }
         const float wide = 2.0f * std::atan(std::tan(fov_y / 2) * (16.0f / 9.0f));
         const float tall = 2.0f * std::atan(std::tan(fov_y / 2) * tallest);
-        const float fw = 0.94f * std::min(wide, tall);
+        // Flat: exactly the image (1:1 pixels looking straight at it, the sharpest). Curved: 94 %,
+        // its edges come closer and would leave the image.
+        const float fw = (ro.curvature > 0.01f ? 0.94f : 1.0f) * std::min(wide, tall);
         ro.arc_deg = 2.0f * std::atan(std::tan(fw / 2) * ro.distance_m / 2.0f) / kDegToRad;
     }
 }
