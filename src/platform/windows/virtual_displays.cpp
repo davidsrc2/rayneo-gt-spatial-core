@@ -284,6 +284,41 @@ bool vdrs_available() {
 
 }  // namespace
 
+namespace {
+
+bool run_task(const wchar_t* name) {
+    std::wstring cmd = std::wstring(L"schtasks /Run /TN \"") + name + L"\"";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        return false;
+    }
+    WaitForSingleObject(pi.hProcess, 10000);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code == 0;
+}
+
+}  // namespace
+
+bool virtual_driver_on(int wait_ms) {
+    if (VirtualDisplayDriver::live_monitors() > 0) return true;
+    if (!run_task(L"Nimbo\\DisplaysOn")) return false;
+    for (int waited = 0; waited < wait_ms; waited += 250) {
+        Sleep(250);
+        if (VirtualDisplayDriver::live_monitors() > 0) {
+            Sleep(1500);  // the rest of the pool comes up with it
+            return true;
+        }
+    }
+    return VirtualDisplayDriver::live_monitors() > 0;
+}
+
+bool virtual_driver_off() { return run_task(L"Nimbo\\DisplaysOff"); }
+
 std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend(bool wait_for_pipe) {
     if (VirtualDisplayDriver::available()) return std::make_unique<VddBackend>();
     // After a reload (Nimbo's last exit, the device switched back on) its pipe takes a while

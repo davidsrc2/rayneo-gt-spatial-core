@@ -455,6 +455,7 @@ private:
     std::vector<std::wstring> floating_monitors_;
     void assign_floating_monitors();
     std::optional<DISPLAYCONFIG_TOPOLOGY_ID> saved_topology_;  // Win+P mode before we extended
+    bool driver_switched_on_ = false;   // we switched the Virtual Display Driver on: off again on exit
     uint64_t arranged_ns_ = 0;          // our own arrangement: its display-change messages are ours
     void rearrange_displays();
     // The glasses' native mode is a temporary one (CDS_FULLSCREEN): applying the saved display
@@ -602,6 +603,12 @@ bool Server::start() {
 
     // Virtual monitors first: arranging displays resets temporary modes such as the glasses'
     // native mode below.
+    // The driver is kept off while Nimbo is closed (its monitors slowed the PC): switch it on.
+    if (opt_.displays > 0 && !opt_.windowed && win::virtual_display_driver_installed() &&
+        win::VirtualDisplayDriver::live_monitors() == 0) {
+        driver_switched_on_ = win::virtual_driver_on(15000);
+        logln("virtual monitors: driver %s", driver_switched_on_ ? "switched on" : "off and no task to switch it on (Preparar pantallas virtuales)");
+    }
     if (opt_.displays > 0) backend_ = win::find_virtual_display_backend();
     if (opt_.displays > 0 && !backend_) {
         if (win::virtual_display_driver_installed()) {
@@ -1795,6 +1802,10 @@ void Server::shutdown() {
             logln("displays: %s (run nimbo_win --restore)", error.c_str());
         }
         if (backend_) backend_->remove_monitors();  // VDD keeps one, detached above
+    }
+    // Its monitors only exist while Nimbo runs (they slowed the PC otherwise).
+    if (win::virtual_display_driver_installed() && win::virtual_driver_off()) {
+        logln("virtual monitors: driver switched off");
     }
     if (saved_topology_) {
         Sleep(500);  // the monitors gone first

@@ -36,6 +36,12 @@ public:
     virtual std::string state() const { return ""; }
 };
 
+// The Virtual Display Driver switched on / off through the scheduled tasks "Nimbo\DisplaysOn" /
+// "Nimbo\DisplaysOff" that nimbo_win --setup-displays creates (they run as administrator, no
+// prompt): its monitors exist only while Nimbo runs. False when the task is not there.
+bool virtual_driver_on(int wait_ms);
+bool virtual_driver_off();
+
 // The first driver that answers: Virtual Display Driver, then virtual-display-rs. nullptr if none.
 // wait_for_pipe: give a just-reloaded Virtual Display Driver up to 12 s (never from a UI thread).
 std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend(bool wait_for_pipe = true);

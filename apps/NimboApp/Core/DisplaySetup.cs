@@ -29,7 +29,8 @@ internal static class DisplaySetup
             await p.WaitForExitAsync();
             return p.ExitCode switch
             {
-                0 => (true, "Listo: el driver tiene 6 monitores preparados. No hace falta reiniciar Windows."),
+                0 => (true, "Listo: 6 monitores preparados, solo existen mientras Nimbo está abierto. No hace falta reiniciar Windows."),
+                7 => (false, "Driver preparado, pero no se pudieron crear las tareas para encenderlo y apagarlo con Nimbo."),
                 3 => (false, "El driver Virtual Display Driver no está instalado."),
                 5 => (false, "No se encontró el dispositivo del driver: reinstálalo con VDD Control."),
                 6 => (false, "No se pudo reiniciar el driver: reinicia Windows una vez."),

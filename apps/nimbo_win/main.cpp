@@ -380,8 +380,21 @@ int setup_displays() {
         }
     }
     for (int waited = 0; waited < 15000 && live_vdd_monitors() < 6; waited += 500) Sleep(500);
-    std::printf("setup: done, the driver has %d monitors (Nimbo keeps the ones it does not use off the desktop)\n",
-                live_vdd_monitors());
+    std::printf("setup: the driver has %d monitors\n", live_vdd_monitors());
+
+    // Tasks that switch the driver on and off as administrator without a prompt, so its
+    // monitors only exist while Nimbo runs (Nimbo starts them; they slowed the PC otherwise).
+    const std::wstring& id = devices[0];
+    const int on = run_quiet(L"schtasks /Create /F /TN \"Nimbo\\DisplaysOn\" /SC ONCE /ST 00:00 /RL HIGHEST /TR "
+                             L"\"pnputil /enable-device " + id + L"\"");
+    const int off = run_quiet(L"schtasks /Create /F /TN \"Nimbo\\DisplaysOff\" /SC ONCE /ST 00:00 /RL HIGHEST /TR "
+                              L"\"pnputil /disable-device " + id + L"\"");
+    if (on != 0 || off != 0) {
+        std::printf("setup: could not create the on/off tasks (the driver stays on)\n");
+        return 7;
+    }
+    run_quiet(L"pnputil /disable-device \"" + id + L"\"");  // off until Nimbo starts
+    std::printf("setup: done; the virtual monitors exist only while Nimbo runs\n");
     return 0;
 }
 
