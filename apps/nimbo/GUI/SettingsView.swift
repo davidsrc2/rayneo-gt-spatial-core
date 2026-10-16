@@ -67,7 +67,7 @@ struct SettingsView: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Anclar las pantallas con la cabeza quieta", isOn: $model.anchorAtRest)
-                    Text("Con la cabeza quieta, las pantallas no se mueven nada, ni un píxel. Al moverla más de 0,3° vuelven a seguir el espacio con suavidad. Prueba: si notas que se pegan a la cabeza al empezar a moverla, desactívalo.")
+                    Text("Con la cabeza quieta, las pantallas no se mueven nada, ni un píxel. Al moverla más de 0,6° vuelven a seguir el espacio con suavidad. Prueba: si notas que se pegan a la cabeza al empezar a moverla, desactívalo.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)

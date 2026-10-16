@@ -130,7 +130,13 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
             e->cfg.stabilizer = rayneo::core::world_locked_stabilizer();
             e->cfg.body_frame_relative = true;  // exact on both axes whatever the posture at the recenter
             e->cfg.madgwick_beta = rayneo::core::kWorldLockedMadgwickBeta;  // breathing no longer rocks the panels
-            if (cfg->dead_zone_deg < -1.0f) e->cfg.stabilizer.enter_deg = -1.0f - cfg->dead_zone_deg;  // anchor at rest
+            if (cfg->dead_zone_deg < -1.0f) {  // anchor at rest
+                e->cfg.stabilizer.enter_deg = -1.0f - cfg->dead_zone_deg;
+                // Sway that slips out of the anchor glides back instead of catching up at once:
+                // simulated at rest (breathing, pulse, tremor), 0.009 -> 0.0007 deg/frame and
+                // frozen 89 -> 99 % of the time; a 30 deg/s turn lags the same (the zone).
+                e->cfg.stabilizer.release_cutoff_hz = 0.4f;
+            }
         }
     }
     return e;

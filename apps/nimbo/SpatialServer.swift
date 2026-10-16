@@ -1216,11 +1216,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.depth3D.toggle()
         log("3d: \(options.depth3D ? "on" : "off")")
         if options.depth3D {
+            if renderer?.options.sideBySide == false {
+                // Glasses in 2D: nothing to see in depth yet. Cinema starts when they go 3D.
+                onNotice?("Pon las gafas en modo 3D para ver el relieve")
+                flash("Cine en 3D con IA listo")
+                flash("Pon las gafas en modo 3D")
+                return
+            }
             if focusMode != 2 {
                 toggleFocus(cinema: true)
                 cinemaFor3D = true
             }
-            if renderer?.options.sideBySide == false { onNotice?("Pon las gafas en modo 3D para ver el relieve") }
         } else {
             onNotice?("3D con IA desactivado")
         }

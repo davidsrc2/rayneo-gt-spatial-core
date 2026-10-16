@@ -69,7 +69,10 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
         slow_time_ = 0.0f;
     }
 
-    const float cutoff = cfg_.follow_min_cutoff_hz + cfg_.follow_beta * speed_;
+    float cutoff = cfg_.follow_min_cutoff_hz + cfg_.follow_beta * speed_;
+    if (cfg_.release_cutoff_hz > 0.0f && cfg_.enter_deg > 0.0f && speed_ < cfg_.settle_speed_rads) {
+        cutoff = cfg_.release_cutoff_hz;
+    }
     out_ = slerp(out_, q, alpha(cutoff, dt));
     omega_out_ = omega_slow_;
     slow_time_ = speed_ < cfg_.settle_speed_rads ? slow_time_ + dt : 0.0f;

@@ -1345,6 +1345,12 @@ void Server::toggle_focus(bool cinema) {
 void Server::toggle_depth3d() {
     opt_.depth3d = !opt_.depth3d;
     logln("3d: %s", opt_.depth3d ? "on" : "off");
+    if (opt_.depth3d && !renderer_.options.side_by_side) {
+        // Glasses in 2D: nothing to see in depth yet. Cinema starts when they go 3D.
+        flash(L"Cine en 3D con IA listo");
+        flash(L"Pon las gafas en modo 3D");
+        return;
+    }
     if (opt_.depth3d && focus_mode_ != 2) {
         toggle_focus(true);
         cinema_for_3d_ = true;
@@ -2387,7 +2393,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.glasses_pinned = false;
     o.recenter_glasses = false;
     o.real_size = true;
-    o.dead_zone_deg = s.anchor_at_rest ? -1.3f : -1.0f;  // see rayneo_config: -1 - hold
+    o.dead_zone_deg = s.anchor_at_rest ? -1.6f : -1.0f;  // see rayneo_config: -1 - hold
     o.tilt = s.tilt;
     o.laptop_screen = s.mac_screen;
     o.depth3d = s.depth3d;

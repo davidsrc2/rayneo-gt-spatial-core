@@ -33,6 +33,10 @@ struct PoseStabilizerConfig {
     // knock from the quick one tripled it.
     float tap_accel_rads2 = 0.0f;
     float tap_hold_s = 0.12f;
+    // > 0, with a dead zone (anchor at rest): leaving it slowly (breathing, sway: below
+    // settle_speed_rads) glides to the head at this cutoff instead of catching up at once; a
+    // real turn still follows at the follow cutoff. The catch-up of the sway read as a tremor.
+    float release_cutoff_hz = 0.0f;
 };
 
 // Panels fixed in the room at every moment (no dead zone, nothing frozen). Tuned on a

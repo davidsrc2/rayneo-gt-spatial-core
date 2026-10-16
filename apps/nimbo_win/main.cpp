@@ -253,7 +253,7 @@ bool parse(int argc, char** argv, Cli* cli) {
             o.real_size = true;
             if (o.dead_zone_deg >= 0) o.dead_zone_deg = -1.0f;  // world-locked
         }
-        else if (a == "--anchor") o.dead_zone_deg = -1.3f;  // world-locked, frozen within 0.3 deg
+        else if (a == "--anchor") o.dead_zone_deg = -1.6f;  // world-locked, frozen within 0.6 deg
         else if (a == "--tilt" && number(&f) && f >= 0 && f <= 1) o.tilt = f;
         else if (a == "--laptop-screen") o.laptop_screen = true;
         else if (a == "--depth3d") o.depth3d = true;

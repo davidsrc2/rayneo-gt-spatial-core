@@ -67,6 +67,9 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         cfg.scalesToFit = true
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
+        // The Mac's screen is Display P3: its pixels drawn as sRGB (the renderer's and the
+        // glasses' space) came out oversaturated and too contrasty. Converted here instead.
+        cfg.colorSpaceName = CGColorSpace.sRGB
         cfg.queueDepth = 4
         cfg.showsCursor = true
 
@@ -101,6 +104,9 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         cfg.scalesToFit = true
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
+        // The Mac's screen is Display P3: its pixels drawn as sRGB (the renderer's and the
+        // glasses' space) came out oversaturated and too contrasty. Converted here instead.
+        cfg.colorSpaceName = CGColorSpace.sRGB
         cfg.queueDepth = 4
         cfg.showsCursor = true
         let s = SCStream(filter: filter, configuration: cfg, delegate: self)
