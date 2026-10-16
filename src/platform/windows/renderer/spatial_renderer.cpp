@@ -181,7 +181,7 @@ void SpatialRenderer::set_source(int panel, FrameSource* source) {
 
 // The panel arc as seen at the current distance (closer looks bigger, like a real monitor).
 float SpatialRenderer::panel_arc() const {
-    return core::arc_at_distance(options.arc_deg * kDegToRad, options.distance_m);
+    return core::arc_at_distance(options.arc_deg * kDegToRad, options.distance_m) * std::clamp(options.zoom, 0.3f, 4.0f);
 }
 
 float SpatialRenderer::vertical_arc(float aspect) const {
@@ -357,7 +357,7 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl) {
     const float k = std::clamp(options.curvature, 0.0f, 1.0f);
     if (p.vertices && p.aspect == p.mesh_aspect && options.distance_m == p.mesh_distance &&
         options.arc_deg == p.mesh_arc && pl.yaw_rad == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
-        k == p.mesh_curvature && pl.scale == p.mesh_scale && options.tilt == p.mesh_tilt) {
+        k == p.mesh_curvature && pl.scale == p.mesh_scale && options.tilt == p.mesh_tilt && options.zoom == p.mesh_zoom) {
         return;
     }
     const float arc = panel_arc() * pl.scale;
@@ -387,6 +387,7 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl) {
     p.mesh_curvature = k;
     p.mesh_scale = pl.scale;
     p.mesh_tilt = options.tilt;
+    p.mesh_zoom = options.zoom;
 }
 
 void SpatialRenderer::compose(Panel& p) {

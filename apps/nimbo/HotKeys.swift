@@ -41,4 +41,26 @@ final class HotKeys {
         handlers[id] = action
         return true
     }
+
+    // The key codes that type `char` in the current keyboard layout (hotkeys go by physical key:
+    // on a Spanish keyboard "+" is not where the US "=" is). Empty if no key types it.
+    static func keyCodes(typing char: Character) -> [Int] {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return [] }
+        let data = Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue() as Data
+        let want = String(char)
+        var out: [Int] = []
+        data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+            guard let layout = buf.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return }
+            for code in 0..<128 {
+                var dead: UInt32 = 0
+                var chars = [UniChar](repeating: 0, count: 4)
+                var n = 0
+                let st = UCKeyTranslate(layout, UInt16(code), UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
+                                        OptionBits(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &n, &chars)
+                if st == noErr, n > 0, String(utf16CodeUnits: chars, count: n) == want { out.append(code) }
+            }
+        }
+        return out
+    }
 }

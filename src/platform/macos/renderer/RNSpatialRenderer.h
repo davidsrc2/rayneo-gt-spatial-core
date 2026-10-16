@@ -30,6 +30,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float layoutArcDegrees; // panel size the hand-placed poses refer to (0 = arcDegrees)
 @property(nonatomic) NSInteger focusPanel;   // focus mode: only this panel is drawn (-1 = all)
 @property(nonatomic) BOOL cinema;            // with focusPanel: centred straight ahead and large
+@property(nonatomic) float zoom;             // every panel this much larger (and the arrangement with them), 1 = off
 // AI 3D: panels given a depth map (setSourcePixelBuffer:depth:...) are drawn in depth when side by side.
 @property(nonatomic) float depthStrength;    // parallax between the eyes at the nearest depth, in panel widths (0.03)
 @property(nonatomic) float depthConvergence; // depth (0 far .. 1 near) left on the panel's plane (0.35)

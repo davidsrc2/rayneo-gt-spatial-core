@@ -988,7 +988,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
     }
 
-    // Pinned: the panel in use fills the glasses' image. It is the one you look at for a second
+    // Pinned: the panel in use fills the glasses' image. It is the one you look at for 0.6 s
     // (the others lie just beyond the image's edges: look there), or the one you take the mouse
     // to, at once. Floating windows only when allowed.
     private func updateGrow() {
@@ -1018,7 +1018,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if panel != growCandidate {
             growCandidate = panel
             growCandidateSince = Date()
-        } else if Date().timeIntervalSince(growCandidateSince) >= 1.0 {
+        } else if Date().timeIntervalSince(growCandidateSince) >= 0.6 {
             grow(panel, "gaze")
         }
     }
@@ -1316,6 +1316,36 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         requestRedraw()
     }
 
+    // MARK: zoom and code mode
+
+    // Every panel this much larger, the arrangement with them: like walking up to the screens
+    // (the distance setting does nothing at real size, it is undone on purpose). For the run.
+    private(set) var zoom: Float = 1
+    private var codeMode = false
+
+    func setZoom(_ z: Float, message: String? = nil) {
+        zoom = max(0.5, min(3, z))
+        renderer?.options.zoom = zoom
+        renderer?.invalidateSkippedFrame()
+        requestRedraw()
+        log(String(format: "zoom: %.0f %%", zoom * 100))
+        flash(message ?? String(format: "Zoom %.0f %%", zoom * 100))
+    }
+
+    func zoomStep(_ direction: Int) {
+        // In steps of ~15 %, landing on 100 % on the way.
+        var z = zoom * (direction > 0 ? 1.15 : 1 / 1.15)
+        if abs(z - 1) < 0.07 { z = 1 }
+        codeMode = false
+        setZoom(z)
+    }
+
+    // ⌘⌥K: the panels much closer (170 %, larger than the glasses' image if need be) or back.
+    func toggleCodeMode() {
+        codeMode.toggle()
+        setZoom(codeMode ? 1.7 : 1, message: codeMode ? "Modo código activado" : "Modo código desactivado")
+    }
+
     // ⌘⌥J: the cursor jumps to the centre of the monitor you are looking at (on demand, where
     // the gaze cursor would do it on its own).
     func jumpCursorToGaze() {
@@ -1370,6 +1400,19 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 self?.log("hotkey: ⌘⌥\(name) is taken by another app")
             }
         }
+        let regShift = { [weak self] (key: Int, name: String, action: @escaping () -> Void) in
+            if !hotKeys.register(keyCode: key, modifiers: mods | shiftKey, { [weak self] in
+                self?.log("hotkey: ⌘⌥⇧\(name)")
+                action()
+            }) {
+                self?.log("hotkey: ⌘⌥⇧\(name) is taken by another app")
+            }
+        }
+        // "+" / "-" wherever the keyboard has them (Spanish: not the US "=" / "-" keys), and the
+        // keypad's.
+        let plusKeys = Set(HotKeys.keyCodes(typing: "+") + [kVK_ANSI_KeypadPlus] +
+                           (HotKeys.keyCodes(typing: "+").isEmpty ? [kVK_ANSI_Equal] : []))
+        let minusKeys = Set(HotKeys.keyCodes(typing: "-") + [kVK_ANSI_KeypadMinus])
         reg(kVK_ANSI_C, "C") { [weak self] in self?.recenter() }
         reg(kVK_ANSI_Q, "Q") { [weak self] in self?.requestStop("stopped (⌘⌥Q)") }
         reg(kVK_ANSI_J, "J") { [weak self] in self?.jumpCursorToGaze() }
@@ -1377,10 +1420,15 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         reg(kVK_ANSI_P, "P") { [weak self] in self?.toggleFocus(cinema: true) }
         reg(kVK_ANSI_R, "R") { [weak self] in self?.toggleRecording() }
         reg(kVK_ANSI_T, "T") { [weak self] in self?.toggleDepth3D() }
+        reg(kVK_ANSI_K, "K") { [weak self] in self?.toggleCodeMode() }
+        // Zoom: every panel larger / smaller, the arrangement with them (closer / farther).
+        for key in plusKeys { reg(key, "+") { [weak self] in self?.zoomStep(1) } }
+        for key in minusKeys { reg(key, "-") { [weak self] in self?.zoomStep(-1) } }
+        reg(kVK_ANSI_0, "0") { [weak self] in self?.setZoom(1, message: "Zoom 100 %") }
         // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
-        // turning, the render FOV is too large (Cmd+Opt+-); against it, too small (Cmd+Opt+=).
-        reg(kVK_ANSI_Minus, "-") { [weak self] in self?.adjustFov(-0.5) }
-        reg(kVK_ANSI_Equal, "=") { [weak self] in self?.adjustFov(0.5) }
+        // turning, the render FOV is too large (Cmd+Opt+Shift+-); against it, too small (+).
+        for key in minusKeys { regShift(key, "-") { [weak self] in self?.adjustFov(-0.5) } }
+        for key in plusKeys { regShift(key, "+") { [weak self] in self?.adjustFov(0.5) } }
         if let sim = pose as? SimPoseSource {
             let step: Float = 10
             hotKeys.register(keyCode: kVK_LeftArrow, modifiers: mods) { sim.nudge(yaw: step, pitch: 0) }

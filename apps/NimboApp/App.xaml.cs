@@ -91,14 +91,15 @@ public partial class App : Application
         // Ctrl+Alt+1 / 2 / 3: the one-click layouts without opening the panel. Ctrl+Alt+N: the panel.
         _hotKeys = new HotKeys();
         _hotKeys.Register('N', () => _panel.Toggle());
-        // Ctrl+Alt+[ / ]: the glasses' brightness (their mode stays on their own button).
-        foreach (var (vk, step) in new[] { (0xDBu, -1), (0xDDu, 1) })
+        // Ctrl+Alt+Down / Up: the glasses' own screen brightness, 8 steps (8 = factory).
+        foreach (var (vk, step) in new[] { (0x28u, -1), (0x26u, 1) })
         {
             _hotKeys.Register(vk, () =>
             {
                 int current = _model.Brightness == 0 ? 8 : _model.Brightness;
                 _model.Brightness = Math.Clamp(current + step, 1, 8);
                 _server.SettingsChanged();
+                _server.ShowMessage($"Brillo de las gafas {_model.Brightness} de 8");
                 _panel.Refresh();
             });
         }
@@ -109,16 +110,6 @@ public partial class App : Application
             _server.SettingsChanged();
             _tray?.ShowNotification(_model.PinnedMode ? "Modo fijo de las gafas" : "Espacio a tamaño real",
                                     _model.PinnedMode ? "Las gafas sostienen la imagen (Ctrl+Alt+G para volver)" : "");
-            _panel.Refresh();
-        });
-        // Ctrl+Alt+K: code mode on / off (the panels closer), for this run.
-        _hotKeys.Register('K', () =>
-        {
-            _model.CodeMode = !_model.CodeMode;
-            _server.SettingsChanged();
-            var text = _model.CodeMode ? "Modo código activado" : "Modo código desactivado";
-            if (_server.IsRunning) _server.ShowMessage(text);
-            else _tray?.ShowNotification(text, "");
             _panel.Refresh();
         });
         for (int i = 0; i < Math.Min(3, AppModel.Layouts.Count); ++i)

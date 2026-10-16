@@ -40,6 +40,7 @@ struct RenderOptions {
     float layout_arc_deg = 0.0f; // panel size the hand-placed poses refer to (0 = arc_deg)
     int focus_panel = -1;        // focus mode: only this panel is drawn (-1 = all)
     bool cinema = false;         // with focus_panel: centred straight ahead and large
+    float zoom = 1.0f;           // every panel this much larger (and the arrangement with them), 1 = off
     // AI 3D: this panel's frames go through the depth engine and it is drawn in depth when side
     // by side (-1: none).
     int depth_panel = -1;
@@ -121,6 +122,7 @@ private:
         float mesh_curvature = -1.0f;
         float mesh_tilt = -1.0f;
         float mesh_scale = 0.0f;
+        float mesh_zoom = 0.0f;
         float brightness = 1.0f;
     };
 

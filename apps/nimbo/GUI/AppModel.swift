@@ -35,9 +35,6 @@ final class AppModel: ObservableObject {
     // the app: found again when Nimbo starts).
     @Published var floating: [FloatingWindow] { didSet { save(floating, "floatingWindows") } }
 
-    // Code mode (⌘⌥K, for this run only): the "code" profile's look on top of the saved
-    // settings (the panels closer), which stay untouched.
-    @Published var codeMode = false
     private var keepingPoses = false
     @Published var textSize: Int { didSet { d.set(textSize, forKey: "textSize") } }
     @Published var distance: Double { didSet { d.set(distance, forKey: "distance") } }
@@ -366,11 +363,6 @@ final class AppModel: ObservableObject {
             o.windowed = true
         }
         // Per-app profile on top (transient: the saved settings stay as they are).
-        if codeMode, let p = Self.profiles.first(where: { $0.id == "code" }) {
-            o.distanceM = Float(p.distance)
-            if let c = p.curvature { o.curvature = Float(c) }
-            if let s = p.size { o.arcDeg = Float(s) }
-        }
         return o
     }
 

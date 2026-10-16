@@ -57,7 +57,8 @@ core::Quat from_simd(simd_quatf q) { return core::Quat{q.vector.w, q.vector.x, q
 
 constexpr NSUInteger kMaxPanels = 8;
 constexpr float kCinemaScale = 1.6f;  // cinema mode: the panel this much larger than a monitor
-constexpr double kGrowSeconds = 0.35;      // glasses' pinned mode: pan and zoom to another highlighted panel
+constexpr double kGrowSeconds = 0.5;       // glasses' pinned mode: pan and zoom to another highlighted panel
+constexpr float kGrowDim = 0.45f;          // glasses' pinned mode: the panels around the highlighted one
 
 uint64_t now_ns() { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 
@@ -79,6 +80,7 @@ struct Panel {
     float mesh_curvature = -1.0f;
     float mesh_scale = 0.0f;
     float mesh_tilt = -1.0f;
+    float mesh_zoom = 0.0f;
     float brightness = 1.0f;  // render thread: eased towards 1 (looked at) or dimOthers
 
     // AI 3D. Guarded by _sourceLock: the latest depth map, its range and whether it starts a scene.
@@ -116,6 +118,7 @@ struct Panel {
         _layoutArcDegrees = 0.0f;
         _focusPanel = -1;
         _cinema = NO;
+        _zoom = 1.0f;
         _depthStrength = 0.03f;
         _depthConvergence = 0.35f;
         _depthSmoothing = 0.35f;
@@ -126,7 +129,7 @@ struct Panel {
 
 // The panel arc as seen at the current distance (Distancia acerca y aleja de verdad).
 static float panel_arc(RNRenderOptions* o) {
-    return core::arc_at_distance(o.arcDegrees * kDegToRad, o.distanceMeters);
+    return core::arc_at_distance(o.arcDegrees * kDegToRad, o.distanceMeters) * std::clamp(o.zoom, 0.3f, 4.0f);
 }
 
 @implementation RNSpatialRenderer {
@@ -428,11 +431,16 @@ static float panel_arc(RNRenderOptions* o) {
         return;
     }
     [self fill:out panel:from aspects:aspects];
-    const float k = static_cast<float>(t * t * (3.0 - 2.0 * t));  // smoothstep
+    // The pan eases in and out (cubic); the size settles with a slight overshoot, as if the
+    // panel stepped forward: livelier than the same curve for both.
+    const float u = static_cast<float>(t);
+    const float pan = u < 0.5f ? 4.0f * u * u * u : 1.0f - std::pow(-2.0f * u + 2.0f, 3.0f) / 2.0f;
+    constexpr float c1 = 0.9f, c3 = c1 + 1.0f;  // ease-out-back, ~4 % overshoot
+    const float grow = 1.0f + c3 * std::pow(u - 1.0f, 3.0f) + c1 * std::pow(u - 1.0f, 2.0f);
     for (size_t i = 0; i < out.size(); ++i) {
-        out[i].yaw_rad += (target[i].yaw_rad - out[i].yaw_rad) * k;
-        out[i].pitch_rad += (target[i].pitch_rad - out[i].pitch_rad) * k;
-        out[i].scale += (target[i].scale - out[i].scale) * k;
+        out[i].yaw_rad += (target[i].yaw_rad - out[i].yaw_rad) * pan;
+        out[i].pitch_rad += (target[i].pitch_rad - out[i].pitch_rad) * pan;
+        out[i].scale += (target[i].scale - out[i].scale) * grow;
     }
 }
 
@@ -623,7 +631,7 @@ static float effective_curvature(RNRenderOptions* o) {
     const float k = [self fillingImage] ? 0.0f : effective_curvature(o);
     if (p.vertices != nil && aspect == p.mesh_aspect && o.distanceMeters == p.mesh_distance &&
         o.arcDegrees == p.mesh_arc && center == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
-        k == p.mesh_curvature && pl.scale == p.mesh_scale && o.tilt == p.mesh_tilt) {
+        k == p.mesh_curvature && pl.scale == p.mesh_scale && o.tilt == p.mesh_tilt && o.zoom == p.mesh_zoom) {
         return;
     }
     const float arc = panel_arc(o) * pl.scale;
@@ -645,6 +653,7 @@ static float effective_curvature(RNRenderOptions* o) {
     p.mesh_curvature = k;
     p.mesh_scale = pl.scale;
     p.mesh_tilt = o.tilt;
+    p.mesh_zoom = o.zoom;
 }
 
 // Panels you are not looking at fade to dimOthers (core::PanelDimmer, shared with Windows).
@@ -655,14 +664,25 @@ static float effective_curvature(RNRenderOptions* o) {
                    nowNs:(uint64_t)nowNs {
     RNRenderOptions* o = _options;
     int gaze = -1;
+    float dim = o.dimOthers;
     if (count > 1 && o.dimOthers < 1.0f) {
         const float arc = panel_arc(o);
         gaze = core::panel_at_gaze(head, placements, arc, core::panel_vertical_arc(arc, aspect, true),
                                    o.gapDegrees * kDegToRad);
     }
+    // Glasses' pinned mode with a highlighted panel: the ones around it step back.
+    if (o.staticHead && count > 1) {
+        os_unfair_lock_lock(&_sourceLock);
+        const NSInteger grown = _growPanel;
+        os_unfair_lock_unlock(&_sourceLock);
+        if (grown >= 0) {
+            gaze = static_cast<int>(grown);
+            dim = std::min(dim, kGrowDim);
+        }
+    }
     const float dt = _lastFrameNs > 0 && nowNs > _lastFrameNs ? std::min(0.1f, (nowNs - _lastFrameNs) * 1e-9f) : 0.0f;
     _lastFrameNs = nowNs;
-    _dimmer.update(count, gaze, o.dimOthers, dt);
+    _dimmer.update(count, gaze, dim, dt);
     for (NSUInteger i = 0; i < count; ++i) _panels[i].brightness = _dimmer.brightness(i);
 }
 

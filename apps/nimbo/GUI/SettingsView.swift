@@ -127,12 +127,14 @@ struct ShortcutSheet: View {
         ("⌘⌥G", "Ctrl+Alt+G", "Modo fijo de las gafas: ellas sostienen la imagen, quietísima, todo dentro de su imagen (otra vez: espacio a tamaño real)"),
         ("⌘⌥J", "Ctrl+Alt+J", "Llevar el cursor a la pantalla que miras"),
         ("⌘⌥O", "Ctrl+Alt+O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
-        ("⌘⌥K", "Ctrl+Alt+K", "Modo código: las pantallas más cerca (otra vez: como estaban)"),
+        ("⌘⌥K", "Ctrl+Alt+K", "Modo código: las pantallas mucho más cerca, zoom 170 % (otra vez: como estaban)"),
+        ("⌘⌥+  ⌘⌥-", "Ctrl+Alt++  -", "Zoom: acercar / alejar las pantallas"),
+        ("⌘⌥0", "Ctrl+Alt+0", "Zoom al 100 %"),
         ("⌘⌥P", "Ctrl+Alt+P", "Modo cine: la pantalla que miras, delante y grande"),
         ("⌘⌥T", "Ctrl+Alt+T", "Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)"),
         ("⌘⌥R", "—", "Grabar lo que ves en las gafas (vídeo en Descargas)"),
-        ("⌘⌥[  ⌘⌥]", "Ctrl+Alt+[  ]", "Bajar / subir el brillo de las gafas"),
-        ("⌘⌥-  ⌘⌥=", "Ctrl+Alt+-  =", "Campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (=)"),
+        ("⌘⌥↓  ⌘⌥↑", "Ctrl+Alt+↓  ↑", "Brillo de la pantalla de las gafas: bajar / subir (8 niveles)"),
+        ("⌘⌥⇧-  ⌘⌥⇧+", "Ctrl+Alt+Mayús+-  +", "Calibrar el campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (+)"),
         ("⌘⌥Q", "Ctrl+Alt+Q", "Parar Nimbo (todo vuelve a la normalidad)"),
     ]
 

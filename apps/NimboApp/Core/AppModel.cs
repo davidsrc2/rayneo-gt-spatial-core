@@ -201,9 +201,6 @@ internal sealed unsafe class AppModel
         return new PanelPos(0, top + Gap + v / 2 + Math.Max(0, above));
     }
 
-    // Code mode (Ctrl+Alt+K, for this run only): the "code" profile's look on top of the saved
-    // settings (the panels closer), which stay untouched.
-    public bool CodeMode { get; set; }
     // Ctrl+Alt+G (for this run): the glasses' own pinned mode instead of the space at real size.
     public bool PinnedMode { get; set; }
 
@@ -319,8 +316,6 @@ internal sealed unsafe class AppModel
             o.FloatingPitch[i] = Floating[i].Pose.Pitch;
             o.FloatingScale[i] = Floating[i].Pose.Scale;
         }
-        // Code mode on top (transient: the saved settings stay as they are).
-        var active = CodeMode ? Profiles.FirstOrDefault(p => p.Id == "code") : null;
         o.Depth3D = 0;  // AI 3D only with Ctrl+Alt+T, for the run
         if (PinnedMode)
         {
@@ -330,12 +325,6 @@ internal sealed unsafe class AppModel
             o.RecenterGlasses = 1;
             o.RealSize = 0;
             o.DeadZoneDeg = DeadZone > 0 ? DeadZone : 1.0f;
-        }
-        if (active != null)
-        {
-            o.DistanceM = active.Distance;
-            if (active.Curvature is float c) o.Curvature = c;
-            if (active.Size is float sz) o.ArcDeg = sz;
         }
         o.Hotkeys = 1;
         if (Environment.GetEnvironmentVariable("NIMBO_SIM") != null)  // development without the glasses

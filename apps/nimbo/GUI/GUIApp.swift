@@ -39,21 +39,16 @@ final class GUIApp: NSObject {
     // ⌘⌥1 / ⌘⌥2 / ⌘⌥3: the one-click layouts without opening the panel. ⌘⌥N: the panel.
     private func registerLayoutHotKeys() {
         hotKeys.register(keyCode: kVK_ANSI_N, modifiers: cmdKey | optionKey) { [weak self] in self?.togglePanel() }
-        // ⌘⌥[ / ⌘⌥]: the glasses' brightness.
-        for (key, step) in [(kVK_ANSI_LeftBracket, -1), (kVK_ANSI_RightBracket, 1)] {
+        // ⌘⌥↑ / ⌘⌥↓: the glasses' own screen brightness, 8 steps (8 = factory). Arrows: "[" "]"
+        // are other keys on a Spanish keyboard.
+        for (key, step) in [(kVK_DownArrow, -1), (kVK_UpArrow, 1)] {
             hotKeys.register(keyCode: key, modifiers: cmdKey | optionKey) { [weak self] in
                 guard let self else { return }
                 let current = self.model.brightness == 0 ? 8 : self.model.brightness
                 self.model.brightness = max(1, min(8, current + step))
                 self.server.settingsChanged()
+                self.server.showMessage("Brillo de las gafas \(self.model.brightness) de 8")
             }
-        }
-        // ⌘⌥K: code mode on / off (the panels closer), for this run.
-        hotKeys.register(keyCode: kVK_ANSI_K, modifiers: cmdKey | optionKey) { [weak self] in
-            guard let self else { return }
-            self.model.codeMode.toggle()
-            self.server.settingsChanged()
-            self.server.showMessage(self.model.codeMode ? "Modo código activado" : "Modo código desactivado")
         }
         // ⌘⌥G: the glasses' own pinned mode (they hold the image themselves: as still as without
         // Nimbo, every panel fitted in their image, the one you look at large) or back to the

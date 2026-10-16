@@ -17,13 +17,15 @@ internal static class Shortcuts
         ("Ctrl+Alt+C", "⌘⌥C", "Recentrar: las pantallas vuelven delante de ti"),
         ("Ctrl+Alt+G", "⌘⌥G", "Modo fijo de las gafas: ellas sostienen la imagen, quietísima, todo dentro de su imagen (otra vez: espacio a tamaño real)"),
         ("Ctrl+Alt+J", "⌘⌥J", "Llevar el cursor a la pantalla que miras"),
-        ("Ctrl+Alt+K", "⌘⌥K", "Modo código: las pantallas más cerca (otra vez: como estaban)"),
+        ("Ctrl+Alt+K", "⌘⌥K", "Modo código: las pantallas mucho más cerca, zoom 170 % (otra vez: como estaban)"),
+        ("Ctrl+Alt++  -", "⌘⌥+  ⌘⌥-", "Zoom: acercar / alejar las pantallas"),
+        ("Ctrl+Alt+0", "⌘⌥0", "Zoom al 100 %"),
         ("Ctrl+Alt+O", "⌘⌥O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
         ("Ctrl+Alt+P", "⌘⌥P", "Modo cine: la pantalla que miras, delante y grande"),
         ("Ctrl+Alt+T", "⌘⌥T", "Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)"),
         ("—", "⌘⌥R", "Grabar lo que ves en las gafas (solo Mac por ahora)"),
-        ("Ctrl+Alt+[  ]", "⌘⌥[  ⌘⌥]", "Bajar / subir el brillo de las gafas"),
-        ("Ctrl+Alt+-  =", "⌘⌥-  ⌘⌥=", "Campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (=)"),
+        ("Ctrl+Alt+↓  ↑", "⌘⌥↓  ⌘⌥↑", "Brillo de la pantalla de las gafas: bajar / subir (8 niveles)"),
+        ("Ctrl+Alt+Mayús+-  +", "⌘⌥⇧-  ⌘⌥⇧+", "Calibrar el campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (+)"),
         ("Ctrl+Alt+Q", "⌘⌥Q", "Parar Nimbo (todo vuelve a la normalidad)"),
     };
 

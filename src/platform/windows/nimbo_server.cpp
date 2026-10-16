@@ -334,7 +334,10 @@ void save_fov(float fov) {
 
 constexpr UINT_PTR kRepinTimer = 1;  // recentre in the glasses' pinned mode: back to pinned
 
-enum HotKey { kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema, kDepth3D };
+enum HotKey {
+    kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema, kDepth3D,
+    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad
+};
 
 
 struct LatencyStats {
@@ -388,6 +391,8 @@ private:
     // How much later than its target a frame reaches the glasses (ms, smoothed): the pose is
     // predicted for that real moment, or the panels lag and jerk while turning (as on macOS).
     double present_late_ms_ = 0.0;
+    double latch_margin_ms_ = 4.0;  // late latching: pose read this long before the vsync
+    int latch_on_time_ = 0;
     core::Quat last_drawn_{};
     bool have_last_drawn_ = false;
     rayneo_stats last_imu_{};  // counters at the previous stats line
@@ -409,6 +414,12 @@ private:
     // AI 3D: the cinema panel in depth while on and side by side; loads the model the first time.
     void update_depth3d();
     void toggle_depth3d();
+    // Zoom (Ctrl+Alt++ / -, 0; code mode Ctrl+Alt+K = 170 %): every panel larger and the
+    // arrangement with it, like walking up to the screens. For the run.
+    void set_zoom(float z, const std::wstring& message = {});
+    void zoom_step(int direction);
+    float zoom_ = 1.0f;
+    bool code_mode_ = false;
     win::DepthEngine depth_;
     bool depth_failed_logged_ = false;
     bool overlay_shown_ = false;  // start-up message on the glasses until tracking starts
@@ -890,9 +901,15 @@ bool Server::start() {
         int id;
         UINT vk;
         const char* name;
+        UINT extra = 0;  // more modifiers (Shift)
     };
+    // VK_OEM_PLUS / VK_OEM_MINUS are the "+" / "-" keys in every layout (Spanish too).
     std::vector<Key> keys = {{kRecenter, 'C', "Ctrl+Alt+C"}, {kQuit, 'Q', "Ctrl+Alt+Q"},
-                             {kFovDown, VK_OEM_MINUS, "Ctrl+Alt+-"}, {kFovUp, VK_OEM_PLUS, "Ctrl+Alt+="},
+                             {kFovDown, VK_OEM_MINUS, "Ctrl+Alt+Shift+-", MOD_SHIFT},
+                             {kFovUp, VK_OEM_PLUS, "Ctrl+Alt+Shift++", MOD_SHIFT},
+                             {kZoomIn, VK_OEM_PLUS, "Ctrl+Alt++"}, {kZoomOut, VK_OEM_MINUS, "Ctrl+Alt+-"},
+                             {kZoomInPad, VK_ADD, "Ctrl+Alt+Num+"}, {kZoomOutPad, VK_SUBTRACT, "Ctrl+Alt+Num-"},
+                             {kZoomReset, '0', "Ctrl+Alt+0"}, {kCodeMode, 'K', "Ctrl+Alt+K"},
                              {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"},
                              {kDepth3D, 'T', "Ctrl+Alt+T"}};
     if (opt_.sim) {
@@ -903,9 +920,9 @@ bool Server::start() {
     }
     if (opt_.hotkeys) {
         for (const auto& k : keys) {
-            if (!RegisterHotKey(hwnd_, k.id, mods, k.vk)) logln("hotkey %s: in use by another app", k.name);
+            if (!RegisterHotKey(hwnd_, k.id, mods | k.extra, k.vk)) logln("hotkey %s: in use by another app", k.name);
         }
-        logln("hotkeys: Ctrl+Alt+C recenter, Ctrl+Alt+Q quit, Ctrl+Alt+- / = field of view");
+        logln("hotkeys: Ctrl+Alt+C recenter, Ctrl+Alt+Q quit, Ctrl+Alt++ / - zoom, Ctrl+Alt+Shift++ / - field of view");
     }
     {
         std::lock_guard<std::mutex> lock(shared_mutex_);
@@ -1034,6 +1051,16 @@ void Server::collect_presented() {
     stats_.presented_max = std::max(stats_.presented_max, latency);
     const double late = (static_cast<double>(shown) - static_cast<double>(s.target_ns)) / 1e6;
     stats_.target_err_sum += late;
+    // Late latching: a frame that missed its refresh (a period later than usual) reads the pose
+    // earlier from now on; a long run on time narrows the margin again.
+    const double period = 1000.0 / std::max(1, refresh_hz_);
+    if (late > present_late_ms_ + 0.5 * period) {
+        latch_margin_ms_ = std::min(10.0, latch_margin_ms_ + 1.0);
+        latch_on_time_ = 0;
+    } else if (++latch_on_time_ >= 240) {
+        latch_margin_ms_ = std::max(2.0, latch_margin_ms_ - 0.25);
+        latch_on_time_ = 0;
+    }
     present_late_ms_ += (std::clamp(late, -10.0, 40.0) - present_late_ms_) * 0.03;
 }
 
@@ -1046,6 +1073,16 @@ bool Server::frame() {
     // corrected target it fed back on itself and settled at half the real value.
     const uint64_t vsync = estimate_vsync(now);
     const uint64_t target = vsync + static_cast<uint64_t>(std::clamp(present_late_ms_, 0.0, 25.0) * 1e6);
+    // Late latching, as on macOS: the swap chain wakes us about a refresh before the frame is
+    // shown; the pose is read just before the vsync (minus an adaptive margin) instead, so less
+    // of the head's motion has to be predicted.
+    const uint64_t margin = static_cast<uint64_t>(latch_margin_ms_ * 1e6);
+    const uint64_t wake = vsync > margin ? vsync - margin : 0;
+    if (const uint64_t t = steady_ns(); wake > t + 300000 && wake - t < 20000000) {
+        const uint64_t ms = (wake - t) / 1000000;
+        if (ms >= 2) Sleep(static_cast<DWORD>(ms - 1));  // 1 ms timer resolution (timeBeginPeriod)
+        while (steady_ns() < wake) YieldProcessor();
+    }
     const auto p = pose_->latest();
     float prediction = 0;
     if (!p) {
@@ -1073,9 +1110,12 @@ bool Server::frame() {
     if (p) {
         // Still head: how much the drawn pose changes frame to frame (the panels' wobble).
         if (p->angular_velocity.norm() < 0.0175f && have_last_drawn_) {
-            const float d = std::fabs(last_drawn_.w * p->orientation.w + last_drawn_.x * p->orientation.x +
-                                      last_drawn_.y * p->orientation.y + last_drawn_.z * p->orientation.z);
-            const double step = 2.0 * std::acos(std::fmin(1.0f, d)) * 57.29577951308232;
+            // From the relative rotation's vector part: acos of a dot product near 1 rounds small
+            // steps to 0 in float (the log read 0 while the panels trembled).
+            const core::Quat r = last_drawn_.conjugate() * p->orientation;
+            const double v = std::sqrt(static_cast<double>(r.x) * r.x + static_cast<double>(r.y) * r.y +
+                                       static_cast<double>(r.z) * r.z);
+            const double step = 2.0 * std::asin(std::fmin(1.0, v)) * 57.29577951308232;
             if (step < 1.0) {
                 stats_.still_n += 1;
                 stats_.still_sq += step * step;
@@ -1180,10 +1220,10 @@ void Server::periodic() {
         wobble = buf;
     }
     logln("%s render %3d fps%s | capture %3llu fps (%zu src) | pose age %.1f/%.1f ms | sample->scanout %.1f/%.1f ms"
-        " (target err %+.1f) | predicted %.1f ms%s%s",
+        " (target err %+.1f) | predicted %.1f ms | latch %.1f ms%s%s",
         s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? (" (" + std::to_string(s.idle) + " idle)").c_str() : "",
         static_cast<unsigned long long>(cap_fps), captures_.size(), s.pose_age_sum / n, s.pose_age_max, s.presented_sum / pn,
-        s.presented_max, s.target_err_sum / pn, s.pred_sum / n, imu.c_str(), wobble.c_str());
+        s.presented_max, s.target_err_sum / pn, s.pred_sum / n, latch_margin_ms_, imu.c_str(), wobble.c_str());
     if (renderer_.options.depth_panel >= 0) {
         if (depth_.state() == win::DepthEngine::State::Failed) {
             if (!depth_failed_logged_) logln("3d: unavailable (%s); the panel stays flat", depth_.error().c_str());
@@ -1356,6 +1396,22 @@ void Server::toggle_depth3d() {
         cinema_for_3d_ = true;
     }
     update_depth3d();
+}
+
+void Server::set_zoom(float z, const std::wstring& message) {
+    zoom_ = std::clamp(z, 0.5f, 3.0f);
+    renderer_.options.zoom = zoom_;
+    renderer_.invalidate_skipped_frame();
+    redraw_ = true;
+    logln("zoom: %.0f %%", zoom_ * 100.0f);
+    flash(message.empty() ? L"Zoom " + std::to_wstring(static_cast<int>(std::lround(zoom_ * 100.0f))) + L" %" : message);
+}
+
+void Server::zoom_step(int direction) {
+    float z = zoom_ * (direction > 0 ? 1.15f : 1.0f / 1.15f);
+    if (std::fabs(z - 1.0f) < 0.07f) z = 1.0f;  // lands on 100 % on the way
+    code_mode_ = false;
+    set_zoom(z);
 }
 
 void Server::flash(const std::wstring& line, double seconds) {
@@ -1903,6 +1959,15 @@ void Server::on_hotkey(int id) {
     case kFocus: toggle_focus(false); break;
     case kCinema: toggle_focus(true); break;
     case kDepth3D: toggle_depth3d(); break;
+    case kZoomIn:
+    case kZoomInPad: zoom_step(1); break;
+    case kZoomOut:
+    case kZoomOutPad: zoom_step(-1); break;
+    case kZoomReset: set_zoom(1.0f, L"Zoom 100 %"); break;
+    case kCodeMode:
+        code_mode_ = !code_mode_;
+        set_zoom(code_mode_ ? 1.7f : 1.0f, code_mode_ ? L"Modo código activado" : L"Modo código desactivado");
+        break;
     default: break;
     }
 }
