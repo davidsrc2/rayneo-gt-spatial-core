@@ -457,6 +457,10 @@ private:
     std::optional<DISPLAYCONFIG_TOPOLOGY_ID> saved_topology_;  // Win+P mode before we extended
     uint64_t arranged_ns_ = 0;          // our own arrangement: its display-change messages are ours
     void rearrange_displays();
+    // The glasses' native mode is a temporary one (CDS_FULLSCREEN): applying the saved display
+    // settings (placing a monitor) puts them back at 60 Hz. Set it again after such a change.
+    void restore_glasses_mode();
+    void keep_floating_windows();
     std::vector<const win::OutputInfo*> virtual_panel_outputs() const;
 
     struct Sent {
@@ -1062,6 +1066,8 @@ void Server::periodic() {
     next_stats_ns_ += 1000000000ull;
     if (next_stats_ns_ < now) next_stats_ns_ = now + 1000000000ull;
 
+    keep_floating_windows();
+
     // Unplugged glasses: the IMU stops. Quit, which restores the display mode.
     if (imu_) {
         const auto p = pose_->latest();
@@ -1400,6 +1406,7 @@ void Server::assign_floating_monitors() {
     }
     Sleep(300);
     outputs_ = win::enumerate_outputs();
+    restore_glasses_mode();  // placing the monitors applied the saved settings: glasses at 60 Hz
     refresh_rects();
 }
 
@@ -1590,7 +1597,41 @@ void Server::rearrange_displays() {
     }
     Sleep(500);
     outputs_ = win::enumerate_outputs();
+    restore_glasses_mode();
     logln("displays: arrangement restored");
+}
+
+// Once a second: a floating window that left its monitor (opened from the taskbar on another
+// screen, dragged) goes back and fills it again; else the cursor climbs into an empty monitor.
+void Server::keep_floating_windows() {
+    for (size_t i = 0; i < floating_monitors_.size() && i < floating_hwnds_.size(); ++i) {
+        if (floating_monitors_[i].empty()) continue;
+        const auto* mon = find_output(floating_monitors_[i]);
+        const HWND hwnd = floating_hwnds_[i];
+        RECT w{};
+        if (mon == nullptr || !IsWindow(hwnd) || !GetWindowRect(hwnd, &w)) continue;
+        const POINT c{(w.left + w.right) / 2, (w.top + w.bottom) / 2};
+        const RECT& m = mon->desktop;
+        if (!IsIconic(hwnd) && IsZoomed(hwnd) && c.x >= m.left && c.x < m.right && c.y >= m.top && c.y < m.bottom) continue;
+        ShowWindow(hwnd, SW_RESTORE);
+        SetWindowPos(hwnd, nullptr, m.left + 40, m.top + 40, (m.right - m.left) - 80, (m.bottom - m.top) - 80,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        ShowWindow(hwnd, SW_MAXIMIZE);
+        logln("window: floating window %zu back on its monitor", i + 1);
+    }
+}
+
+void Server::restore_glasses_mode() {
+    if (!mode_changed_ || glasses_gdi_.empty()) return;
+    const int want = opt_.refresh120 ? 120 : 60;
+    const auto now = win::current_mode(glasses_gdi_);
+    if (now && now->hz == want) return;
+    if (const auto m = win::set_native_mode(glasses_gdi_, want)) {
+        Sleep(300);
+        outputs_ = win::enumerate_outputs();
+        if (const auto cur = win::current_mode(glasses_gdi_)) refresh_hz_ = cur->hz;
+        logln("glasses mode: back to %dx%d @%d Hz (a display change had reset it)", m->width, m->height, refresh_hz_);
+    }
 }
 
 // The cursor follows the panel you look at, keeping its relative position, once the mouse
