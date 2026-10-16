@@ -100,6 +100,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // front (a click on a virtual monitor), App Nap and timer coalescing would delay the IMU
     // and render threads and the panels would tremble.
     private var activity: NSObjectProtocol?
+    // AI 3D: depth for the cinema panel (DepthEngine); the model loads the first time it is wanted.
+    private let depth3D = DepthEngine()
+    private var depthLoading: Task<Void, Never>?
+    private var depthPanel = -1  // main thread: panel last given depth (to flatten it again)
 
     // GUI hooks. Without them (CLI) a stop request quits the process.
     var onStopRequest: ((String) -> Void)?
@@ -312,6 +316,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k2 = options.k2
         ro.dimOthers = options.dimOthers
         ro.trackingAxes = options.trackingAxes
+        ro.depthStrength = options.depthStrength
+        ro.depthConvergence = options.depthConvergence
+        depth3D.onFrame = { [weak self] color, depth, low, high, cut, panel in
+            self?.renderer?.setSourcePixelBuffer(color, depth: depth, low: low, high: high, sceneCut: cut, forPanel: UInt(panel))
+        }
         let panels = max(1, panelDisplays.count)
         renderer.panelCount = UInt(panels)
         if let layout = options.layout, layout.count == panels {
@@ -469,6 +478,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k2 = o.k2
         ro.dimOthers = o.dimOthers
         ro.trackingAxes = o.trackingAxes
+        ro.depthStrength = o.depthStrength
+        ro.depthConvergence = o.depthConvergence
         if let arc = o.arcDeg { ro.arcDegrees = arc }
         applyPoses(o)
         options.distanceM = o.distanceM
@@ -497,7 +508,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.growFocused = o.growFocused
         options.realSize = o.realSize
         options.focusWindows = o.focusWindows
+        options.depth3D = o.depth3D
+        options.depthStrength = o.depthStrength
+        options.depthConvergence = o.depthConvergence
         applyPinned(o)  // last: it overrides the panel width
+        updateDepth3D()
         requestRedraw()
     }
 
@@ -645,7 +660,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
         for (i, w) in resolved.enumerated() {
             let panel = UInt(base + floatingCaptures.count)
-            let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: panel) }
+            let cap = ScreenCapture { [weak self] pb in self?.deliver(pb, panel: Int(panel)) }
             do {
                 let (pw, ph): (Int, Int)
                 if let d = displays[i] {  // the window's part of its monitor, with the cursor over it
@@ -925,6 +940,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         guard !stopped else { return }
         stopped = true
         if isRecording { toggleRecording() }  // the file is finished, not lost
+        depthLoading?.cancel()
+        depthLoading = nil
+        depth3D.route(panel: -1)
+        depth3D.onFrame = nil
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil
         HardwareCursor.show()
@@ -1014,6 +1033,83 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             log("focus: \(cinema ? "cinema" : "focus") on panel \(ro.focusPanel + 1)")
             onNotice?(cinema ? "Modo cine (⌘⌥P para salir)" : "Modo enfoque (⌘⌥O para salir)")
         }
+        updateDepth3D()
+        requestRedraw()
+    }
+
+    // MARK: AI 3D
+
+    // Captured frames: the cinema panel's go through the depth model first when AI 3D is on.
+    // Capture queues.
+    private func deliver(_ pb: CVPixelBuffer, panel: Int) {
+        if depth3D.submit(pb, panel: panel) { return }
+        renderer?.setSourcePixelBuffer(pb, forPanel: UInt(panel))
+    }
+
+    // The model finished loading (error nil) or could not be had. Main thread.
+    private func depthModelReady(_ error: String?) {
+        depthLoading = nil
+        if let error {
+            log("3d: model unavailable: \(error)")
+            onNotice?("No se pudo preparar el 3D con IA")
+            options.depth3D = false
+            return
+        }
+        updateDepth3D()
+    }
+
+    // ⌘⌥3: AI 3D on / off for this session (the app's setting is applied again when it changes).
+    func toggleDepth3D() {
+        options.depth3D.toggle()
+        log("3d: \(options.depth3D ? "on" : "off")")
+        if options.depth3D && focusMode != 2 {
+            onNotice?("3D con IA activado: entra en modo cine (⌘⌥P)")
+        } else if !options.depth3D {
+            onNotice?("3D con IA desactivado")
+        }
+        updateDepth3D()
+    }
+
+    // Gives depth to the cinema panel while AI 3D is on and each eye has its own image; else
+    // every panel is flat. Loads the model the first time. Main thread.
+    private func updateDepth3D() {
+        guard let renderer, !stopped else { return }
+        let ro = renderer.options
+        let cinema = focusMode == 2 && ro.focusPanel >= 0
+        let wanted = options.depth3D && cinema && ro.sideBySide ? ro.focusPanel : -1
+        if options.depth3D && cinema && !ro.sideBySide {
+            onNotice?("El 3D con IA necesita «Imagen en 3D» (gafas en modo 3D)")
+        }
+        if wanted >= 0 && !depth3D.isLoaded {
+            guard depthLoading == nil else { return }
+            onNotice?("Preparando el 3D con IA…")
+            let engine = depth3D
+            let owner = WeakServer(self)
+            depthLoading = Task.detached(priority: .userInitiated) {
+                let logger: @Sendable (String) -> Void = { line in DispatchQueue.main.async { owner.server?.log(line) } }
+                do {
+                    let url = try await DepthEngine.compiledModel(log: logger)
+                    let t0 = Date()
+                    try engine.load(url)
+                    logger(String(format: "3d: model loaded in %.1f s (Neural Engine)", Date().timeIntervalSince(t0)))
+                    DispatchQueue.main.async { owner.server?.depthModelReady(nil) }
+                } catch {
+                    let message = error.localizedDescription
+                    DispatchQueue.main.async { owner.server?.depthModelReady(message) }
+                }
+            }
+            return
+        }
+        guard wanted != depthPanel else { return }
+        depth3D.route(panel: wanted)
+        if depthPanel >= 0 { renderer.clearDepth(forPanel: UInt(depthPanel)) }
+        if wanted >= 0 {
+            log("3d: depth on panel \(wanted + 1) (strength \(ro.depthStrength), plane \(ro.depthConvergence))")
+            onNotice?("Cine en 3D con IA (⌘⌥3 para quitarlo)")
+        } else if depthPanel >= 0 {
+            log("3d: off")
+        }
+        depthPanel = wanted
         requestRedraw()
     }
 
@@ -1068,6 +1164,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         hotKeys.register(keyCode: kVK_ANSI_O, modifiers: mods) { [weak self] in self?.toggleFocus(cinema: false) }
         hotKeys.register(keyCode: kVK_ANSI_P, modifiers: mods) { [weak self] in self?.toggleFocus(cinema: true) }
         hotKeys.register(keyCode: kVK_ANSI_R, modifiers: mods) { [weak self] in self?.toggleRecording() }
+        hotKeys.register(keyCode: kVK_ANSI_3, modifiers: mods) { [weak self] in self?.toggleDepth3D() }
         // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
         // turning, the render FOV is too large (Cmd+Opt+-); against it, too small (Cmd+Opt+=).
         hotKeys.register(keyCode: kVK_ANSI_Minus, modifiers: mods) { [weak self] in self?.adjustFov(-0.5) }
@@ -1100,7 +1197,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let hiDPI = options.hiDPI
         for (id, panel, exclude) in plan {
             let isVirtual = virtualIDs.contains(id)
-            let cap = ScreenCapture { [weak self] pb in self?.renderer.setSourcePixelBuffer(pb, forPanel: UInt(panel)) }
+            let cap = ScreenCapture { [weak self] pb in self?.deliver(pb, panel: panel) }
             captures.append(cap)
             let renderWindow = CGWindowID(window.windowNumber)
             let (w, h) = try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude,
@@ -1317,6 +1414,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
                    s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax,
                    s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) as NSString : "" as NSString))
+        if depthPanel >= 0 {
+            let d = depth3D.takeStats()
+            let n = Double(max(1, d.frames))
+            log(String(format: "3d: %d depth fps (%d dropped, %d cut(s)) | scale %.1f ms | infer %.1f ms",
+                       d.frames, d.dropped, d.cuts, d.scaleMs / n, d.inferMs / n))
+        }
     }
 
     // MARK: util
@@ -1373,4 +1476,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             log("cursor: " + state)
         }
     }
+}
+
+// The server seen from a background task without keeping it alive (it is used on the main
+// thread only, where the task hands its result back).
+private final class WeakServer: @unchecked Sendable {
+    weak var server: SpatialServer?
+    init(_ server: SpatialServer) { self.server = server }
 }

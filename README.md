@@ -108,7 +108,7 @@ Después se abre desde Launchpad / Spotlight («Nimbo»). Para desarrollo tambi�
 12. Calibración de lente con patrón de rejilla (k1/k2).
 
 **Más adelante**
-13. 3D real (SBS) en Modo Cine.
+13. 3D real (SBS) en Modo Cine: hecho en macOS como «Cine en 3D con IA» (ver docs/WINDOWS_PLAN.md, siguiente 4).
 14. Inglés y VoiceOver.
 15. Atajos configurables.
 

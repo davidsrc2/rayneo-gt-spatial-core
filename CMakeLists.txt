@@ -200,6 +200,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${NIMBO_DIR}/main.swift
     ${NIMBO_DIR}/SpatialServer.swift
     ${NIMBO_DIR}/GlassesRecorder.swift
+    ${NIMBO_DIR}/DepthEngine.swift
     ${NIMBO_DIR}/ScreenCapture.swift
     ${NIMBO_DIR}/Displays.swift
     ${NIMBO_DIR}/HotKeys.swift
@@ -236,7 +237,8 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     "SHELL:-Xcc -I${CMAKE_CURRENT_SOURCE_DIR}/include"
     -swift-version 5 -warnings-as-errors)
   target_link_libraries(nimbo PRIVATE rayneo_macos rayneo_macos_renderer
-    "-framework AppKit" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework Carbon" "-framework ApplicationServices")
+    "-framework AppKit" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework Carbon" "-framework ApplicationServices"
+    "-framework CoreML" "-framework Accelerate")
   # CMake adds libc++ once per implicit language (CXX, OBJCXX) when Swift drives the link.
   target_link_options(nimbo PRIVATE "SHELL:-Xlinker -no_warn_duplicate_libraries")
 

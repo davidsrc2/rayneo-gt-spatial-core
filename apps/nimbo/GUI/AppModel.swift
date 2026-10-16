@@ -74,6 +74,10 @@ final class AppModel: ObservableObject {
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
     @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
     @Published var brightness: Int { didSet { d.set(brightness, forKey: "brightness") } }  // 1..8, 0 = leave
+    // AI 3D in cinema mode: strength = parallax at the nearest depth (panel widths), plane = depth on the panel.
+    @Published var depth3D: Bool { didSet { d.set(depth3D, forKey: "depth3D") } }
+    @Published var depthStrength: Double { didSet { d.set(depthStrength, forKey: "depthStrength") } }
+    @Published var depthPlane: Double { didSet { d.set(depthPlane, forKey: "depthPlane") } }
     @Published var k1: Double { didSet { d.set(k1, forKey: "k1") } }
     @Published var k2: Double { didSet { d.set(k2, forKey: "k2") } }
 
@@ -108,6 +112,9 @@ final class AppModel: ObservableObject {
         macScreen = d.object(forKey: "macScreen") as? Bool ?? true
         anchorAtRest = d.bool(forKey: "anchorAtRest")
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
+        depth3D = d.bool(forKey: "depth3D")
+        depthStrength = d.object(forKey: "depthStrength") as? Double ?? 0.015
+        depthPlane = d.object(forKey: "depthPlane") as? Double ?? 0.35
         brightness = d.object(forKey: "brightness") as? Int ?? 0
         k1 = d.object(forKey: "k1") as? Double ?? 0
         k2 = d.object(forKey: "k2") as? Double ?? 0
@@ -363,6 +370,9 @@ final class AppModel: ObservableObject {
         o.growFocused = growFocused
         o.macScreen = macScreen
         o.focusWindows = focusWindows
+        o.depth3D = depth3D
+        o.depthStrength = Float(depthStrength)
+        o.depthConvergence = Float(depthPlane)
         o.brightness = brightness
         o.unmirror = true  // mirrored glasses run at the Mac's resolution and composited (reverted on exit)
         o.k1 = Float(k1)

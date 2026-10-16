@@ -65,6 +65,9 @@ struct ServerOptions {
     var glassesMode = -1          // set the glasses' mode at start: 0 follow, 1 pinned, 2 steady; -1 = leave
     var brightness = 0            // set the glasses' brightness 1..8 at start; 0 = leave
     var recenterGlasses = false   // ⌘⌥C also recentres the glasses' own pinned mode (0x08 pinned)
+    var depth3D = false           // AI 3D: the cinema panel in depth (needs side by side, glasses in 3D mode)
+    var depthStrength: Float = 0.015    // parallax between the eyes at the nearest depth, in panel widths
+    var depthConvergence: Float = 0.35  // depth left on the panel's plane: farther recedes, nearer stands out
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
     var calibrationPath = "calibration.json"
@@ -96,6 +99,10 @@ struct ServerOptions {
                            own (default: centred above the monitors); repeatable
       --focus-panel N      start showing only panel N (focus mode, Cmd+Opt+O)
       --cinema             with --focus-panel: that panel centred and large (Cmd+Opt+P)
+      --depth3d            AI 3D: the cinema panel in depth, from a depth map per frame (Cmd+Opt+3;
+                           needs --sbs and the glasses in 3D mode)
+      --depth-strength F   AI 3D parallax at the nearest depth, in panel widths (0.015)
+      --depth-plane F      AI 3D depth left on the panel's plane, 0 far .. 1 near (0.35)
       --test-pattern       labelled grid on each virtual monitor
       --mac-screen         the Mac's own screen is panel 1 (when the lid is open); the other
                            panels are virtual monitors next to it
@@ -170,6 +177,9 @@ struct ServerOptions {
                 o.floatingWindows.append(w)
             case "--focus-panel": guard let v = value().flatMap({ Int($0) }), (1...8).contains(v) else { return nil }; o.startFocusPanel = v
             case "--cinema": o.startCinema = true
+            case "--depth3d": o.depth3D = true
+            case "--depth-strength": guard let v = float(), (0...0.05).contains(v) else { return nil }; o.depthStrength = v
+            case "--depth-plane": guard let v = float(), (0...1).contains(v) else { return nil }; o.depthConvergence = v
             case "--dead-zone": guard let v = float() else { return nil }; o.deadZoneDeg = v
             case "--vd-size":
                 let parts = value()?.split(separator: "x").compactMap { Int($0) } ?? []
