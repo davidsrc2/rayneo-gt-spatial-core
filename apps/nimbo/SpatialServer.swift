@@ -318,6 +318,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.trackingAxes = options.trackingAxes
         ro.depthStrength = options.depthStrength
         ro.depthConvergence = options.depthConvergence
+        depth3D.allowGPU = options.depthGPU
         depth3D.onFrame = { [weak self] color, depth, low, high, cut, panel in
             self?.renderer?.setSourcePixelBuffer(color, depth: depth, low: low, high: high, sceneCut: cut, forPanel: UInt(panel))
         }
@@ -1417,8 +1418,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if depthPanel >= 0 {
             let d = depth3D.takeStats()
             let n = Double(max(1, d.frames))
-            log(String(format: "3d: %d depth fps (%d dropped, %d cut(s)) | scale %.1f ms | infer %.1f ms",
-                       d.frames, d.dropped, d.cuts, d.scaleMs / n, d.inferMs / n))
+            log(String(format: "3d: %d depth fps (%d on GPU, %d dropped, %d cut(s)) | scale %.1f ms | infer %.1f ms | in order %.1f ms",
+                       d.frames, d.gpuFrames, d.dropped, d.cuts, d.scaleMs / n, d.inferMs / n, d.waitMs / n))
         }
     }
 

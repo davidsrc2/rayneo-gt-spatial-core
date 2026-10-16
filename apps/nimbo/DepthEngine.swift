@@ -3,14 +3,17 @@ import CoreML
 import CoreVideo
 import Foundation
 
-// AI 3D for the cinema panel: a depth map per video frame from Depth Anything V2 Small (Core ML,
-// on the Neural Engine so the GPU keeps the 120 Hz render), handed to the renderer together with
-// that very frame. The picture waits for its depth (~25 ms), so a cut never shows the new shot
-// with the old shot's depth. Frames that arrive while one is being inferred are dropped except
-// the newest, which goes next: the panel shows as many frames as the model keeps up with
-// (~40 fps on an M4, every frame of a film).
+// AI 3D for the cinema panel: a depth map per video frame from Depth Anything V2 Small (Core ML),
+// handed to the renderer together with that very frame. The picture waits for its depth, so a cut
+// never shows the new shot with the old shot's depth.
 //
-// Thread-safe: submit from the capture queues, route from the main thread.
+// Throughput (M4, 8-bit palettised weights): the Neural Engine alone runs one inference in ~22 ms,
+// two in flight overlap their CPU work and give ~53 fps. When the video brings more frames than
+// that (a 60 fps stream), a GPU copy of the model takes a third slot: ~75 fps together. A film
+// (24 fps) never needs it, so then the GPU is all the render's. Results can finish out of order
+// (the GPU is slower): each waits for the ones before it, so every inferred frame is shown, in order.
+//
+// Thread-safe: submit from the capture queues, route and stats from the main thread.
 final class DepthEngine: @unchecked Sendable {
     // One frame and its depth for `panel` (one-component half float, larger = nearer; low / high
     // its 2-98 % percentiles; sceneCut: a new shot, the smoothing starts afresh).
@@ -19,32 +22,50 @@ final class DepthEngine: @unchecked Sendable {
 
     struct Stats {
         var frames = 0          // depth maps delivered
-        var dropped = 0         // frames replaced by a newer one before their turn
+        var dropped = 0         // frames replaced by a newer one before a slot was free
+        var waitMs: Double = 0  // summed: time finished frames waited for an earlier one
         var cuts = 0
-        var scaleMs: Double = 0  // per frame, averaged over the period
+        var gpuFrames = 0       // of `frames`, inferred on the GPU
+        var scaleMs: Double = 0  // per frame, summed over the period
         var inferMs: Double = 0
     }
 
     var onFrame: Output?
+    var allowGPU = true  // set before loading: the GPU may help when the Neural Engine falls behind
+
+    private enum Slot { case neuralEngine, gpu }
+    private static let neuralEngineSlots = 2
 
     private let lock = NSLock()
-    private var model: MLModel?           // guarded by lock
+    private var model: MLModel?           // guarded by lock: Neural Engine
+    private var gpuModel: MLModel?        // guarded by lock: loaded once frames start dropping
+    private var gpuLoading = false        // guarded by lock
+    private var modelURL: URL?            // guarded by lock
     private var panel = -1                // guarded by lock: the panel whose frames get depth; -1 none
     private var generation = 0            // guarded by lock: bumps on every route change
-    private var busy = false              // guarded by lock
+    private var neuralEngineBusy = 0      // guarded by lock: inferences in flight there
+    private var gpuBusy = false           // guarded by lock
     private var pending: (CVPixelBuffer, Int, Int)?  // guarded by lock: frame, panel, generation
+    private var lastDelivered = -1        // guarded by lock: sequence number of the last frame shown
+    private var cutFrames = Set<Int>()    // guarded by lock: sequence numbers of frames that start a shot
+    private var carryCut = false          // guarded by lock: a cut in a frame that was never shown
+    // Guarded by lock: finished frames waiting for an earlier one (nil result: failed or stale).
+    private var finished: [Int: (result: Result?, generation: Int, slot: Slot, at: UInt64)] = [:]
+    private typealias Result = (depth: CVPixelBuffer, low: Float, high: Float, color: CVPixelBuffer, panel: Int,
+                                scaleMs: Double, inferMs: Double)
+    private var droppingSeconds = 0       // guarded by lock: consecutive stats periods with drops
     private var stats = Stats()           // guarded by lock
 
-    private let queue = DispatchQueue(label: "nimbo.depth", qos: .userInitiated)
-    // Inference queue only.
-    private var inputName = "image", outputName = "depth"
-    private var inputWidth = 518, inputHeight = 392
+    // Preparation queue (serial, in arrival order): scaling, scene cuts, sequence numbers.
+    private let prepQueue = DispatchQueue(label: "nimbo.depth.prep", qos: .userInitiated)
+    private let inferQueue = DispatchQueue(label: "nimbo.depth.infer", qos: .userInitiated, attributes: .concurrent)
+    private var inputName = "image", outputName = "depth"  // set at load, then read only
     private var inputPool: CVPixelBufferPool?
     private var outputPool: CVPixelBufferPool?
-    private var previousThumb: [UInt8] = []
-    private var diffAverage: Float = 0
-    private var resetScene = true
-    private var histogram = [Int](repeating: 0, count: 1024)
+    private var nextSequence = 0          // prep queue
+    private var previousThumb: [UInt8] = []  // prep queue
+    private var diffAverage: Float = 0    // prep queue
+    private var resetScene = true         // prep queue
 
     var isLoaded: Bool {
         lock.lock()
@@ -54,7 +75,7 @@ final class DepthEngine: @unchecked Sendable {
 
     // MARK: model
 
-    static let modelName = "DepthAnythingV2SmallF16"
+    static let modelName = "DepthAnythingV2SmallF16P8"  // 8-bit palettised: as good, ~10 % faster, half the size
     private static let modelBase = URL(string: "https://huggingface.co/apple/coreml-depth-anything-v2-small/resolve/main/")!
     private static let packageFiles = ["Manifest.json", "Data/com.apple.CoreML/model.mlmodel",
                                        "Data/com.apple.CoreML/weights/weight.bin"]
@@ -65,7 +86,7 @@ final class DepthEngine: @unchecked Sendable {
     }
 
     // The compiled model: in the app bundle, else in Application Support, else downloaded once
-    // (48 MB, Apple's Core ML conversion, Apache 2.0) and compiled there.
+    // (25 MB, Apple's Core ML conversion, Apache 2.0) and compiled there.
     static func compiledModel(log: @escaping (String) -> Void) async throws -> URL {
         if let bundled = Bundle.main.url(forResource: modelName, withExtension: "mlmodelc") { return bundled }
         let fm = FileManager.default
@@ -78,7 +99,7 @@ final class DepthEngine: @unchecked Sendable {
             let target = dir.appendingPathComponent("\(modelName).mlpackage")
             let partial = dir.appendingPathComponent("\(modelName).download")
             try? fm.removeItem(at: partial)
-            log("3d: downloading \(modelName) (48 MB)")
+            log("3d: downloading \(modelName) (25 MB)")
             for file in packageFiles {
                 let url = modelBase.appendingPathComponent("\(modelName).mlpackage/\(file)")
                 let (tmp, response) = try await URLSession.shared.download(from: url)
@@ -102,28 +123,43 @@ final class DepthEngine: @unchecked Sendable {
         return compiled
     }
 
-    // Loads the model (a few seconds the first time: the Neural Engine compiles it). Blocking.
+    // Loads the model on the Neural Engine (a few seconds the first time: it compiles it there). Blocking.
     func load(_ url: URL) throws {
-        let config = MLModelConfiguration()
-        config.computeUnits = .cpuAndNeuralEngine  // the GPU stays with the render
-        let m = try MLModel(contentsOf: url, configuration: config)
+        let m = try Self.model(url, units: .cpuAndNeuralEngine)
         guard let (inName, inDesc) = m.modelDescription.inputDescriptionsByName.first(where: { $0.value.type == .image }),
               let ic = inDesc.imageConstraint,
               let outName = m.modelDescription.outputDescriptionsByName.first(where: { $0.value.type == .image })?.key
         else {
             throw NSError(domain: "DepthEngine", code: 2, userInfo: [NSLocalizedDescriptionKey: "unexpected model inputs"])
         }
-        queue.sync {
+        prepQueue.sync {
             inputName = inName
             outputName = outName
-            inputWidth = ic.pixelsWide
-            inputHeight = ic.pixelsHigh
             inputPool = Self.pool(width: ic.pixelsWide, height: ic.pixelsHigh, format: kCVPixelFormatType_32BGRA)
             outputPool = Self.pool(width: ic.pixelsWide, height: ic.pixelsHigh, format: kCVPixelFormatType_OneComponent16Half)
         }
         lock.lock()
         model = m
+        modelURL = url
         lock.unlock()
+    }
+
+    private static func model(_ url: URL, units: MLComputeUnits) throws -> MLModel {
+        let config = MLModelConfiguration()
+        config.computeUnits = units
+        return try MLModel(contentsOf: url, configuration: config)
+    }
+
+    // The Neural Engine has been falling behind: a GPU copy of the model takes the extra frames.
+    private func loadGPUModel(_ url: URL) {
+        DispatchQueue.global(qos: .utility).async {
+            let m = try? Self.model(url, units: .cpuAndGPU)
+            self.lock.lock()
+            self.gpuModel = m
+            self.gpuLoading = false
+            self.lock.unlock()
+            FileHandle.standardError.write("3d: GPU helps the Neural Engine: \(m != nil ? "on" : "failed")\n".data(using: .utf8)!)
+        }
     }
 
     private static func pool(width: Int, height: Int, format: OSType) -> CVPixelBufferPool? {
@@ -142,7 +178,7 @@ final class DepthEngine: @unchecked Sendable {
     // MARK: routing
 
     // The panel whose frames get depth from now on (-1: none). Frames of the panel before that
-    // are still in flight are dropped.
+    // still in flight are dropped.
     func route(panel p: Int) {
         lock.lock()
         if p != panel {
@@ -151,7 +187,7 @@ final class DepthEngine: @unchecked Sendable {
             pending = nil
         }
         lock.unlock()
-        queue.async { self.resetScene = true }
+        prepQueue.async { self.resetScene = true }
     }
 
     var routedPanel: Int {
@@ -160,11 +196,26 @@ final class DepthEngine: @unchecked Sendable {
         return model != nil ? panel : -1
     }
 
-    func takeStats() -> Stats {
+    var gpuActive: Bool {
         lock.lock()
         defer { lock.unlock() }
+        return gpuModel != nil
+    }
+
+    // The last period's numbers (call once a second). Two seconds in a row of dropped frames
+    // bring in the GPU.
+    func takeStats() -> Stats {
+        lock.lock()
         let s = stats
         stats = Stats()
+        droppingSeconds = s.dropped > 2 ? droppingSeconds + 1 : 0
+        var url: URL?
+        if droppingSeconds >= 2, allowGPU, gpuModel == nil, !gpuLoading, let u = modelURL {
+            gpuLoading = true
+            url = u
+        }
+        lock.unlock()
+        if let url { loadGPUModel(url) }
         return s
     }
 
@@ -176,69 +227,117 @@ final class DepthEngine: @unchecked Sendable {
             return false
         }
         let g = generation
-        if busy {
+        if let slot = takeSlot() {
+            lock.unlock()
+            start(pb, panel: p, generation: g, slot: slot)
+        } else {
             if pending != nil { stats.dropped += 1 }
             pending = (pb, p, g)
             lock.unlock()
-            return true
         }
-        busy = true
-        lock.unlock()
-        queue.async { self.run(pb, panel: p, generation: g) }
         return true
     }
 
-    // MARK: inference queue
+    // Under lock.
+    private func takeSlot() -> Slot? {
+        if neuralEngineBusy < Self.neuralEngineSlots {
+            neuralEngineBusy += 1
+            return .neuralEngine
+        }
+        if gpuModel != nil && !gpuBusy {
+            gpuBusy = true
+            return .gpu
+        }
+        return nil
+    }
 
-    private func run(_ first: CVPixelBuffer, panel firstPanel: Int, generation firstGeneration: Int) {
-        var job: (CVPixelBuffer, Int, Int)? = (first, firstPanel, firstGeneration)
-        while let (pb, p, g) = job {
-            autoreleasepool { process(pb, panel: p, generation: g) }
-            lock.lock()
-            job = pending
-            pending = nil
-            if job == nil { busy = false }
-            lock.unlock()
+    // MARK: pipeline
+
+    private func start(_ color: CVPixelBuffer, panel p: Int, generation g: Int, slot: Slot) {
+        prepQueue.async {
+            let seq = self.nextSequence
+            self.nextSequence += 1
+            var input: CVPixelBuffer?
+            if let pool = self.inputPool { CVPixelBufferPoolCreatePixelBuffer(nil, pool, &input) }
+            let t0 = DispatchTime.now().uptimeNanoseconds
+            guard let input, self.scale(color, into: input) else {
+                self.finish(nil, seq: seq, generation: g, slot: slot)
+                return
+            }
+            if self.sceneCut(input) {
+                self.lock.lock()
+                self.cutFrames.insert(seq)
+                self.lock.unlock()
+            }
+            let scaleMs = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
+            self.inferQueue.async {
+                autoreleasepool {
+                    let depth = self.infer(input, slot: slot)
+                    self.finish(depth.map { Result($0.0, $0.1, $0.2, color, p, scaleMs, $0.3) }, seq: seq, generation: g, slot: slot)
+                }
+            }
         }
     }
 
-    private func process(_ color: CVPixelBuffer, panel p: Int, generation g: Int) {
+    // (depth, low, high, inference ms)
+    private func infer(_ input: CVPixelBuffer, slot: Slot) -> (CVPixelBuffer, Float, Float, Double)? {
         lock.lock()
-        let model = self.model
+        let m = slot == .gpu ? gpuModel : model
         lock.unlock()
-        guard let model, let inputPool, let outputPool else { return }
-        var input: CVPixelBuffer?
         var output: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(nil, inputPool, &input)
-        CVPixelBufferPoolCreatePixelBuffer(nil, outputPool, &output)
-        guard let input, let output else { return }
-
+        if let pool = outputPool { CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output) }
+        guard let m, let output else { return nil }
         let t0 = DispatchTime.now().uptimeNanoseconds
-        guard scale(color, into: input) else { return }
-        let cut = sceneCut(input)
-        let t1 = DispatchTime.now().uptimeNanoseconds
         do {
             let features = try MLDictionaryFeatureProvider(dictionary: [inputName: MLFeatureValue(pixelBuffer: input)])
             let options = MLPredictionOptions()
             options.outputBackings = [outputName: output]
-            let result = try model.prediction(from: features, options: options)
+            let result = try m.prediction(from: features, options: options)
             // Core ML may return its own buffer when it cannot write into ours.
             let depth = result.featureValue(for: outputName)?.imageBufferValue ?? output
-            let t2 = DispatchTime.now().uptimeNanoseconds
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
             let (low, high) = percentiles(depth)
-            lock.lock()
-            let current = g == generation
-            if current {
-                stats.frames += 1
-                if cut { stats.cuts += 1 }
-                stats.scaleMs += Double(t1 - t0) / 1e6
-                stats.inferMs += Double(t2 - t1) / 1e6
-            }
-            lock.unlock()
-            if current { onFrame?(color, depth, low, high, cut, p) }
+            return (depth, low, high, ms)
         } catch {
             FileHandle.standardError.write("3d: prediction failed: \(error.localizedDescription)\n".data(using: .utf8)!)
+            return nil
         }
+    }
+
+    // A slot is free again: the frame and every finished one after it in sequence are shown
+    // (unless a route change made them stale), and the waiting frame (if any) takes the slot.
+    private func finish(_ r: Result?, seq: Int, generation g: Int, slot: Slot) {
+        lock.lock()
+        switch slot {
+        case .neuralEngine: neuralEngineBusy -= 1
+        case .gpu: gpuBusy = false
+        }
+        let now = DispatchTime.now().uptimeNanoseconds
+        finished[seq] = (r, g, slot, now)
+        // Under the lock: deliveries stay in sequence order whichever thread makes them.
+        while let f = finished.removeValue(forKey: lastDelivered + 1) {
+            lastDelivered += 1
+            let cut = carryCut || cutFrames.remove(lastDelivered) != nil
+            guard let r = f.result, f.generation == generation else {
+                carryCut = cut
+                continue
+            }
+            carryCut = false
+            stats.frames += 1
+            if cut { stats.cuts += 1 }
+            if f.slot == .gpu { stats.gpuFrames += 1 }
+            stats.scaleMs += r.scaleMs
+            stats.inferMs += r.inferMs
+            stats.waitMs += Double(now - f.at) / 1e6
+            onFrame?(r.color, r.depth, r.low, r.high, cut, r.panel)
+        }
+        var next: ((CVPixelBuffer, Int, Int), Slot)?
+        if let job = pending, let s = takeSlot() {
+            pending = nil
+            next = (job, s)
+        }
+        lock.unlock()
+        if let ((pb, p, g2), s) = next { start(pb, panel: p, generation: g2, slot: s) }
     }
 
     // The frame shrunk (and stretched) to the model's input: the depth map is stretched back
@@ -305,8 +404,8 @@ final class DepthEngine: @unchecked Sendable {
             }
         }
         guard hi > lo else { return (lo.isFinite ? lo : 0, lo.isFinite ? lo + 1 : 1) }
-        let bins = histogram.count
-        for i in 0..<bins { histogram[i] = 0 }
+        let bins = 1024
+        var histogram = [Int](repeating: 0, count: bins)
         let k = Float(bins - 1) / (hi - lo)
         for y in 0..<h {
             let row = base.advanced(by: y * bpr).assumingMemoryBound(to: Float16.self)
