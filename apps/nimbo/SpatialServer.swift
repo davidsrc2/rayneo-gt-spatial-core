@@ -784,7 +784,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // the image's full width its top and bottom were cut. 94 % of what fits, clear of the
         // lenses' soft edge. The arc is set so the distance scaling cancels out.
         if !o.glassesPinned && o.realSize {
-            ro.trackingAxes = 3  // core::TrackingAxes::NoRoll: fixed in the room, level with the eyes
+            ro.trackingAxes = 0  // full rotation: fixed in the room, level with the floor
             let fovY = ro.fovYDegrees * .pi / 180
             let tallest = panelDisplays.map { CGDisplayBounds($0) }.filter { $0.height > 0 }
                 .map { Float($0.width / $0.height) }.min() ?? ro.eyeAspect

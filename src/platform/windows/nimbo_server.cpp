@@ -1194,7 +1194,7 @@ void Server::apply_pinned(const Options& o) {
     // than the image): 94 % of what fits. The arc is set so the distance scaling cancels out.
     if (!o.glasses_pinned && o.real_size) {
         constexpr float kDegToRad = 0.017453292519943295f;
-        ro.tracking_axes = core::TrackingAxes::NoRoll;  // fixed in the room, level with the eyes
+        ro.tracking_axes = core::TrackingAxes::Both;  // full rotation: fixed in the room, level with the floor
         const float fov_y = ro.fov_y_deg * kDegToRad;
         float tallest = 16.0f / 9.0f;
         for (const auto& name : panel_names_) {
