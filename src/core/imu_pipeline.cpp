@@ -36,8 +36,18 @@ void ImuPipeline::reset() {
     stabilizer_.reset();
 }
 
+Quat level_head(const Quat& head) {
+    const Vec3 f = head.rotate({1.0f, 0.0f, 0.0f});
+    const float yaw = std::atan2(f.y, f.x);
+    const float pitch = std::asin(std::fmax(-1.0f, std::fmin(1.0f, f.z)));
+    return (Quat::from_axis_angle({0.0f, 0.0f, 1.0f}, yaw) * Quat::from_axis_angle({0.0f, -1.0f, 0.0f}, pitch)).normalized();
+}
+
 Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head) {
-    return (sensor_to_head * (reference.conjugate() * current) * sensor_to_head.conjugate()).normalized();
+    // Head orientations (head -> earth): sensor -> earth composed with head -> sensor.
+    const Quat head_ref = level_head(reference * sensor_to_head.conjugate());
+    const Quat head_now = current * sensor_to_head.conjugate();
+    return (head_ref.conjugate() * head_now).normalized();
 }
 
 std::optional<Pose> ImuPipeline::process_report(const uint8_t* data, size_t length) {

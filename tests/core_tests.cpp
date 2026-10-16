@@ -1041,6 +1041,21 @@ void test_world_locked_madgwick() {
 
 // Recentered with the head pitched down and rolled, then turned about the vertical: content
 // fixed in the room must be seen where the real head sees it.
+// Recentered with the head rolled 10 deg: a panel's horizontal edge stays level with the floor.
+void test_level_reference() {
+    const float d2r = 0.0174533f;
+    const Quat mount = Quat::from_axis_angle({0.3f, -0.8f, 0.5f}, 1.1f);
+    const Quat head_ref = Quat::from_axis_angle({0, 0, 1}, 25 * d2r) * Quat::from_axis_angle({0, -1, 0}, 5 * d2r) *
+                          Quat::from_axis_angle({1, 0, 0}, 10 * d2r);  // turned, looking up a bit, rolled
+    const Quat d = body_frame_delta(head_ref * mount, head_ref * mount, mount);
+    // The panel straight ahead is drawn at identity; its left edge direction (head Y) in the room:
+    const Vec3 left_in_room = level_head(head_ref).rotate({0, 1, 0});
+    CHECK(std::fabs(left_in_room.z) < 1e-4f);  // horizontal
+    // Seen from the real (rolled) head, that edge leans by the head's roll.
+    const Vec3 seen = d.conjugate().rotate({0, 1, 0});
+    CHECK(std::fabs(std::asin(seen.z) / d2r) > 9.0f);
+}
+
 void test_body_frame_delta() {
     const float d2r = 0.0174533f;
     const Quat mount = Quat::from_axis_angle({0.3f, -0.8f, 0.5f}, 1.1f);  // any sensor mounting
@@ -1049,9 +1064,10 @@ void test_body_frame_delta() {
     // Sensor orientation (sensor -> earth) from the head's: v_head = mount v_sensor.
     const auto sensor = [&](const Quat& head) { return head * mount; };
     const Quat d = body_frame_delta(sensor(head_ref), sensor(head_now), mount);
+    const Quat level_ref = level_head(head_ref);  // roll taken out: the panels stand level
     for (const Vec3 x : {Vec3{1, 0, 0}, Vec3{0.7f, 0.5f, 0.3f}, Vec3{0.8f, -0.2f, -0.4f}}) {
-        // x: a direction fixed in the room, given in the head frame at the recenter.
-        const Vec3 world = head_ref.rotate(x);
+        // x: a direction fixed in the room, given in the levelled head frame at the recenter.
+        const Vec3 world = level_ref.rotate(x);
         const Vec3 truth = head_now.conjugate().rotate(world);
         const Vec3 shown = d.conjugate().rotate(x);
         CHECK(near(truth.x, shown.x, 1e-4f) && near(truth.y, shown.y, 1e-4f) && near(truth.z, shown.z, 1e-4f));
@@ -1254,6 +1270,7 @@ int main() {
     test_stabilizer_holds_still();
     test_stabilizer_world_locked();
     test_body_frame_delta();
+    test_level_reference();
     test_world_locked_madgwick();
     test_world_locked_anchor();
     test_stabilizer_follows_turns();

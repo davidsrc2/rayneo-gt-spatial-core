@@ -37,9 +37,15 @@ struct ImuPipelineConfig {
 // 0.16 deg. Lower lets the gyro's residual bias tilt them instead (0.002: 0.30).
 inline constexpr float kWorldLockedMadgwickBeta = 0.01f;
 
-// The head's rotation since `reference`, in head axes (X forward, Y left, Z up): content
-// fixed in the room is seen at body_frame_delta^-1 * x, for any reference posture.
+// The head's rotation from a level version of its posture at `reference` (same heading and
+// pitch, roll taken out), in head axes (X forward, Y left, Z up): content fixed in the room is
+// seen at body_frame_delta^-1 * x, and it stands level with the floor even when the head (or
+// the glasses on it) was tilted sideways at the recenter. Without levelling the whole row of
+// panels kept that tilt and looked diagonal.
 Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head);
+
+// A head orientation (head -> earth, Z up) with its roll removed: same heading and pitch.
+Quat level_head(const Quat& head);
 
 // Raw HID payload -> stabilized Pose. Single-threaded, allocation-free, OS-agnostic.
 class ImuPipeline {
