@@ -134,6 +134,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var lastDrawn: simd_quatf?  // render thread
     private let drawLock = NSLock()     // one frame at a time: display link or fallback loop
     private var linkFrames: UInt64 = 0  // guarded by statsLock: display link callbacks so far
+    // Late latching (guarded by statsLock): the display link wakes ~3 frames before the frame
+    // is seen; the pose is read at the deadline minus this margin instead, so less of the head's
+    // motion has to be predicted. A frame shown late widens it, a long run on time narrows it.
+    private var latchMarginS = 0.004
+    private var latchOnTime = 0
+    private var framePeriodS = 1.0 / 120
     private var fallbackThread: Thread? // main thread: drawing while the display link is stalled
 
     init(options: ServerOptions) {
@@ -306,6 +312,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         layer.contentsScale = scale
         layer.drawableSize = CGSize(width: rect.width * scale, height: rect.height * scale)
+        if !options.windowed, let mode = CGDisplayCopyDisplayMode(screenID), mode.refreshRate > 0 {
+            framePeriodS = 1 / max(30, mode.refreshRate)
+        }
         log(String(format: "surface: window %.0fx%.0f pt, scale %.1f, drawable %.0fx%.0f px",
                    rect.width, rect.height, scale, layer.drawableSize.width, layer.drawableSize.height))
         layer.maximumDrawableCount = 2  // 3 measured identical; 2 holds less queued work
@@ -564,6 +573,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         guard layer.drawableSize != size || renderer.options.sideBySide != sbs else { return }
         layer.contentsScale = CGFloat(mode.pixelWidth) / screen.frame.width
         layer.drawableSize = size
+        statsLock.lock()
+        framePeriodS = 1 / max(30, mode.refreshRate)
+        statsLock.unlock()
         renderer.options.sideBySide = sbs
         renderer.invalidateSkippedFrame()
         log(String(format: "surface: %.0fx%.0f px, %@", size.width, size.height, sbs ? "side by side (glasses in 3D)" : "mono (glasses in 2D)"))
@@ -1513,7 +1525,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
         statsLock.lock()
         linkFrames &+= 1
+        let margin = latchMarginS
         statsLock.unlock()
+        if options.lateLatch {
+            // targetTimestamp: when the frame must be done. Sleep until just before it, then
+            // read the freshest pose (the IMU thread keeps it at ~457 Hz).
+            let wait = update.targetTimestamp - margin - CACurrentMediaTime()
+            if wait > 0.0003 && wait < 0.03 { Thread.sleep(forTimeInterval: wait) }
+        }
         drawFrame(update.drawable, targetMedia: update.targetPresentationTimestamp)
     }
 
@@ -1554,6 +1573,16 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             self.statsLock.lock()
             let lateMs = (d.presentedTime - target) * 1e3
             self.stats.addPresented(latency: (d.presentedTime - sampleMedia) * 1e3, targetError: lateMs)
+            if lateMs > max(3, self.framePeriodS * 500) {  // missed its frame: read earlier
+                self.latchMarginS = min(0.012, self.latchMarginS + 0.001)
+                self.latchOnTime = 0
+            } else {
+                self.latchOnTime += 1
+                if self.latchOnTime >= 240 {
+                    self.latchMarginS = max(0.002, self.latchMarginS - 0.00025)
+                    self.latchOnTime = 0
+                }
+            }
             self.presentLateMs += (max(-10, min(40, lateMs)) - self.presentLateMs) * 0.03
             let gap = d.presentedTime - self.lastPresentedTime
             if self.lastPresentedTime > 0, gap > 0, gap < 0.05 { self.stats.addInterval(gap * 1e3) }
@@ -1662,14 +1691,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                     " (or ~14 s if you are already wearing them)")
             }
         }
+        statsLock.lock()
+        let latchMs = options.lateLatch ? latchMarginS * 1e3 : 0
+        statsLock.unlock()
         let n = Double(max(1, s.frames))
         let pn = Double(max(1, s.presentedN))
         let inN = Double(max(1, s.intervalN))
         let inMean = s.intervalSum / inN
         let inStd = (max(0, s.intervalSq / inN - inMean * inMean)).squareRoot()
-        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms%@",
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | latch %.1f ms%@",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
-                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax,
+                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, latchMs,
                    s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) as NSString : "" as NSString))
         if depthPanel >= 0 {
             let d = depth3D.takeStats()
