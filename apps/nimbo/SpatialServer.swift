@@ -132,6 +132,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // head pose is predicted for that real moment, or the panels lag and jerk while turning.
     private var presentLateMs = 0.0  // guarded by statsLock
     private var lastDrawn: simd_quatf?  // render thread
+    private let drawLock = NSLock()     // one frame at a time: display link or fallback loop
+    private var linkFrames: UInt64 = 0  // guarded by statsLock: display link callbacks so far
+    private var fallbackThread: Thread? // main thread: drawing while the display link is stalled
 
     init(options: ServerOptions) {
         self.options = options
@@ -1115,6 +1118,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         displayLink = nil
         renderThread?.cancel()
         renderThread = nil
+        fallbackThread?.cancel()
+        fallbackThread = nil
         hotKeys = nil  // unregisters the global hotkeys
         statusMenu = nil
         // Space at real size put the glasses in follow: back to pinned, how they are used without
@@ -1471,6 +1476,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func recoverRenderLoop() {
         stalledSeconds = 0
         guard let window, let view else { return }
+        startFallbackLoop()
         log("render: stalled (the glasses display changed Space?), restarting the render loop")
         if let id = glassesID, let s = NSScreen.screens.first(where: { Displays.id(of: $0) == id }) {
             window.setFrame(s.frame, display: true)
@@ -1505,19 +1511,32 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
+        statsLock.lock()
+        linkFrames &+= 1
+        statsLock.unlock()
+        drawFrame(update.drawable, targetMedia: update.targetPresentationTimestamp)
+    }
+
+    // One frame into `drawable`, for presentation at `targetMedia` (CACurrentMediaTime clock).
+    // From the display link, or from the fallback loop while it is stalled. false: skipped
+    // (nothing changed), not presented.
+    @discardableResult
+    private func drawFrame(_ drawable: CAMetalDrawable, targetMedia: CFTimeInterval) -> Bool {
+        drawLock.lock()
+        defer { drawLock.unlock() }
         // Map CACurrentMediaTime (display link base) onto the engine's steady clock.
         let nowMedia = CACurrentMediaTime()
         let nowHost = RNSpatialEngine.hostNowNs()
         statsLock.lock()
         let late = max(0, min(25, presentLateMs))
         statsLock.unlock()
-        let targetHost = Int64(nowHost) + Int64((update.targetPresentationTimestamp - nowMedia + late / 1e3) * 1e9)
+        let targetHost = Int64(nowHost) + Int64((targetMedia - nowMedia + late / 1e3) * 1e9)
 
         guard let p = pose.latest() else {
             renderer.invalidateSkippedFrame()
-            _ = renderer.render(to: update.drawable, orientation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
+            _ = renderer.render(to: drawable, orientation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
                                 angularVelocity: .zero, sampleHostNs: 0, targetHostNs: 0)
-            return
+            return true
         }
         if nothingChanged(p) {
             statsLock.lock()
@@ -1525,12 +1544,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             stats.tracking = p.tracking
             statsLock.unlock()
             isTracking = p.tracking
-            return
+            return false
         }
         // Ground truth: when the frame actually reached the display (same media clock).
         let sampleMedia = nowMedia - Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e9
-        let target = update.targetPresentationTimestamp
-        update.drawable.addPresentedHandler { [weak self] d in
+        let target = targetMedia
+        drawable.addPresentedHandler { [weak self] d in
             guard let self, d.presentedTime > 0 else { return }
             self.statsLock.lock()
             let lateMs = (d.presentedTime - target) * 1e3
@@ -1541,14 +1560,19 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             self.lastPresentedTime = d.presentedTime
             self.statsLock.unlock()
         }
-        let prediction = renderer.render(to: update.drawable, orientation: p.orientation,
+        let prediction = renderer.render(to: drawable, orientation: p.orientation,
                                          angularVelocity: p.angularVelocity,
                                          sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))
         let poseAge = Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6
         let photon = Double(targetHost - Int64(p.hostTimeNs)) / 1e6
         let still = simd_length(p.angularVelocity) < 0.0175
-        let step = still && lastDrawn != nil
-            ? Double(2 * acos(min(1, abs(simd_dot(lastDrawn!.vector, p.orientation.vector))))) * 180 / .pi : 0
+        // From the relative rotation's vector part: acos of a dot product near 1 rounds every
+        // step under ~0.02 deg to 0 in Float (the log read 0 while the panels trembled).
+        var step = 0.0
+        if still, let last = lastDrawn {
+            let r = simd_mul(simd_inverse(last), p.orientation)
+            step = 2 * asin(min(1, Double(simd_length(r.imag)))) * 180 / .pi
+        }
         lastDrawn = p.orientation
         statsLock.lock()
         stats.add(poseAge: poseAge, photon: photon, prediction: Double(prediction))
@@ -1559,6 +1583,48 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         statsLock.unlock()
         isTracking = p.tracking
+        return true
+    }
+
+    // MARK: fallback render loop
+
+    // Mission Control (three fingers up) stops the display link for good: the glasses froze,
+    // and new links did not start either. While it is stalled, frames are drawn here, paced by
+    // the layer's drawables (vsync); it ends as soon as the display link ticks again.
+    private func startFallbackLoop() {
+        guard fallbackThread == nil, let view, let window else { return }
+        let layer = view.metalLayer
+        statsLock.lock()
+        let since = linkFrames
+        statsLock.unlock()
+        let hz = max(60, glassesID.flatMap { CGDisplayCopyDisplayMode($0)?.refreshRate } ?? 60)
+        log("render: display link stalled (window " + (window.occlusionState.contains(.visible) ? "visible" : "not visible")
+            + "); drawing on our own clock until it is back")
+        let thread = Thread { [weak self] in
+            var frames = 0
+            while !Thread.current.isCancelled {
+                guard let self else { return }
+                self.statsLock.lock()
+                let ticked = self.linkFrames != since
+                self.statsLock.unlock()
+                if ticked { break }
+                var drew = false
+                autoreleasepool {
+                    if let d = layer.nextDrawable() {  // waits for a free one: vsync pacing (1 s at most)
+                        drew = self.drawFrame(d, targetMedia: CACurrentMediaTime() + 1.5 / hz)
+                    }
+                }
+                if drew { frames += 1 } else { Thread.sleep(forTimeInterval: 1 / hz) }
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.fallbackThread = nil
+                self?.log("render: display link back (\(frames) frames drawn on our own clock)")
+            }
+        }
+        thread.name = "rayneo.render.fallback"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        fallbackThread = thread
     }
 
     private func printStats() {
