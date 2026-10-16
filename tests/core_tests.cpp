@@ -882,6 +882,17 @@ void test_place_pitched() {
     CHECK(facing.vertices[0].pz < facing.vertices[1].pz - 0.2f);           // facing: top leans back
 }
 
+// NoRoll: same view direction as the full rotation, no tilt about it.
+void test_track_no_roll() {
+    const float d2r = 0.0174533f;
+    const Quat q = Quat::from_axis_angle({0, 0, 1}, 30 * d2r) * Quat::from_axis_angle({0, -1, 0}, 10 * d2r) *
+                   Quat::from_axis_angle({1, 0, 0}, 15 * d2r);  // turned, looking up, head tilted
+    const Quat n = track_axes(q, TrackingAxes::NoRoll);
+    const Vec3 f1 = q.rotate({1, 0, 0}), f2 = n.rotate({1, 0, 0});
+    CHECK(near(f1.x, f2.x, 1e-5f) && near(f1.y, f2.y, 1e-5f) && near(f1.z, f2.z, 1e-5f));  // same direction
+    CHECK(std::fabs(n.rotate({0, 1, 0}).z) < 1e-5f);  // the view's left axis stays level: no tilt
+}
+
 void test_slerp() {
     const Quat a{}, b = Quat::from_axis_angle({0, 0, 1}, 1.0f);
     CHECK(quat_near(slerp(a, b, 0.0f), a, 1e-6f) && quat_near(slerp(a, b, 1.0f), b, 1e-6f));
@@ -1280,6 +1291,7 @@ int main() {
     test_panel_poses();
     test_separate_floating();
     test_place_pitched();
+    test_track_no_roll();
     test_pinned_zoom();
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();

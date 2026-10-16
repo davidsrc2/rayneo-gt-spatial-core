@@ -97,6 +97,12 @@ Quat track_axes(const Quat& q, TrackingAxes axes) {
     switch (axes) {
         case TrackingAxes::Horizontal: return yaw_only(q);
         case TrackingAxes::Vertical: return pitch_only(q);
+        case TrackingAxes::NoRoll: {  // where the view points, without the turn about it
+            const Vec3 f = q.rotate({1.0f, 0.0f, 0.0f});
+            const float yaw = std::atan2(f.y, f.x);
+            const float pitch = std::asin(std::fmax(-1.0f, std::fmin(1.0f, f.z)));
+            return (Quat::from_axis_angle({0.0f, 0.0f, 1.0f}, yaw) * Quat::from_axis_angle({0.0f, -1.0f, 0.0f}, pitch)).normalized();
+        }
         case TrackingAxes::Both: break;
     }
     return q;

@@ -51,7 +51,10 @@ Quat yaw_only(const Quat& q);
 Quat pitch_only(const Quat& q);
 
 // Which head rotations move the panels.
-enum class TrackingAxes { Both = 0, Horizontal = 1, Vertical = 2 };
+// NoRoll: turning and looking up / down move the panels as in Both, but tilting the head
+// sideways does not tilt them: they stay level with the eyes (Both keeps them level with the
+// room, so a tilted head sees them askew).
+enum class TrackingAxes { Both = 0, Horizontal = 1, Vertical = 2, NoRoll = 3 };
 Quat track_axes(const Quat& q, TrackingAxes axes);
 
 // Inside of a vertical cylinder section centred on the viewer, in render space.
