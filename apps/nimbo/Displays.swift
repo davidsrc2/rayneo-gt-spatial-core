@@ -56,10 +56,6 @@ enum Displays {
         return CGCompleteDisplayConfiguration(config, .forAppOnly) == .success
     }
 
-    // App-scoped: native 1:1 mode (e.g. 1920x1080 px at 1x) at `hz` if available. The user's
-    // "larger text" HiDPI mode is a scaled 2560x1440 surface the glasses downsample; while
-    // the server runs, the display is only a render target, so render natively. Reverted on
-    // exit, restoring the user's setting.
     // The glasses in their 3D mode are a double-width display (3840x1080: a 1920x1080 image per
     // eye, side by side); in 2D, 1920x1080.
     static func isSideBySide(_ display: CGDirectDisplayID) -> Bool {
@@ -67,6 +63,10 @@ enum Displays {
         return Double(m.pixelWidth) / Double(m.pixelHeight) > 3
     }
 
+    // App-scoped: native 1:1 mode (e.g. 1920x1080 px at 1x) at `hz` if available. The user's
+    // "larger text" HiDPI mode is a scaled 2560x1440 surface the glasses downsample; while
+    // the server runs, the display is only a render target, so render natively. Reverted on
+    // exit, restoring the user's setting.
     static func setNative(_ display: CGDirectDisplayID, hz: Double) -> CGDisplayMode? {
         let opts = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
         let modes = (CGDisplayCopyAllDisplayModes(display, opts) as? [CGDisplayMode]) ?? []

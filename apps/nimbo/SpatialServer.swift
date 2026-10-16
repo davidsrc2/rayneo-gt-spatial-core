@@ -466,10 +466,15 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // stop. Unplugged, the IMU stops too and the check above stops Nimbo.
     private var glassesLostSince: Date?
 
+    private var reconnecting = false  // main thread: setting the glasses' display up again
+    private var lastUnmirror = Date.distantPast
+
     private func glassesLost() {
+        guard !reconnecting else { return }
         if let s = Displays.glassesScreen(), CGDisplayIsOnline(Displays.id(of: s)) != 0 {
             glassesLostSince = nil
-            retargetGlasses(s)
+            reconnecting = true
+            Task { @MainActor in await self.retargetGlasses(s) }
             return
         }
         if glassesLostSince == nil {
@@ -480,17 +485,31 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
     }
 
-    // The glasses' display is back (another id or size): the render window, its surface and
-    // side by side follow it.
-    private func retargetGlasses(_ found: NSScreen) {
+    // The glasses' display is back (another id or size): set up again as at start, with the
+    // same pauses (macOS mirrors it again on its own a moment after it appears, and changes
+    // made before that are undone): mirroring off, native mode, the window, its surface and
+    // side by side, the display link, the arrangement, the captures.
+    @MainActor
+    private func retargetGlasses(_ found: NSScreen) async {
+        defer { reconnecting = false }
+        arrangingUntil = Date().addingTimeInterval(8)  // the gaze cursor waits too
         let id = Displays.id(of: found)
-        if options.unmirror { _ = Displays.unmirror(glasses: id) }
-        if let m = Displays.setNative(id, hz: options.refresh120 ? 120 : 60) {
-            log("glasses mode: \(m.pixelWidth)x\(m.pixelHeight) native @\(Int(m.refreshRate)) Hz")
-        }
-        let screen = NSScreen.screens.first { Displays.id(of: $0) == id } ?? found
         glassesID = id
         if physicalDisplay != nil { physicalDisplay = id }
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        if stopped { return }
+        if options.unmirror {
+            log(Displays.unmirror(glasses: id) ? "mirroring: off again" : "mirroring: could not disable")
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+        if let m = Displays.setNative(id, hz: options.refresh120 ? 120 : 60) {
+            log("glasses mode: \(m.pixelWidth)x\(m.pixelHeight) native @\(Int(m.refreshRate)) Hz")
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        if stopped { return }
+        rearrangeDisplays()
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        let screen = NSScreen.screens.first { Displays.id(of: $0) == id } ?? found
         window.setFrame(screen.frame, display: true)
         window.orderFrontRegardless()
         fitSurface(to: screen)
@@ -498,11 +517,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         displayLink?.invalidate()
         renderThread?.cancel()
         startRenderLoop(layer: view.metalLayer)
-        // macOS placed the display its own way: tucked away again.
-        rearrangeWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.rearrangeDisplays() }
-        rearrangeWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+        // Display captures stop with a reconfiguration like this one: started afresh.
+        let old = captures
+        captures = []
+        for c in old { await c.stop() }
+        do {
+            try await startCaptures(glasses: screen)
+        } catch {
+            log("capture: could not restart: \(error.localizedDescription)")
+        }
+        arrangingUntil = Date()
+        log("glasses: set up again")
     }
 
     // Drawable at the display's pixel size; side by side with the glasses in 3D.
@@ -960,10 +985,21 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         logCursorState()
         updateGrow()
         // The glasses surface is head-locked: a cursor there would be a second, floating one.
-        if let physical = physicalDisplay, let cursor = CGEvent(source: nil)?.location,
+        if let physical = physicalDisplay, !reconnecting, let cursor = CGEvent(source: nil)?.location,
            CGDisplayBounds(physical).contains(cursor) {
             let gaze = pose.latest().map { renderer.panel(atGaze: $0.orientation) } ?? 0
             let b = CGDisplayBounds(panelDisplays[max(0, min(panelDisplays.count - 1, gaze))])
+            // The panel's display over the glasses' (macOS mirrored them again): moving the cursor
+            // there leaves it on the glasses. Mirroring off once more, every few seconds at most.
+            if b.intersects(CGDisplayBounds(physical)) {
+                if Date().timeIntervalSince(lastUnmirror) > 3 {
+                    lastUnmirror = Date()
+                    log("cursor: the glasses mirror a panel again; mirroring off and displays arranged")
+                    _ = Displays.unmirror(glasses: physical)
+                    rearrangeDisplays()
+                }
+                return
+            }
             log("cursor: on the glasses surface at \(Int(cursor.x)),\(Int(cursor.y)) -> panel \(gaze + 1)")
             CGWarpMouseCursorPosition(CGPoint(x: b.midX, y: b.midY))
             CGAssociateMouseAndMouseCursorPosition(1)
