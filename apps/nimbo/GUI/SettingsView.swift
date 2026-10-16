@@ -85,6 +85,10 @@ struct SettingsView: View {
                 .font(Theme.body).foregroundStyle(Theme.text)
             }
 
+            Section(title: "Atajos de teclado") {
+                ShortcutSheet()
+            }
+
             Section(title: "Cine en 3D con IA") {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Ver el modo cine en 3D", isOn: $model.depth3D)
@@ -126,6 +130,48 @@ struct SettingsView: View {
             }
             .tint(Theme.secondary)
 
+        }
+    }
+}
+
+// Every shortcut, on macOS and on Windows (the same letters with Ctrl+Alt). Global: they work
+// with any app in front, while Nimbo runs (the panel and layouts also while it is stopped).
+private struct ShortcutSheet: View {
+    private static let rows: [(mac: String, win: String, what: String)] = [
+        ("⌘⌥N", "Ctrl+Alt+N", "Abrir o cerrar el panel de Nimbo"),
+        ("⌘⌥1", "Ctrl+Alt+1", "Disposición «1 Pantalla Curva»"),
+        ("⌘⌥2", "Ctrl+Alt+2", "Disposición «Doble Monitor»"),
+        ("⌘⌥3", "Ctrl+Alt+3", "Disposición «Triple Ultrawide»"),
+        ("⌘⌥C", "Ctrl+Alt+C", "Recentrar: las pantallas vuelven delante de ti"),
+        ("⌘⌥J", "Ctrl+Alt+J", "Llevar el cursor a la pantalla que miras"),
+        ("⌘⌥O", "Ctrl+Alt+O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
+        ("⌘⌥P", "Ctrl+Alt+P", "Modo cine: la pantalla que miras, delante y grande"),
+        ("⌘⌥T", "Ctrl+Alt+T", "Cine en 3D con IA (con las gafas en modo 3D)"),
+        ("⌘⌥R", "—", "Grabar lo que ves en las gafas (vídeo en Descargas)"),
+        ("⌘⌥[  ⌘⌥]", "Ctrl+Alt+[  ]", "Bajar / subir el brillo de las gafas"),
+        ("⌘⌥-  ⌘⌥=", "Ctrl+Alt+-  =", "Campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (=)"),
+        ("⌘⌥Q", "Ctrl+Alt+Q", "Parar Nimbo (todo vuelve a la normalidad)"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 7) {
+                GridRow {
+                    Text("Mac").font(Theme.label).foregroundStyle(Theme.secondary)
+                    Text("Windows").font(Theme.label).foregroundStyle(Theme.secondary)
+                    Text("Qué hace").font(Theme.label).foregroundStyle(Theme.secondary)
+                }
+                ForEach(Self.rows, id: \.mac) { row in
+                    GridRow {
+                        Text(row.mac).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(Theme.text)
+                        Text(row.win).font(.system(size: 12, design: .rounded)).foregroundStyle(Theme.secondary)
+                        Text(row.what).font(.system(size: 12)).foregroundStyle(Theme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            Text("Funcionan con cualquier app delante mientras Nimbo está en marcha; el panel y las disposiciones, también con Nimbo parado.")
+                .font(.system(size: 12)).foregroundStyle(Theme.secondary)
         }
     }
 }
