@@ -50,8 +50,9 @@ int main() {
     check(o.displays == 3 && o.layout_count == 3 && o.layout_cols[0] == 0 && o.layout_rows[0] == 0 &&
               o.layout_cols[2] == 0 && o.layout_rows[2] == 1,
           "layout normalised to the top-left cell");
-    check(o.vd_scale == 100 && o.side_by_side == 1 && o.dim_others == 1.0f && o.arc_deg == 42.0f,
-          "text size, stereo, dim, size mapped");
+    // Side by side follows the glasses' 3D mode, whatever the old "stereo" setting says.
+    check(o.vd_scale == 100 && o.side_by_side == -1 && o.dim_others == 1.0f && o.arc_deg == 42.0f,
+          "text size, side by side auto, dim, size mapped");
 
     check(!nimbo_glasses_connected(), "no glasses on CI");
     check(!nimbo_virtual_driver_available(), "no virtual display driver on CI");
