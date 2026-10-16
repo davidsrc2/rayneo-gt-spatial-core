@@ -136,6 +136,35 @@ Opciones de la consola nuevas: `--space` (modo de la app, mono salvo `--sbs`), `
   - Lectura tardía de la pose con las gafas.
   - Todo el 3D en el PC con Windows.
 
+**Prueba de Windows (fin de semana 17-18/10/2026).** Todo lo del Mac está también en Windows. Instalar con `Nimbo-Setup-0.1.0.exe` (artefacto `nimbo-setup-win-x64` del CI) o compilar y publicar como siempre. Qué probar:
+
+**Arranque y modos**
+1. La app abre y el asistente reconoce el driver.
+2. Start con 2 pantallas.
+3. Ctrl+Alt+3 (Triple Ultrawide).
+4. Ctrl+Alt+G: modo fijo de las gafas. La pantalla que miras se enfoca a los 0,6 s, con transición y las demás atenuadas; también con el ratón.
+
+**Atajos de ajuste**
+5. Zoom con Ctrl+Alt + / − / 0.
+6. Ctrl+Alt+K: modo código al 170 %.
+7. Ctrl+Alt+↑ / ↓: brillo, con el aviso en las gafas.
+8. Ctrl+Alt+Mayús + / −: campo de visión.
+
+**3D**
+9. Pasar las gafas a 3D con Nimbo abierto: debe seguir funcionando, con el aviso «Modo 3D de las gafas activado».
+10. Mirar un vídeo, Ctrl+Alt+T: cine con relieve. La primera vez descarga el modelo de 50 MB.
+11. En el log, `3d: N depth fps | infer X ms | input WxH`. Si la Iris Xe no llega, baja sola a 392x294.
+12. Volver a 2D: sale del cine y vuelven todas las pantallas.
+
+**Medidas del log**
+13. `latch X ms` (lectura tardía de la pose).
+14. `still wobble` (ahora mide bien).
+15. `target err` cerca de 0.
+
+**Panel y Ajustes**
+16. El panel rápido tiene «Atajos».
+17. Ajustes tiene «Cine en 3D con IA» (intensidad y plano) y la hoja de atajos.
+
 **Siguiente, en orden:**
 1. **Windows: comprobar los arreglos del final del día** (sin probar): «Más opciones» ya no debería cerrar la app (los deslizadores lanzaban eventos mientras XAML construía la ventana); la corrección del retraso de presentación (se medía contra el objetivo ya corregido y se quedaba en la mitad: `target err` debería bajar de +4,2 a ~0); dos arranques seguidos con dos paneles sin reiniciar Windows (pool de 6).
 2. **Windows: igualar la sensación al Mac**: probar quietud, giros a izquierda y derecha y golpecitos en las patillas con `--space --anchor`. Añadir al log de Windows la medida `still wobble` del Mac para comparar con cifras.

@@ -595,6 +595,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         log(String(format: "surface: %.0fx%.0f px, %@", size.width, size.height, sbs ? "side by side (glasses in 3D)" : "mono (glasses in 2D)"))
         onNotice?(sbs ? "Gafas en 3D: una imagen para cada ojo" : "Gafas en 2D")
         flash(sbs ? "Modo 3D de las gafas activado" : "Gafas en modo 2D")
+        // Back in 2D: the cinema ⌘⌥T opened (for the depth) closes, and all panels come back.
+        if !sbs && cinemaFor3D {
+            options.depth3D = false
+            if focusMode == 2 { toggleFocus(cinema: true) }
+            cinemaFor3D = false
+        }
         updateDepth3D()
         requestRedraw()
     }

@@ -83,6 +83,8 @@ public sealed partial class SettingsWindow : Window
         CurvatureSlider.Value = _model.Curvature;
         SizeSlider.Value = _model.Size;
         TiltSlider.Value = _model.Tilt;
+        DepthStrengthSlider.Value = _model.DepthStrength * 100;
+        DepthPlaneSlider.Value = _model.DepthPlane;
         GazeToggle.IsOn = _model.GazeCursor;
         GatherToggle.IsOn = _model.GatherWindows;
         K1Slider.Value = _model.K1;
@@ -108,6 +110,8 @@ public sealed partial class SettingsWindow : Window
         _model.Curvature = (float)CurvatureSlider.Value;
         _model.Size = (float)SizeSlider.Value;
         _model.Tilt = (float)TiltSlider.Value;
+        _model.DepthStrength = (float)DepthStrengthSlider.Value / 100f;
+        _model.DepthPlane = (float)DepthPlaneSlider.Value;
         _model.GazeCursor = GazeToggle.IsOn;
         _model.GatherWindows = GatherToggle.IsOn;
         _model.K1 = (float)K1Slider.Value;

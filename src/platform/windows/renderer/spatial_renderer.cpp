@@ -3,6 +3,7 @@
 #include <d3dcompiler.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cfloat>
 #include <cmath>
 #include <cstring>
@@ -230,16 +231,77 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
     return out;
 }
 
+namespace {
+constexpr double kGrowSeconds = 0.5;   // glasses' pinned mode: pan and zoom to another highlighted panel
+constexpr float kGrowDim = 0.45f;      // the panels around the highlighted one
+
+uint64_t renderer_now_ns() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                     std::chrono::steady_clock::now().time_since_epoch())
+                                     .count());
+}
+}  // namespace
+
+void SpatialRenderer::set_grow_panel(int panel) {
+    if (panel == grow_panel_) return;
+    grow_from_ = grow_panel_;
+    grow_panel_ = panel;
+    grow_start_ns_ = renderer_now_ns();
+    grow_generation_ += 1;
+}
+
+bool SpatialRenderer::grow_animating() const {
+    return grow_start_ns_ != 0 &&
+           static_cast<double>(renderer_now_ns() - grow_start_ns_) * 1e-9 < kGrowSeconds + 0.05;  // and a frame at the end
+}
+
+// A panel fills the glasses' image: drawn flat, like the computer's own screen (as on macOS).
+bool SpatialRenderer::filling_image() const {
+    return options.static_head && (options.focus_panel >= 0 || grow_panel_ >= 0);
+}
+
 // Glasses in their own pinned mode anchor the image we send and let the eyes roam over it:
-// nothing outside it can ever be seen. The whole arrangement (monitors and floating windows,
-// both axes; only the focused panel in focus / cinema) is centred and scaled to fit in it.
-// Distance and size zoom along the whole of their range, never past the image (see
-// core::pinned_zoom): the largest and closest fills it.
+// nothing outside it can ever be seen. With a panel highlighted (the one you look at, or
+// focus / cinema) that panel fills the whole image; the arrangement keeps its shape, so the
+// others lie just beyond the edges, where a look picks them. With none, the whole arrangement
+// is fitted in the image. Changing the highlighted panel pans and zooms there (macOS's
+// arrangeInGlassesImage).
 void SpatialRenderer::fit_in_glasses_image(std::vector<core::PanelPlacement>& out) const {
+    if (options.focus_panel >= 0) {
+        fill_glasses_image(out, options.focus_panel);
+        return;
+    }
+    auto target = out;
+    fill_glasses_image(target, grow_panel_);
+    const double t = grow_start_ns_ == 0
+                         ? 1.0
+                         : std::min(1.0, static_cast<double>(renderer_now_ns() - grow_start_ns_) * 1e-9 / kGrowSeconds);
+    if (t >= 1.0 || grow_from_ == grow_panel_) {
+        out = target;
+        return;
+    }
+    fill_glasses_image(out, grow_from_);
+    // The pan eases in and out (cubic); the size settles with a slight overshoot, as if the
+    // panel stepped forward.
+    const float u = static_cast<float>(t);
+    const float pan = u < 0.5f ? 4.0f * u * u * u : 1.0f - std::pow(-2.0f * u + 2.0f, 3.0f) / 2.0f;
+    constexpr float c1 = 0.9f, c3 = c1 + 1.0f;  // ease-out-back, ~4 % overshoot
+    const float grow = 1.0f + c3 * std::pow(u - 1.0f, 3.0f) + c1 * std::pow(u - 1.0f, 2.0f);
+    for (size_t i = 0; i < out.size(); ++i) {
+        out[i].yaw_rad += (target[i].yaw_rad - out[i].yaw_rad) * pan;
+        out[i].pitch_rad += (target[i].pitch_rad - out[i].pitch_rad) * pan;
+        out[i].scale += (target[i].scale - out[i].scale) * grow;
+    }
+}
+
+// `panel` centred and scaled to fill the glasses' image (the others keep their place around
+// it); -1 or out of range: everything fitted, zoomed by distance and size (core::pinned_zoom).
+void SpatialRenderer::fill_glasses_image(std::vector<core::PanelPlacement>& out, int panel) const {
     const float arc = panel_arc();
+    const bool one = panel >= 0 && static_cast<size_t>(panel) < out.size();
     float y0 = 1e9f, y1 = -1e9f, p0 = 1e9f, p1 = -1e9f;
     for (size_t i = 0; i < out.size() && i < static_cast<size_t>(kMaxPanels); ++i) {
-        if (options.focus_panel >= 0 && static_cast<int>(i) != options.focus_panel) continue;
+        if (one && static_cast<int>(i) != panel) continue;
         const float w = arc * out[i].scale, h = core::panel_vertical_arc(w, panels_[i].aspect, true);
         y0 = std::min(y0, out[i].yaw_rad - w / 2);
         y1 = std::max(y1, out[i].yaw_rad + w / 2);
@@ -249,8 +311,8 @@ void SpatialRenderer::fit_in_glasses_image(std::vector<core::PanelPlacement>& ou
     if (y1 <= y0 || p1 <= p0) return;
     const float fw = core::horizontal_fov(options.fov_y_deg * kDegToRad, options.eye_aspect);
     const float fh = options.fov_y_deg * kDegToRad;
-    const float zoom = core::pinned_zoom(arc);
-    const float s = 0.94f * std::min(fw * zoom / (y1 - y0), fh * zoom / (p1 - p0));
+    const float room = one ? 1.0f : 0.94f * core::pinned_zoom(arc);
+    const float s = room * std::min(fw / (y1 - y0), fh / (p1 - p0));
     const float yc = 0.5f * (y0 + y1), pc = 0.5f * (p0 + p1);
     for (auto& pl : out) {
         pl.yaw_rad = (pl.yaw_rad - yc) * s;
@@ -346,15 +408,15 @@ bool SpatialRenderer::can_skip_frame(const core::Quat& orientation, const core::
     core::FrameSkipper::Input in;
     in.orientation = options.static_head ? core::Quat{} : orientation;
     in.angular_speed_rads = options.static_head ? 0.0f : angular_velocity.norm();
-    in.source_generation = generation + overlay_generation_ + depth_generation_;
+    in.source_generation = generation + overlay_generation_ + depth_generation_ + grow_generation_;
     in.tracking = tracking;
-    in.animating = dimmer_.animating() || depth_pending();  // a frame on its way to its depth map
+    in.animating = dimmer_.animating() || depth_pending() || grow_animating();  // depth on its way, a pan / zoom
     in.forced = forced;
     return skipper_.skip(in);
 }
 
 void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl) {
-    const float k = std::clamp(options.curvature, 0.0f, 1.0f);
+    const float k = filling_image() ? 0.0f : std::clamp(options.curvature, 0.0f, 1.0f);
     if (p.vertices && p.aspect == p.mesh_aspect && options.distance_m == p.mesh_distance &&
         options.arc_deg == p.mesh_arc && pl.yaw_rad == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
         k == p.mesh_curvature && pl.scale == p.mesh_scale && options.tilt == p.mesh_tilt && options.zoom == p.mesh_zoom) {
@@ -788,15 +850,21 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
 
     // Panels you are not looking at fade to dim_others (core::PanelDimmer, shared with macOS).
     int gaze = -1;
+    float dim = options.dim_others;
     if (count_ > 1 && options.dim_others < 1.0f) {
         gaze = core::panel_at_gaze(head, pls, panel_arc(), vertical_arc(panels_[0].aspect),
                                    options.gap_deg * kDegToRad);
+    }
+    // Glasses' pinned mode with a highlighted panel: the ones around it step back.
+    if (options.static_head && count_ > 1 && grow_panel_ >= 0) {
+        gaze = grow_panel_;
+        dim = std::min(dim, kGrowDim);
     }
     const float dt = last_frame_ns_ > 0 && target_ns > last_frame_ns_
                          ? std::min(0.1f, static_cast<float>(target_ns - last_frame_ns_) * 1e-9f)
                          : 0.0f;
     last_frame_ns_ = target_ns;
-    dimmer_.update(static_cast<size_t>(count_), gaze, options.dim_others, dt);
+    dimmer_.update(static_cast<size_t>(count_), gaze, dim, dt);
     for (int i = 0; i < count_; ++i) panels_[i].brightness = dimmer_.brightness(static_cast<size_t>(i));
 
     ensure_eye_textures(width, height);

@@ -37,6 +37,8 @@ struct SettingsView: View {
         .onChange(of: model.focusWindows) { server.settingsChanged() }
         .onChange(of: model.macScreen) { server.settingsChanged() }
         .onChange(of: model.anchorAtRest) { server.settingsChanged() }
+        .onChange(of: model.depthStrength) { server.settingsChanged() }
+        .onChange(of: model.depthPlane) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }
@@ -80,6 +82,16 @@ struct SettingsView: View {
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
+            }
+
+            Section(title: "Cine en 3D con IA") {
+                Text("Con las gafas en modo 3D, mira el vídeo y pulsa ⌘⌥T: modo cine con relieve. ⌘⌥T otra vez lo quita; ⌘⌥P sale del cine (al volver las gafas a 2D sale solo).")
+                    .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                LabeledSlider(title: "Intensidad", value: $model.depthStrength, range: 0.005...0.08, step: 0.0025,
+                              caption: String(format: "%.1f %%", model.depthStrength * 100))
+                LabeledSlider(title: "Plano de la pantalla", value: $model.depthPlane, range: 0...1, step: 0.05,
+                              caption: model.depthPlane < 0.2 ? "todo sale hacia ti"
+                                  : model.depthPlane > 0.8 ? "todo hacia el fondo" : String(format: "%.2f", model.depthPlane))
             }
 
             Section(title: "Atajos de teclado") {

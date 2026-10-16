@@ -89,6 +89,11 @@ public:
     std::vector<core::PanelPlacement> current_placements() const { return placements(panels_[0].aspect); }
     float shown_arc_rad() const { return panel_arc(); }
 
+    // Glasses in their pinned mode: this panel fills their image and the others lie just beyond
+    // its edges; changing it pans and zooms there in half a second. -1: all fitted in the image.
+    void set_grow_panel(int panel);
+    int grow_panel() const { return grow_panel_; }
+
     // True when the frame about to be drawn equals the one on screen: skip it.
     bool can_skip_frame(const core::Quat& orientation, const core::Vec3& angular_velocity, bool tracking, bool forced);
     void invalidate_skipped_frame() { skipper_.invalidate(); }
@@ -157,6 +162,9 @@ private:
     void ensure_eye_textures(int width, int height);
     float vertical_arc(float aspect) const;
     void fit_in_glasses_image(std::vector<core::PanelPlacement>& out) const;
+    void fill_glasses_image(std::vector<core::PanelPlacement>& out, int panel) const;
+    bool grow_animating() const;
+    bool filling_image() const;
     float panel_arc() const;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
@@ -189,6 +197,10 @@ private:
     core::PanelDimmer dimmer_;
     core::FrameSkipper skipper_;
     uint64_t last_frame_ns_ = 0;
+
+    int grow_panel_ = -1, grow_from_ = -1;  // glasses' pinned mode: highlighted panel, the one before
+    uint64_t grow_start_ns_ = 0;             // start of the pan / zoom between them (steady clock)
+    uint64_t grow_generation_ = 0;           // bumps on every change: draw it
 
     DepthEngine* depth_ = nullptr;
     DepthSlot depth_slots_[kDepthSlots];

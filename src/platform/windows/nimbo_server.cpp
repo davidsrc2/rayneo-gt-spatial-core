@@ -407,6 +407,12 @@ private:
     const win::OutputInfo* find_output(const std::wstring& gdi_name) const;
     void refresh_rects();
     void follow_gaze(uint64_t now);
+    // Glasses' pinned mode: the panel looked at for 0.6 s (or the mouse taken to) fills their
+    // image, as on macOS.
+    void update_grow(uint64_t now);
+    int grow_candidate_ = -2;
+    uint64_t grow_since_ns_ = 0;
+    int grow_mouse_panel_ = -1;
     void apply_pinned(const Options& o);
     void jump_cursor_to_gaze();
     void toggle_focus(bool cinema);
@@ -1139,6 +1145,7 @@ void Server::periodic() {
     if (now >= next_gaze_ns_) {
         next_gaze_ns_ = now + 33000000ull;  // ~30 Hz
         follow_gaze(now);
+        update_grow(now);
         const auto p = pose_->latest();
         const int gaze = p && p->tracking ? renderer_.panel_at_gaze(p->orientation) : -1;
         std::lock_guard<std::mutex> lock(shared_mutex_);
@@ -1309,6 +1316,12 @@ void Server::handle_display_change() {
         logln("surface: %dx%d px, %s", width_, height_,
               renderer_.options.side_by_side ? "side by side (glasses in 3D)" : "mono (glasses in 2D)");
         flash(renderer_.options.side_by_side ? L"Modo 3D de las gafas activado" : L"Gafas en modo 2D");
+        // Back in 2D: the cinema Ctrl+Alt+T opened (for the depth) closes, all panels come back.
+        if (!renderer_.options.side_by_side && cinema_for_3d_) {
+            opt_.depth3d = false;
+            if (focus_mode_ == 2) toggle_focus(true);
+            cinema_for_3d_ = false;
+        }
         update_depth3d();
         renderer_.invalidate_skipped_frame();
         redraw_ = true;
@@ -1381,6 +1394,48 @@ void Server::toggle_focus(bool cinema) {
 }
 
 // On: cinema on the panel looked at, in depth (glasses in 3D). Off: flat, still in cinema.
+void Server::update_grow(uint64_t now) {
+    if (!opt_.glasses_pinned || focus_mode_ != 0 || renderer_.panel_count() < 2) {
+        if (!opt_.glasses_pinned && renderer_.grow_panel() != -1) renderer_.set_grow_panel(-1);
+        grow_candidate_ = -2;
+        return;
+    }
+    const auto p = pose_->latest();
+    if (!p || !p->tracking) return;
+    const int current = renderer_.grow_panel();
+    // The mouse taken to another monitor: that one, at once.
+    POINT c{};
+    if (GetCursorPos(&c)) {
+        int under = -1;
+        for (size_t i = 0; i < panel_rects_.size(); ++i) {
+            const RECT& r = panel_rects_[i];
+            if (c.x >= r.left && c.x < r.right && c.y >= r.top && c.y < r.bottom) under = static_cast<int>(i);
+        }
+        if (under != grow_mouse_panel_) {
+            grow_mouse_panel_ = under;
+            if (under >= 0 && under != current && now - last_cursor_move_ns_ < 500000000ull) {
+                renderer_.set_grow_panel(under);
+                logln("grow: panel %d (mouse)", under + 1);
+                redraw_ = true;
+                return;
+            }
+        }
+    }
+    const int panel = renderer_.panel_at_gaze(p->orientation);
+    if (panel < 0 || panel == current) {
+        grow_candidate_ = -2;
+        return;
+    }
+    if (panel != grow_candidate_) {
+        grow_candidate_ = panel;
+        grow_since_ns_ = now;
+    } else if (now - grow_since_ns_ >= 600000000ull) {
+        renderer_.set_grow_panel(panel);
+        logln("grow: panel %d (gaze)", panel + 1);
+        redraw_ = true;
+    }
+}
+
 void Server::toggle_depth3d() {
     opt_.depth3d = !opt_.depth3d;
     logln("3d: %s", opt_.depth3d ? "on" : "off");
