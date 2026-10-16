@@ -58,7 +58,7 @@ namespace {
 // ---------------------------------------------------------------------------------------
 
 struct Options {
-    std::optional<bool> side_by_side;  // nil: SBS on the glasses, mono in --windowed
+    std::optional<bool> side_by_side;  // nil: side by side when the glasses are in 3D mode, mono in --windowed
     float ipd_mm = 63;
     float distance_m = 2.0f;
     std::optional<float> arc_deg;  // nil: 38 per virtual panel, 50 for single-display capture
@@ -395,6 +395,9 @@ private:
     void collect_presented();
     void periodic();
     void handle_display_change();
+    // The glasses in their 3D mode are a double-width display (3840x1080, one image per eye).
+    bool auto_side_by_side() const { return !opt_.windowed && height_ > 0 && width_ > 3 * height_; }
+    uint64_t glasses_lost_ns_ = 0;  // their display went away at (0: present)
     bool setup_virtual_displays();
     const win::OutputInfo* find_output(const std::wstring& gdi_name) const;
     void refresh_rects();
@@ -799,7 +802,7 @@ bool Server::start() {
     }
     const int panels = static_cast<int>(sources.size());
     auto& ro = renderer_.options;
-    ro.side_by_side = opt_.side_by_side.value_or(!opt_.windowed);
+    ro.side_by_side = opt_.side_by_side.value_or(auto_side_by_side());
     ro.ipd_m = opt_.ipd_mm / 1000.0f;
     ro.distance_m = opt_.distance_m;
     ro.arc_deg = opt_.panel_arc_deg();
@@ -840,7 +843,7 @@ bool Server::start() {
                           : opt_.real_size ? "space at real size: full head rotation, panels fixed in the room"
                                            : kTracking[opt_.tracking_axes]);
     logln("render: %s, %d %s panel(s) of %.1f deg gap %.1f deg at %.1f m, ipd %.0f mm, fov %.1f deg, k1 %.3f k2 %.3f",
-          ro.side_by_side ? "half-SBS" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
+          ro.side_by_side ? "side by side (glasses in 3D)" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
           ro.distance_m, opt_.ipd_mm, ro.fov_y_deg, ro.k1, ro.k2);
 
     for (int i = 0; i < panels; ++i) {
@@ -1090,6 +1093,7 @@ void Server::periodic() {
     if (now < next_stats_ns_) return;
     next_stats_ns_ += 1000000000ull;
     if (next_stats_ns_ < now) next_stats_ns_ = now + 1000000000ull;
+    if (glasses_lost_ns_ != 0) handle_display_change();  // waiting for the glasses' display to come back
 
     keep_floating_windows();
 
@@ -1184,9 +1188,35 @@ void Server::handle_display_change() {
         if (o.gdi_name == glasses_gdi_ && o.glasses) glasses = &o;
     }
     if (glasses == nullptr) {
-        logln("glasses display disconnected: stopping");
-        request_stop("glasses disconnected");
-        return;
+        // Switching the glasses between 2D and 3D takes their display away for a moment (and
+        // brings it back at another size, maybe under another name) while the IMU keeps going:
+        // wait for it (periodic() looks again). Unplugged, the IMU stops and Nimbo stops.
+        for (const auto& o : outputs_) {
+            if (o.glasses) glasses = &o;
+        }
+        if (glasses == nullptr) {
+            if (glasses_lost_ns_ == 0) {
+                glasses_lost_ns_ = steady_ns();
+                logln("glasses display gone (switching 2D / 3D?): waiting for it");
+            } else if (steady_ns() - glasses_lost_ns_ > 10000000000ull) {
+                logln("glasses display disconnected: stopping");
+                request_stop("glasses disconnected");
+            }
+            return;
+        }
+        glasses_gdi_ = glasses->gdi_name;
+        logln("glasses display back as %s", win::narrow(glasses_gdi_).c_str());
+    }
+    if (glasses_lost_ns_ != 0) {
+        glasses_lost_ns_ = 0;
+        if (const auto m = win::set_native_mode(glasses_gdi_, opt_.refresh120 ? 120 : 60)) {
+            mode_changed_ = true;
+            Sleep(300);
+            outputs_ = win::enumerate_outputs();
+            glasses = find_output(glasses_gdi_);
+            if (glasses == nullptr) return;
+            logln("glasses mode: %dx%d native", m->width, m->height);
+        }
     }
     if (const auto m = win::current_mode(glasses_gdi_)) refresh_hz_ = m->hz;
     // Panels or the glasses' surface moved, and not by us: lay them out our way again.
@@ -1212,7 +1242,13 @@ void Server::handle_display_change() {
         swap_chain_->ResizeBuffers(0, static_cast<UINT>(width_), static_cast<UINT>(height_), DXGI_FORMAT_UNKNOWN,
                                    DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
         create_back_buffer_view();
-        logln("surface: %dx%d px", width_, height_);
+        // One image per eye exactly when the glasses are in their 3D mode (double width).
+        renderer_.options.side_by_side = opt_.side_by_side.value_or(auto_side_by_side());
+        logln("surface: %dx%d px, %s", width_, height_,
+              renderer_.options.side_by_side ? "side by side (glasses in 3D)" : "mono (glasses in 2D)");
+        update_depth3d();
+        renderer_.invalidate_skipped_frame();
+        redraw_ = true;
     }
     vblank_output_.Reset();
     swap_chain_->GetContainingOutput(&vblank_output_);
@@ -1293,7 +1329,7 @@ void Server::update_depth3d() {
     ro.depth_convergence = opt_.depth_plane;
     const bool cinema = focus_mode_ == 2 && ro.focus_panel >= 0;
     const int wanted = opt_.depth3d && cinema && ro.side_by_side ? ro.focus_panel : -1;
-    if (opt_.depth3d && cinema && !ro.side_by_side) logln("3d: needs side by side (\"Imagen en 3D\", glasses in 3D mode)");
+    if (opt_.depth3d && cinema && !ro.side_by_side) logln("3d: put the glasses in their 3D mode");
     if (wanted >= 0 && depth_.state() == win::DepthEngine::State::Idle) {
         logln("3d: preparing the depth model");
         depth_.start([](const std::string& line) { logln("%s", line.c_str()); });
@@ -1942,7 +1978,7 @@ void Server::apply_pending() {
     }
     if (o->fov_from_cli) ro.fov_y_deg = o->fov_y_deg;
     ro.ipd_m = o->ipd_mm / 1000.0f;
-    ro.side_by_side = o->side_by_side.value_or(!opt_.windowed);
+    ro.side_by_side = o->side_by_side.value_or(auto_side_by_side());
     ro.k1 = o->k1;
     ro.k2 = o->k2;
     ro.dim_others = o->dim_others;
@@ -2283,7 +2319,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.arc_deg = s.size_deg;
     o.fov_y_deg = s.fov_y_deg;
     o.ipd_mm = s.ipd_mm;
-    o.side_by_side = s.stereo ? 1 : 0;
+    o.side_by_side = -1;  // one image per eye exactly when the glasses are in their 3D mode
     o.dead_zone_deg = s.dead_zone_deg;
     o.gaze_cursor = s.gaze_cursor;
     o.dim_others = s.dim_others ? 0.55f : 1.0f;  // linear light: ~80 % perceived brightness

@@ -31,7 +31,6 @@ struct SettingsView: View {
         .onChange(of: model.fov) { server.settingsChanged() }
         .onChange(of: model.ipd) { server.settingsChanged() }
         .onChange(of: model.deadZone) { server.settingsChanged() }
-        .onChange(of: model.stereo) { server.settingsChanged() }
         .onChange(of: model.gazeCursor) { server.settingsChanged() }
         .onChange(of: model.dimOthers) { server.settingsChanged() }
         .onChange(of: model.tracking) { server.settingsChanged() }
@@ -89,7 +88,7 @@ struct SettingsView: View {
             Section(title: "Cine en 3D con IA") {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Ver el modo cine en 3D", isOn: $model.depth3D)
-                    Text("Una IA calcula la profundidad de cada fotograma y la pantalla del modo cine (⌘⌥P) se ve en relieve. Necesita «Imagen en 3D» y las gafas en modo 3D. La primera vez descarga el modelo (48 MB). ⌘⌥3 lo activa y lo quita. Netflix y otras plataformas con protección se ven en negro; YouTube y tus vídeos, sí.")
+                    Text("Una IA calcula la profundidad de cada fotograma y la pantalla del modo cine (⌘⌥P) se ve en relieve. Pon las gafas en modo 3D (Nimbo lo detecta solo, también con Nimbo ya abierto). La primera vez descarga el modelo (25 MB). ⌘⌥3 lo activa y lo quita. Netflix y otras plataformas con protección se ven en negro; YouTube y tus vídeos, sí.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
@@ -112,7 +111,6 @@ struct SettingsView: View {
                         LabeledSlider(title: "Zona quieta", value: $model.deadZone, range: 0.3...2.5, step: 0.1,
                                       caption: String(format: "%.1f°", model.deadZone))
                     }
-                    Toggle("Imagen en 3D (gafas en modo 3D)", isOn: $model.stereo)
                     Toggle("El cursor sigue a tu mirada", isOn: $model.gazeCursor)
                     Toggle("Traer mis ventanas al empezar", isOn: $model.gatherWindows)
                     LabeledSlider(title: "Corrección de lente k1", value: $model.k1, range: -0.2...0.2, step: 0.01,

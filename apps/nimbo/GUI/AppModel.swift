@@ -353,7 +353,7 @@ final class AppModel: ObservableObject {
         o.fovYDeg = Float(fov)
         o.fovFromCLI = true
         o.ipdMM = Float(ipd)
-        o.sideBySide = stereo
+        o.sideBySide = nil  // one image per eye exactly when the glasses are in their 3D mode
         // Space at real size: the panels never move with the head, not even a little (the dead
         // zone would hold them on the head while it moves less than it, then let go).
         // Anchor at rest: frozen while the head holds within 0.3 deg (-1 - 0.3, see rayneo_config).

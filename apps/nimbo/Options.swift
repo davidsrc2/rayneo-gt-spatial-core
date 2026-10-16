@@ -26,7 +26,7 @@ struct FloatingWindow: Codable, Hashable {
 }
 
 struct ServerOptions {
-    var sideBySide: Bool? = nil   // nil: SBS on the glasses, mono in --windowed
+    var sideBySide: Bool? = nil   // nil: side by side when the glasses are in their 3D mode (3840x1080), mono in --windowed
     var ipdMM: Float = 63
     var distanceM: Float = 2.0
     var arcDeg: Float? = nil      // nil: 38 per virtual panel, 50 for single-display capture
@@ -125,7 +125,7 @@ struct ServerOptions {
       --track AXES         head rotations that move the panels: h (left/right, default: still
                            vertically), v (up/down, for stacked monitors) or both
     optics
-      --mono / --sbs       single view (glasses 2D) / half side-by-side (glasses 3D)
+      --mono / --sbs       force one image / one image per eye (default: follows the glasses' 2D / 3D mode)
       --ipd MM             interpupillary distance (63)
       --fov DEG            per-eye vertical FOV of the optics (24.5, or the value tuned with
                            Cmd+Opt+- / Cmd+Opt+= which is remembered)

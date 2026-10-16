@@ -298,7 +298,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         layer.displaySyncEnabled = true  // without vsync the scanout time does not move, only the estimate
 
         renderer = try RNSpatialRenderer(device: device, pixelFormat: .bgra8Unorm_srgb)
-        let sbs = options.sideBySide ?? !options.windowed
+        // One image per eye when the glasses are in their 3D mode (nothing to switch in Nimbo).
+        let sbs = options.sideBySide ?? autoSideBySide
         let ro = renderer.options
         ro.sideBySide = sbs
         ro.ipdMeters = options.ipdMM / 1000
@@ -335,7 +336,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         applyPinned(options)
         log("tracking: " + (options.glassesPinned ? "by the glasses (pinned mode); panels fitted inside their image" : ["full head rotation", "left/right turn only (panels never move vertically)",
                             "up/down only (panels never move sideways)"][max(0, min(2, ro.trackingAxes))]))
-        log("render: \(sbs ? "half-SBS" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
+        log("render: \(sbs ? "side by side (glasses in 3D)" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
         if options.headless { statusMenu = StatusMenu { [weak self] in self?.recenter() } }
@@ -389,10 +390,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func screensChanged() {
         guard let id = glassesID else { return }
         guard let s = NSScreen.screens.first(where: { Displays.id(of: $0) == id }) else {
-            shutDown("glasses display disconnected")
+            glassesLost()
             return
         }
         if window.frame != s.frame { window.setFrame(s.frame, display: true) }
+        fitSurface(to: s)
         // A monitor coming or going (a floating window added or removed) and macOS lays the
         // displays out its own way: the glasses' surface ended up beside the Mac's screen (the
         // cursor fell onto it and jumped back) and a floating window's monitor to the right.
@@ -444,13 +446,80 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // the original display arrangement (all display changes are app-scoped).
     private func checkGlassesPresent() {
         if let id = glassesID, CGDisplayIsOnline(id) == 0 || CGDisplayIsActive(id) == 0 && CGDisplayIsInMirrorSet(id) == 0 {
-            shutDown("glasses display disconnected")
-            return
+            glassesLost()
+        } else {
+            glassesLostSince = nil
         }
         guard pose is ImuPoseSource, let p = pose.latest() else { return }
         stalePoseSeconds = p.hostTimeNs == lastPoseNs ? stalePoseSeconds + 1 : 0
         lastPoseNs = p.hostTimeNs
         if stalePoseSeconds >= 2 { shutDown("glasses IMU stopped (unplugged?)") }
+    }
+
+    // MARK: glasses 2D / 3D
+
+    // In --windowed: mono; on the glasses: side by side when they are in their 3D mode.
+    private var autoSideBySide: Bool { glassesID.map(Displays.isSideBySide) ?? false }
+
+    // The glasses' display went away. Switching them between 2D and 3D does that for a moment
+    // (and comes back at another size) while the IMU keeps streaming: wait for it rather than
+    // stop. Unplugged, the IMU stops too and the check above stops Nimbo.
+    private var glassesLostSince: Date?
+
+    private func glassesLost() {
+        if let s = Displays.glassesScreen(), CGDisplayIsOnline(Displays.id(of: s)) != 0 {
+            glassesLostSince = nil
+            retargetGlasses(s)
+            return
+        }
+        if glassesLostSince == nil {
+            glassesLostSince = Date()
+            log("glasses display gone (switching 2D / 3D?): waiting for it")
+        } else if let since = glassesLostSince, Date().timeIntervalSince(since) > 10 {
+            shutDown("glasses display disconnected")
+        }
+    }
+
+    // The glasses' display is back (another id or size): the render window, its surface and
+    // side by side follow it.
+    private func retargetGlasses(_ found: NSScreen) {
+        let id = Displays.id(of: found)
+        if options.unmirror { _ = Displays.unmirror(glasses: id) }
+        if let m = Displays.setNative(id, hz: options.refresh120 ? 120 : 60) {
+            log("glasses mode: \(m.pixelWidth)x\(m.pixelHeight) native @\(Int(m.refreshRate)) Hz")
+        }
+        let screen = NSScreen.screens.first { Displays.id(of: $0) == id } ?? found
+        glassesID = id
+        if physicalDisplay != nil { physicalDisplay = id }
+        window.setFrame(screen.frame, display: true)
+        window.orderFrontRegardless()
+        fitSurface(to: screen)
+        // The display link stops with the display that went away.
+        displayLink?.invalidate()
+        renderThread?.cancel()
+        startRenderLoop(layer: view.metalLayer)
+        // macOS placed the display its own way: tucked away again.
+        rearrangeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.rearrangeDisplays() }
+        rearrangeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+    }
+
+    // Drawable at the display's pixel size; side by side with the glasses in 3D.
+    private func fitSurface(to screen: NSScreen) {
+        guard let id = glassesID, let view, let mode = CGDisplayCopyDisplayMode(id), screen.frame.width > 0 else { return }
+        let layer = view.metalLayer
+        let size = CGSize(width: mode.pixelWidth, height: mode.pixelHeight)
+        let sbs = options.sideBySide ?? Displays.isSideBySide(id)
+        guard layer.drawableSize != size || renderer.options.sideBySide != sbs else { return }
+        layer.contentsScale = CGFloat(mode.pixelWidth) / screen.frame.width
+        layer.drawableSize = size
+        renderer.options.sideBySide = sbs
+        renderer.invalidateSkippedFrame()
+        log(String(format: "surface: %.0fx%.0f px, %@", size.width, size.height, sbs ? "side by side (glasses in 3D)" : "mono (glasses in 2D)"))
+        onNotice?(sbs ? "Gafas en 3D: una imagen para cada ojo" : "Gafas en 2D")
+        updateDepth3D()
+        requestRedraw()
     }
 
     private func shutDown(_ reason: String) {
@@ -474,7 +543,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.tilt = o.tilt
         ro.fovYDegrees = o.fovYDeg
         ro.ipdMeters = o.ipdMM / 1000
-        ro.sideBySide = o.sideBySide ?? !o.windowed
+        ro.sideBySide = o.sideBySide ?? autoSideBySide
         ro.k1 = o.k1
         ro.k2 = o.k2
         ro.dimOthers = o.dimOthers
@@ -1079,7 +1148,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let cinema = focusMode == 2 && ro.focusPanel >= 0
         let wanted = options.depth3D && cinema && ro.sideBySide ? ro.focusPanel : -1
         if options.depth3D && cinema && !ro.sideBySide {
-            onNotice?("El 3D con IA necesita «Imagen en 3D» (gafas en modo 3D)")
+            onNotice?("Pon las gafas en modo 3D para ver el cine en 3D")
         }
         if wanted >= 0 && !depth3D.isLoaded {
             guard depthLoading == nil else { return }
