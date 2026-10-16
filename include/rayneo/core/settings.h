@@ -36,6 +36,9 @@ struct Settings {
     float tilt = 1.0f;           // "tilt": panels above / below face you (1) .. stand upright (0)
     bool anchor_at_rest = false;  // "anchorAtRest": panels frozen while the head holds still
     bool mac_screen = true;      // "macScreen": the computer's own screen is panel 1 (laptop lid open)
+    bool depth3d = false;        // "depth3D": cinema mode in depth from a depth map per frame (AI)
+    float depth_strength = 0.015f;  // "depthStrength": parallax at the nearest depth, in panel widths
+    float depth_plane = 0.35f;   // "depthPlane": depth left on the panel's plane, 0 far .. 1 near
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"

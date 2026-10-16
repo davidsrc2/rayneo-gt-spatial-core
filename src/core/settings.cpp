@@ -196,6 +196,9 @@ std::string settings_to_json(const Settings& s) {
     put(out, "tilt", s.tilt);
     put(out, "anchorAtRest", s.anchor_at_rest);
     put(out, "macScreen", s.mac_screen);
+    put(out, "depth3D", s.depth3d);
+    put(out, "depthStrength", s.depth_strength);
+    put(out, "depthPlane", s.depth_plane);
     put(out, "k1", s.k1);
     put(out, "k2", s.k2);
     put(out, "onboardingDone", s.onboarding_done, true);
@@ -212,14 +215,16 @@ std::optional<Settings> settings_from_json(std::string_view json) {
     } floats[] = {{"distance", &s.distance_m}, {"gap", &s.gap_deg},     {"curvature", &s.curvature},
                   {"size", &s.size_deg},       {"fovY", &s.fov_y_deg},  {"ipd", &s.ipd_mm},
                   {"deadZone", &s.dead_zone_deg}, {"k1", &s.k1},        {"k2", &s.k2},
-                  {"tilt", &s.tilt}};
+                  {"tilt", &s.tilt},           {"depthStrength", &s.depth_strength},
+                  {"depthPlane", &s.depth_plane}};
     const struct {
         const char* key;
         bool* value;
     } bools[] = {{"autoStart", &s.auto_start},       {"stereo", &s.stereo},
                  {"gazeCursor", &s.gaze_cursor},     {"dimOthers", &s.dim_others},
                  {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done},
-                 {"anchorAtRest", &s.anchor_at_rest}, {"macScreen", &s.mac_screen}};
+                 {"anchorAtRest", &s.anchor_at_rest}, {"macScreen", &s.mac_screen},
+                 {"depth3D", &s.depth3d}};
     bool has_mode = false, legacy_pinned = false;
     bool has_tracking = false, legacy_yaw_only = true, has_legacy = false;
 

@@ -78,6 +78,10 @@ typedef struct {
     float tilt;                         /* panels above / below: 1 face you .. 0 upright */
     bool real_size;                     /* every panel as large as the glasses' image (fits both ways), both axes */
     bool laptop_screen;                 /* the computer's own (primary) screen is panel 1; the rest virtual */
+    /* AI 3D: in cinema mode the panel in depth from a depth map per frame (needs side_by_side) */
+    bool depth3d;
+    float depth_strength;               /* parallax between the eyes at the nearest depth, in panel widths (0.015) */
+    float depth_plane;                  /* depth left on the panel's plane, 0 far .. 1 near (0.35) */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -124,6 +128,8 @@ NIMBO_API void nimbo_adjust_fov(nimbo_server* s, float delta_deg);
 /* Focus mode (only the panel you look at) or, with cinema, that panel centred and large.
  * The same call again brings every panel back (Ctrl+Alt+O / Ctrl+Alt+P). */
 NIMBO_API void nimbo_toggle_focus(nimbo_server* s, bool cinema);
+/* AI 3D on / off for this run (Ctrl+Alt+3); the options' depth3d is applied again with nimbo_apply. */
+NIMBO_API void nimbo_toggle_depth3d(nimbo_server* s);
 NIMBO_API void nimbo_get_status(nimbo_server* s, nimbo_status* out);
 
 /* Log lines of every server in the process (and the calibration), from any thread. NULL:
@@ -175,6 +181,9 @@ typedef struct {
     float tilt;            /* panels above / below: 1 face you .. 0 upright */
     bool anchor_at_rest;   /* panels frozen while the head holds still */
     bool laptop_screen;    /* "macScreen": the computer's own screen is panel 1 */
+    bool depth3d;          /* "depth3D": cinema mode in depth (AI) */
+    float depth_strength;  /* "depthStrength" */
+    float depth_plane;     /* "depthPlane" */
 } nimbo_settings;
 
 NIMBO_API nimbo_settings nimbo_default_settings(void);

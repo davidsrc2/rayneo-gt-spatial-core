@@ -100,6 +100,9 @@ struct Options {
     float tilt = 1;                        // panels above / below: 1 face you .. 0 upright
     bool real_size = false;                // not pinned: every panel as large as the glasses' image, both axes
     bool laptop_screen = false;            // the computer's own (primary) screen is panel 1
+    bool depth3d = false;                  // AI 3D: the cinema panel in depth (needs side by side)
+    float depth_strength = 0.015f;         // parallax between the eyes at the nearest depth, in panel widths
+    float depth_plane = 0.35f;             // depth left on the panel's plane, 0 far .. 1 near
 
     float panel_arc_deg() const { return arc_deg.value_or(displays > 0 ? 38.0f : 50.0f); }
 };
@@ -158,6 +161,9 @@ Options from_c(const nimbo_options& c) {
     o.tilt = std::clamp(c.tilt, 0.0f, 1.0f);
     o.real_size = c.real_size;
     o.laptop_screen = c.laptop_screen;
+    o.depth3d = c.depth3d;
+    if (c.depth_strength > 0) o.depth_strength = std::min(c.depth_strength, 0.05f);
+    o.depth_plane = std::clamp(c.depth_plane, 0.0f, 1.0f);
     return o;
 }
 
@@ -328,7 +334,7 @@ void save_fov(float fov) {
 
 constexpr UINT_PTR kRepinTimer = 1;  // recentre in the glasses' pinned mode: back to pinned
 
-enum HotKey { kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema };
+enum HotKey { kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema, kDepth3D };
 
 
 struct LatencyStats {
@@ -397,6 +403,11 @@ private:
     void jump_cursor_to_gaze();
     void toggle_focus(bool cinema);
     int focus_mode_ = 0;  // 0 all, 1 focus, 2 cinema
+    // AI 3D: the cinema panel in depth while on and side by side; loads the model the first time.
+    void update_depth3d();
+    void toggle_depth3d();
+    win::DepthEngine depth_;
+    bool depth_failed_logged_ = false;
     bool overlay_shown_ = false;  // start-up message on the glasses until tracking starts
     void start_floating(std::vector<Options::Floating> specs);
     core::PanelPose default_floating_pose(int index) const;
@@ -498,6 +509,9 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_APP + 3:  // nimbo_toggle_focus: wp = cinema
         if (server != nullptr) server->on_hotkey(wp != 0 ? kCinema : kFocus);
+        return 0;
+    case WM_APP + 4:  // nimbo_toggle_depth3d
+        if (server != nullptr) server->on_hotkey(kDepth3D);
         return 0;
     case WM_APP + 2:  // nimbo_adjust_fov: lp = delta in hundredths of a degree
         if (server != nullptr) server->adjust_fov(static_cast<float>(static_cast<int>(lp)) / 100.0f);
@@ -799,6 +813,9 @@ bool Server::start() {
     ro.k2 = opt_.k2;
     ro.dim_others = opt_.dim_others;
     ro.tracking_axes = static_cast<core::TrackingAxes>(opt_.tracking_axes);
+    ro.depth_strength = opt_.depth_strength;
+    ro.depth_convergence = opt_.depth_plane;
+    renderer_.set_depth_engine(&depth_);
     renderer_.set_panel_count(panels);
     if (static_cast<int>(opt_.layout.size()) == panels) renderer_.set_grid(opt_.layout);
     ro.layout_arc_deg = opt_.panel_arc_deg();
@@ -859,7 +876,8 @@ bool Server::start() {
     };
     std::vector<Key> keys = {{kRecenter, 'C', "Ctrl+Alt+C"}, {kQuit, 'Q', "Ctrl+Alt+Q"},
                              {kFovDown, VK_OEM_MINUS, "Ctrl+Alt+-"}, {kFovUp, VK_OEM_PLUS, "Ctrl+Alt+="},
-                             {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"}};
+                             {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"},
+                             {kDepth3D, '3', "Ctrl+Alt+3"}};
     if (opt_.sim) {
         keys.push_back({kLeft, VK_LEFT, "Ctrl+Alt+Left"});
         keys.push_back({kRight, VK_RIGHT, "Ctrl+Alt+Right"});
@@ -1140,6 +1158,20 @@ void Server::periodic() {
         s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? (" (" + std::to_string(s.idle) + " idle)").c_str() : "",
         static_cast<unsigned long long>(cap_fps), captures_.size(), s.pose_age_sum / n, s.pose_age_max, s.presented_sum / pn,
         s.presented_max, s.target_err_sum / pn, s.pred_sum / n, imu.c_str(), wobble.c_str());
+    if (renderer_.options.depth_panel >= 0) {
+        if (depth_.state() == win::DepthEngine::State::Failed) {
+            if (!depth_failed_logged_) logln("3d: unavailable (%s); the panel stays flat", depth_.error().c_str());
+            depth_failed_logged_ = true;
+        } else if (depth_.state() == win::DepthEngine::State::Ready) {
+            const auto r = renderer_.take_depth_stats();
+            const auto d = depth_.take_stats();
+            int w = 0, h = 0;
+            depth_.input_size(&w, &h);
+            const double dn = std::max(1, d.frames);
+            logln("3d: %d depth fps (%d dropped, %d cut(s)) | infer %.1f ms | prep %.1f ms | input %dx%d", r.shown,
+                  r.dropped, d.cuts, d.infer_ms / dn, d.prep_ms / dn, w, h);
+        }
+    }
 }
 
 // Keeps the render window on the glasses whatever Windows does with the layout.
@@ -1245,6 +1277,35 @@ void Server::toggle_focus(bool cinema) {
         ro.cinema = cinema;
         logln("focus: %s on panel %d", cinema ? "cinema" : "focus", ro.focus_panel + 1);
     }
+    update_depth3d();
+    redraw_ = true;
+}
+
+void Server::toggle_depth3d() {
+    opt_.depth3d = !opt_.depth3d;
+    logln("3d: %s%s", opt_.depth3d ? "on" : "off", opt_.depth3d && focus_mode_ != 2 ? " (in cinema mode, Ctrl+Alt+P)" : "");
+    update_depth3d();
+}
+
+void Server::update_depth3d() {
+    auto& ro = renderer_.options;
+    ro.depth_strength = opt_.depth_strength;
+    ro.depth_convergence = opt_.depth_plane;
+    const bool cinema = focus_mode_ == 2 && ro.focus_panel >= 0;
+    const int wanted = opt_.depth3d && cinema && ro.side_by_side ? ro.focus_panel : -1;
+    if (opt_.depth3d && cinema && !ro.side_by_side) logln("3d: needs side by side (\"Imagen en 3D\", glasses in 3D mode)");
+    if (wanted >= 0 && depth_.state() == win::DepthEngine::State::Idle) {
+        logln("3d: preparing the depth model");
+        depth_.start([](const std::string& line) { logln("%s", line.c_str()); });
+    }
+    if (wanted != ro.depth_panel) {
+        if (wanted >= 0) {
+            logln("3d: depth on panel %d (strength %.3f, plane %.2f)", wanted + 1, ro.depth_strength, ro.depth_convergence);
+        } else {
+            logln("3d: off");
+        }
+    }
+    ro.depth_panel = wanted;
     redraw_ = true;
 }
 
@@ -1744,6 +1805,7 @@ void Server::on_hotkey(int id) {
     case kJump: jump_cursor_to_gaze(); break;
     case kFocus: toggle_focus(false); break;
     case kCinema: toggle_focus(true); break;
+    case kDepth3D: toggle_depth3d(); break;
     default: break;
     }
 }
@@ -1896,6 +1958,10 @@ void Server::apply_pending() {
     apply_pinned(*o);  // after the width above: it overrides it
     opt_.gaze_cursor = o->gaze_cursor;
     opt_.gather_windows = o->gather_windows;
+    opt_.depth3d = o->depth3d;
+    opt_.depth_strength = o->depth_strength;
+    opt_.depth_plane = o->depth_plane;
+    update_depth3d();
     redraw_ = true;
     std::lock_guard<std::mutex> lock(shared_mutex_);
     status_.fov_y_deg = ro.fov_y_deg;
@@ -1961,6 +2027,9 @@ core::Settings to_core(const nimbo_settings& c) {
     s.tilt = std::clamp(c.tilt, 0.0f, 1.0f);
     s.anchor_at_rest = c.anchor_at_rest;
     s.mac_screen = c.laptop_screen;
+    s.depth3d = c.depth3d;
+    s.depth_strength = c.depth_strength;
+    s.depth_plane = c.depth_plane;
     for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
         s.panels.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
     }
@@ -1996,6 +2065,9 @@ nimbo_settings to_c(const core::Settings& s) {
     c.tilt = s.tilt;
     c.anchor_at_rest = s.anchor_at_rest;
     c.laptop_screen = s.mac_screen;
+    c.depth3d = s.depth3d;
+    c.depth_strength = s.depth_strength;
+    c.depth_plane = s.depth_plane;
     c.pose_count = static_cast<int>(std::min<size_t>(s.panels.size(), NIMBO_MAX_PANELS));
     for (int i = 0; i < c.pose_count; ++i) {
         c.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;
@@ -2042,6 +2114,8 @@ nimbo_options nimbo_default_options(void) {
     o.tracking_axes = 1;
     o.glasses_mode = -1;
     o.tilt = 1.0f;
+    o.depth_strength = 0.015f;
+    o.depth_plane = 0.35f;
     return o;
 }
 
@@ -2113,6 +2187,12 @@ void nimbo_recenter(nimbo_server* s) {
 void nimbo_adjust_fov(nimbo_server* s, float delta_deg) {
     std::lock_guard<std::mutex> lock(s->mutex);
     if (s->server) s->server->post(WM_APP + 2, 0, static_cast<LPARAM>(std::lround(delta_deg * 100.0f)));
+}
+
+void nimbo_toggle_depth3d(nimbo_server* s) {
+    if (s == nullptr) return;
+    std::lock_guard<std::mutex> lock(s->mutex);
+    if (s->server) s->server->post(WM_APP + 4);
 }
 
 void nimbo_toggle_focus(nimbo_server* s, bool cinema) {
@@ -2219,6 +2299,9 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.dead_zone_deg = s.anchor_at_rest ? -1.3f : -1.0f;  // see rayneo_config: -1 - hold
     o.tilt = s.tilt;
     o.laptop_screen = s.mac_screen;
+    o.depth3d = s.depth3d;
+    o.depth_strength = s.depth_strength;
+    o.depth_plane = s.depth_plane;
     o.brightness = s.brightness;
     o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;
     for (int i = 0; i < o.pose_count; ++i) {

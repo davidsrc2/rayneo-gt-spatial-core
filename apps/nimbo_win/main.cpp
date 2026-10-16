@@ -37,6 +37,11 @@ space at real size (the app's mode)
   --anchor             with --space: panels frozen while the head holds still
   --tilt K             panels above / below: 1 face you (default) .. 0 upright
   --laptop-screen      the computer's own (primary) screen is panel 1, the rest virtual
+AI 3D (cinema mode, Ctrl+Alt+P)
+  --depth3d            the cinema panel in depth from a depth map per frame (Ctrl+Alt+3); needs
+                       --sbs and the glasses in 3D mode. ONNX Runtime + DirectML, model downloaded once
+  --depth-strength F   parallax at the nearest depth, in panel widths (0.015)
+  --depth-plane F      depth left on the panel's plane, 0 far .. 1 near (0.35)
 layout
   --displays N         virtual monitors around you (2; needs the Virtual Display Driver);
                        0 = show an existing display
@@ -247,6 +252,9 @@ bool parse(int argc, char** argv, Cli* cli) {
         else if (a == "--anchor") o.dead_zone_deg = -1.3f;  // world-locked, frozen within 0.3 deg
         else if (a == "--tilt" && number(&f) && f >= 0 && f <= 1) o.tilt = f;
         else if (a == "--laptop-screen") o.laptop_screen = true;
+        else if (a == "--depth3d") o.depth3d = true;
+        else if (a == "--depth-strength" && number(&f) && f > 0 && f <= 0.05f) o.depth_strength = f;
+        else if (a == "--depth-plane" && number(&f) && f >= 0 && f <= 1) o.depth_plane = f;
         else return false;
     }
     // The space at real size is the app's mode, with the glasses in 2D: mono unless --sbs.

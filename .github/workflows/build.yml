@@ -83,6 +83,8 @@ jobs:
           if (-not (Test-Path build/NimboApp/Nimbo.exe)) { throw "Nimbo.exe missing" }
           if (-not (Test-Path build/NimboApp/nimbo_server.dll)) { throw "nimbo_server.dll not copied next to the app" }
           if (-not (Test-Path build/NimboApp/nimbo_win.exe)) { throw "nimbo_win.exe not copied next to the app" }
+          if (-not (Test-Path build/NimboApp/onnxruntime.dll)) { throw "onnxruntime.dll not copied next to the app" }
+          if (-not (Test-Path build/NimboApp/DirectML.dll)) { throw "DirectML.dll not copied next to the app" }
 
       - name: Upload Windows app
         if: runner.os == 'Windows'
@@ -99,6 +101,8 @@ jobs:
           path: |
             build/Release/nimbo_win.exe
             build/Release/nimbo_server.dll
+            build/Release/onnxruntime.dll
+            build/Release/DirectML.dll
             build/Release/imu_probe.exe
 
       - name: Core-only build (no hidapi)

@@ -118,6 +118,11 @@ internal sealed class ServerController : IDisposable
         if (IsRunning) NimboNative.nimbo_toggle_focus(_server, cinema ? (byte)1 : (byte)0);
     }
 
+    public void ToggleDepth3D()
+    {
+        if (IsRunning) NimboNative.nimbo_toggle_depth3d(_server);
+    }
+
     public void Recenter()
     {
         if (IsRunning) NimboNative.nimbo_recenter(_server);  // in pinned mode: the glasses' anchor

@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "depth_engine.h"
 #include "desktop_duplication.h"
 #include "rayneo/core/frame_skip.h"
 #include "rayneo/core/panel_dimmer.h"
@@ -39,6 +40,12 @@ struct RenderOptions {
     float layout_arc_deg = 0.0f; // panel size the hand-placed poses refer to (0 = arc_deg)
     int focus_panel = -1;        // focus mode: only this panel is drawn (-1 = all)
     bool cinema = false;         // with focus_panel: centred straight ahead and large
+    // AI 3D: this panel's frames go through the depth engine and it is drawn in depth when side
+    // by side (-1: none).
+    int depth_panel = -1;
+    float depth_strength = 0.015f;     // parallax between the eyes at the nearest depth, in panel widths
+    float depth_convergence = 0.35f;   // depth (0 far .. 1 near) left on the panel's plane
+    float depth_smoothing = 0.35f;     // weight of each new depth map against the previous ones
 };
 
 // Render thread only, except where noted.
@@ -62,6 +69,17 @@ public:
     void set_overlay_text(const std::wstring& text);
     // The capture feeding a panel (not owned; must outlive the renderer's use).
     void set_source(int panel, FrameSource* source);
+    // AI 3D (not owned; must outlive the renderer's use).
+    void set_depth_engine(DepthEngine* engine) { depth_ = engine; }
+    struct DepthStats {
+        int shown = 0;    // frames shown with their depth
+        int dropped = 0;  // read back but replaced by a newer one before the engine was free
+    };
+    DepthStats take_depth_stats() {
+        const DepthStats s = depth_stats_;
+        depth_stats_ = DepthStats{};
+        return s;
+    }
 
     float fit_arc_deg(int columns) const;
     int panel_at_gaze(const core::Quat& head) const;
@@ -109,6 +127,31 @@ private:
     std::vector<core::PanelPlacement> placements(float aspect) const;
     void rebuild_mesh(Panel& p, const core::PanelPlacement& pl);
     void compose(Panel& p);
+    // compose in two steps: the frame copied into the composite, then the cursor and mipmaps.
+    bool compose_copy(Panel& p, ID3D11Texture2D* frame, int width, int height);
+    void compose_finish(Panel& p, const PointerState& pointer);
+
+    // AI 3D. A frame of the depth panel goes: copied into a slot (with its pointer), shrunk on
+    // the GPU and read back without waiting (Reading), handed to the engine (Inferring; while it
+    // is busy, the newest read-back one waits: Ready), and shown with its depth when that comes.
+    struct DepthSlot {
+        enum class State { Free, Reading, Ready, Inferring } state = State::Free;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> color;         // full size, mipmapped (to shrink without aliasing)
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> color_srv;  // UNORM
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> staging;       // the shrunk frame for the CPU
+        int width = 0, height = 0;                             // full size
+        int small_w = 0, small_h = 0;
+        PointerState pointer;
+        uint64_t seq = 0;
+        DepthInput input;                                      // Ready: the bytes read back
+    };
+    static constexpr int kDepthSlots = 3;
+    void depth_frame(Panel& p);
+    void depth_capture(Panel& p);
+    void depth_reset();
+    bool depth_pending() const;
+    bool ensure_depth_slot(DepthSlot& s, int width, int height, int small_w, int small_h);
+    void blend_depth(const DepthOutput& out);
     void ensure_eye_textures(int width, int height);
     float vertical_arc(float aspect) const;
     void fit_in_glasses_image(std::vector<core::PanelPlacement>& out) const;
@@ -118,6 +161,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> ctx_;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> screen_vs_, fullscreen_vs_, overlay_vs_;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> screen_ps_, distort_ps_, overlay_ps_;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> stereo_ps_, depth_blend_ps_, downscale_ps_;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> stereo_cb_, depth_blend_cb_;
+    Microsoft::WRL::ComPtr<ID3D11SamplerState> depth_sampler_;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> layout_;
     Microsoft::WRL::ComPtr<ID3D11Buffer> scene_cb_, panel_cb_, distort_cb_, overlay_cb_;
     Microsoft::WRL::ComPtr<ID3D11SamplerState> sampler_;
@@ -141,6 +187,25 @@ private:
     core::PanelDimmer dimmer_;
     core::FrameSkipper skipper_;
     uint64_t last_frame_ns_ = 0;
+
+    DepthEngine* depth_ = nullptr;
+    DepthSlot depth_slots_[kDepthSlots];
+    int depth_active_ = -1;                 // panel the slots and maps belong to
+    uint64_t depth_seq_ = 0;
+    uint64_t depth_captured_generation_ = ~0ull;
+    uint64_t depth_generation_ = 0;         // bumps with every frame shown in depth: draw it
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> depth_small_;  // the shrunk frame (render target)
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> depth_small_rtv_;
+    int depth_small_w_ = 0, depth_small_h_ = 0;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> depth_raw_;    // R32F, the engine's map as it came
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> depth_raw_srv_;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> depth_smooth_[2];  // R16F, temporally smoothed (ping-pong)
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> depth_smooth_rtv_[2];
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> depth_smooth_srv_[2];
+    int depth_map_w_ = 0, depth_map_h_ = 0;
+    int depth_smooth_index_ = 0;
+    bool depth_valid_ = false;              // a smoothed map exists for depth_active_
+    DepthStats depth_stats_;
 };
 
 }  // namespace rayneo::win

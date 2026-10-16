@@ -58,6 +58,9 @@ internal static unsafe class NimboNative
         public float Tilt;          // panels above / below: 1 face you .. 0 upright
         public byte RealSize;       // every panel as large as the glasses' image, both axes
         public byte LaptopScreen;   // the computer's own screen is panel 1
+        public byte Depth3D;        // AI 3D: the cinema panel in depth (needs SideBySide)
+        public float DepthStrength; // parallax at the nearest depth, in panel widths (0.015)
+        public float DepthPlane;    // depth left on the panel's plane, 0 far .. 1 near (0.35)
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -116,6 +119,9 @@ internal static unsafe class NimboNative
         public float Tilt;
         public byte AnchorAtRest;
         public byte LaptopScreen;
+        public byte Depth3D;
+        public float DepthStrength;
+        public float DepthPlane;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -200,6 +206,7 @@ internal static unsafe class NimboNative
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_recenter(IntPtr s);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_adjust_fov(IntPtr s, float delta);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_toggle_focus(IntPtr s, byte cinema);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_toggle_depth3d(IntPtr s);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_get_status(IntPtr s, Status* status);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_set_log(IntPtr fn, IntPtr ctx);
 

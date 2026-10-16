@@ -88,6 +88,10 @@ internal sealed unsafe class AppModel
     public float Tilt { get => _s.Tilt; set => _s.Tilt = Math.Clamp(value, 0f, 1f); }
     public bool AnchorAtRest { get => _s.AnchorAtRest != 0; set => _s.AnchorAtRest = B(value); }
     public bool LaptopScreen { get => _s.LaptopScreen != 0; set => _s.LaptopScreen = B(value); }
+    // AI 3D in cinema mode: strength = parallax at the nearest depth (panel widths), plane = depth on the panel.
+    public bool Depth3D { get => _s.Depth3D != 0; set => _s.Depth3D = B(value); }
+    public float DepthStrength { get => _s.DepthStrength; set => _s.DepthStrength = Math.Clamp(value, 0.005f, 0.03f); }
+    public float DepthPlane { get => _s.DepthPlane; set => _s.DepthPlane = Math.Clamp(value, 0f, 1f); }
     public int Brightness { get => _s.Brightness; set => _s.Brightness = Math.Clamp(value, 0, 8); }  // 1..8, 0 = leave
     public int Tracking { get => _s.Tracking; set => _s.Tracking = Math.Clamp(value, 0, 2); }  // 0 both, 1 left/right, 2 up/down
 
