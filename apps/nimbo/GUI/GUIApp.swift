@@ -55,6 +55,16 @@ final class GUIApp: NSObject {
             self.server.settingsChanged()
             self.server.showMessage(self.model.codeMode ? "Modo código activado" : "Modo código desactivado")
         }
+        // ⌘⌥G: the glasses' own pinned mode (they hold the image themselves: as still as without
+        // Nimbo, every panel fitted in their image, the one you look at large) or back to the
+        // space at real size. For this run; Nimbo restarts to switch.
+        hotKeys.register(keyCode: kVK_ANSI_G, modifiers: cmdKey | optionKey) { [weak self] in
+            guard let self else { return }
+            self.model.glassesPinned.toggle()
+            self.server.settingsChanged()
+            self.server.tell(self.model.glassesPinned ? "Modo fijo de las gafas" : "Espacio a tamaño real",
+                             self.model.glassesPinned ? "Las gafas sostienen la imagen (⌘⌥G para volver)" : "")
+        }
         let keys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3]
         for (key, preset) in zip(keys, AppModel.layouts) {
             hotKeys.register(keyCode: key, modifiers: cmdKey | optionKey) { [weak self] in

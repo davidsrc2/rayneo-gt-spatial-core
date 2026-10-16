@@ -92,75 +92,7 @@
 
             <StackPanel Spacing="8">
                 <TextBlock Text="Atajos de teclado" FontSize="13" Opacity="0.7" />
-                <Grid ColumnSpacing="16" RowSpacing="6">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Windows" FontSize="12" Opacity="0.6" />
-                    <TextBlock Grid.Row="0" Grid.Column="1" Text="Mac" FontSize="12" Opacity="0.6" />
-                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Qué hace" FontSize="12" Opacity="0.6" />
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Ctrl+Alt+N" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="1" Grid.Column="1" Text="⌘⌥N" Opacity="0.6" />
-                    <TextBlock Grid.Row="1" Grid.Column="2" Text="Abrir o cerrar el panel de Nimbo" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Ctrl+Alt+1" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="2" Grid.Column="1" Text="⌘⌥1" Opacity="0.6" />
-                    <TextBlock Grid.Row="2" Grid.Column="2" Text="Disposición «1 Pantalla Curva»" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Ctrl+Alt+2" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="3" Grid.Column="1" Text="⌘⌥2" Opacity="0.6" />
-                    <TextBlock Grid.Row="3" Grid.Column="2" Text="Disposición «Doble Monitor»" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Ctrl+Alt+3" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="4" Grid.Column="1" Text="⌘⌥3" Opacity="0.6" />
-                    <TextBlock Grid.Row="4" Grid.Column="2" Text="Disposición «Triple Ultrawide»" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Ctrl+Alt+C" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="5" Grid.Column="1" Text="⌘⌥C" Opacity="0.6" />
-                    <TextBlock Grid.Row="5" Grid.Column="2" Text="Recentrar: las pantallas vuelven delante de ti" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Ctrl+Alt+J" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="6" Grid.Column="1" Text="⌘⌥J" Opacity="0.6" />
-                    <TextBlock Grid.Row="6" Grid.Column="2" Text="Llevar el cursor a la pantalla que miras" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Ctrl+Alt+K" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="7" Grid.Column="1" Text="⌘⌥K" Opacity="0.6" />
-                    <TextBlock Grid.Row="7" Grid.Column="2" Text="Modo código: las pantallas más cerca (otra vez: como estaban)" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="8" Grid.Column="0" Text="Ctrl+Alt+O" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="8" Grid.Column="1" Text="⌘⌥O" Opacity="0.6" />
-                    <TextBlock Grid.Row="8" Grid.Column="2" Text="Modo enfoque: solo la pantalla que miras (otra vez: todas)" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="9" Grid.Column="0" Text="Ctrl+Alt+P" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="9" Grid.Column="1" Text="⌘⌥P" Opacity="0.6" />
-                    <TextBlock Grid.Row="9" Grid.Column="2" Text="Modo cine: la pantalla que miras, delante y grande" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="10" Grid.Column="0" Text="Ctrl+Alt+T" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="10" Grid.Column="1" Text="⌘⌥T" Opacity="0.6" />
-                    <TextBlock Grid.Row="10" Grid.Column="2" Text="Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="11" Grid.Column="0" Text="—" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="11" Grid.Column="1" Text="⌘⌥R" Opacity="0.6" />
-                    <TextBlock Grid.Row="11" Grid.Column="2" Text="Grabar lo que ves en las gafas (solo Mac por ahora)" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="12" Grid.Column="0" Text="Ctrl+Alt+[  ]" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="12" Grid.Column="1" Text="⌘⌥[  ⌘⌥]" Opacity="0.6" />
-                    <TextBlock Grid.Row="12" Grid.Column="2" Text="Bajar / subir el brillo de las gafas" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="13" Grid.Column="0" Text="Ctrl+Alt+-  =" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="13" Grid.Column="1" Text="⌘⌥-  ⌘⌥=" Opacity="0.6" />
-                    <TextBlock Grid.Row="13" Grid.Column="2" Text="Campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (=)" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="14" Grid.Column="0" Text="Ctrl+Alt+Q" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="14" Grid.Column="1" Text="⌘⌥Q" Opacity="0.6" />
-                    <TextBlock Grid.Row="14" Grid.Column="2" Text="Parar Nimbo (todo vuelve a la normalidad)" TextWrapping="Wrap" />
-                </Grid>
+                <ContentPresenter x:Name="ShortcutHost" />
                 <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
                            Text="Funcionan con cualquier app delante mientras Nimbo está en marcha; el panel, el brillo y las disposiciones, también con Nimbo parado." />
             </StackPanel>

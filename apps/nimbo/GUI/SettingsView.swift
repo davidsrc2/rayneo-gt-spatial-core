@@ -124,6 +124,7 @@ struct ShortcutSheet: View {
         ("⌘⌥2", "Ctrl+Alt+2", "Disposición «Doble Monitor»"),
         ("⌘⌥3", "Ctrl+Alt+3", "Disposición «Triple Ultrawide»"),
         ("⌘⌥C", "Ctrl+Alt+C", "Recentrar: las pantallas vuelven delante de ti"),
+        ("⌘⌥G", "Ctrl+Alt+G", "Modo fijo de las gafas: ellas sostienen la imagen, quietísima, todo dentro de su imagen (otra vez: espacio a tamaño real)"),
         ("⌘⌥J", "Ctrl+Alt+J", "Llevar el cursor a la pantalla que miras"),
         ("⌘⌥O", "Ctrl+Alt+O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
         ("⌘⌥K", "Ctrl+Alt+K", "Modo código: las pantallas más cerca (otra vez: como estaban)"),

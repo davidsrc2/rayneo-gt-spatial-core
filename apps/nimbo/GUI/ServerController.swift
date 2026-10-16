@@ -73,6 +73,7 @@ final class ServerController: ObservableObject {
                 self.model?.floating = s.floatingResolved  // poses chosen by the server
                 self.state = .calibrating
             } catch {
+                if !(error is CancellationError) { s.log("start failed: \(error.localizedDescription)") }
                 s.stop()
                 guard let self, self.pending?.server === s else { return }
                 self.pending = nil

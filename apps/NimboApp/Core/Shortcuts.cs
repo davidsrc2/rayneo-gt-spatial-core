@@ -15,6 +15,7 @@ internal static class Shortcuts
         ("Ctrl+Alt+2", "⌘⌥2", "Disposición «Doble Monitor»"),
         ("Ctrl+Alt+3", "⌘⌥3", "Disposición «Triple Ultrawide»"),
         ("Ctrl+Alt+C", "⌘⌥C", "Recentrar: las pantallas vuelven delante de ti"),
+        ("Ctrl+Alt+G", "⌘⌥G", "Modo fijo de las gafas: ellas sostienen la imagen, quietísima, todo dentro de su imagen (otra vez: espacio a tamaño real)"),
         ("Ctrl+Alt+J", "⌘⌥J", "Llevar el cursor a la pantalla que miras"),
         ("Ctrl+Alt+K", "⌘⌥K", "Modo código: las pantallas más cerca (otra vez: como estaban)"),
         ("Ctrl+Alt+O", "⌘⌥O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),

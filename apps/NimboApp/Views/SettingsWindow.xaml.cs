@@ -71,6 +71,7 @@ public sealed partial class SettingsWindow : Window
         DrawLayout();
         DrawPlacement();
         DrawFloating();
+        ShortcutHost.Content = Shortcuts.Sheet();
         DimToggle.IsOn = _model.DimOthers;
         AnchorToggle.IsOn = _model.AnchorAtRest;
         LaptopToggle.IsOn = _model.LaptopScreen;

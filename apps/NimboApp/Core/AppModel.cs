@@ -204,6 +204,8 @@ internal sealed unsafe class AppModel
     // Code mode (Ctrl+Alt+K, for this run only): the "code" profile's look on top of the saved
     // settings (the panels closer), which stay untouched.
     public bool CodeMode { get; set; }
+    // Ctrl+Alt+G (for this run): the glasses' own pinned mode instead of the space at real size.
+    public bool PinnedMode { get; set; }
 
     public void ResetPlacement() => _s.PoseCount = 0;
 
@@ -320,6 +322,15 @@ internal sealed unsafe class AppModel
         // Code mode on top (transient: the saved settings stay as they are).
         var active = CodeMode ? Profiles.FirstOrDefault(p => p.Id == "code") : null;
         o.Depth3D = 0;  // AI 3D only with Ctrl+Alt+T, for the run
+        if (PinnedMode)
+        {
+            // The glasses hold the image: panels fitted inside it, the one looked at large.
+            o.GlassesMode = 1;
+            o.GlassesPinned = 1;
+            o.RecenterGlasses = 1;
+            o.RealSize = 0;
+            o.DeadZoneDeg = DeadZone > 0 ? DeadZone : 1.0f;
+        }
         if (active != null)
         {
             o.DistanceM = active.Distance;

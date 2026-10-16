@@ -232,14 +232,33 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let anchor = builtIn ?? CGMainDisplayID()
             let virtualMain = !options.includeMain && !options.windowed
             macScreenID = builtIn
-            if let builtIn {
-                vd.arrange(after: builtIn, cells: options.layout, tucking: screenID)
-            } else if virtualMain {
-                vd.arrangeAsMain(tucking: screenID, cells: options.layout)
-            } else {
-                vd.arrange(rightOf: anchor, cells: options.layout)
+            let layout = options.layout
+            let arrange = { () -> Bool in
+                if let builtIn {
+                    return vd.arrange(after: builtIn, cells: layout, tucking: screenID)
+                } else if virtualMain {
+                    return vd.arrangeAsMain(tucking: screenID, cells: layout)
+                }
+                return vd.arrange(rightOf: anchor, cells: layout)
             }
+            if !arrange() { log("displays: macOS refused the arrangement") }
             try await settle(1.0)  // NSScreen list catches up
+            // With "mirror displays" on in macOS, new monitors can join the Mac's mirror set: then
+            // they sit on top of it (all at 0,0) and cannot be captured, and Nimbo did not start
+            // with three monitors. Out of the mirror set and arranged again.
+            for _ in 0..<3 {
+                let mirrored = ([builtIn].compactMap { $0 } + vd.ids).filter { CGDisplayIsInMirrorSet($0) != 0 }
+                if mirrored.isEmpty { break }
+                log("displays: \(mirrored.map(String.init).joined(separator: ", ")) mirrored; mirroring off and arranged again")
+                var config: CGDisplayConfigRef?
+                if CGBeginDisplayConfiguration(&config) == .success {
+                    for id in mirrored { CGConfigureDisplayMirrorOfDisplay(config, id, kCGNullDirectDisplay) }
+                    CGCompleteDisplayConfiguration(config, .forAppOnly)
+                }
+                try await settle(0.8)
+                if !arrange() { log("displays: macOS refused the arrangement") }
+                try await settle(1.0)
+            }
             copyWallpaper(to: vd.ids, from: builtIn)
             log("virtual monitors: " + vd.ids.map { id in
                 let b = CGDisplayBounds(id)

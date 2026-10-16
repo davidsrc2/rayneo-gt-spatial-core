@@ -102,6 +102,15 @@ public partial class App : Application
                 _panel.Refresh();
             });
         }
+        // Ctrl+Alt+G: the glasses' own pinned mode or back to the space at real size, for this run.
+        _hotKeys.Register('G', () =>
+        {
+            _model.PinnedMode = !_model.PinnedMode;
+            _server.SettingsChanged();
+            _tray?.ShowNotification(_model.PinnedMode ? "Modo fijo de las gafas" : "Espacio a tamaño real",
+                                    _model.PinnedMode ? "Las gafas sostienen la imagen (Ctrl+Alt+G para volver)" : "");
+            _panel.Refresh();
+        });
         // Ctrl+Alt+K: code mode on / off (the panels closer), for this run.
         _hotKeys.Register('K', () =>
         {
