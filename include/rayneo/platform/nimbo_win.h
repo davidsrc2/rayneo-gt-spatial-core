@@ -128,7 +128,7 @@ NIMBO_API void nimbo_adjust_fov(nimbo_server* s, float delta_deg);
 /* Focus mode (only the panel you look at) or, with cinema, that panel centred and large.
  * The same call again brings every panel back (Ctrl+Alt+O / Ctrl+Alt+P). */
 NIMBO_API void nimbo_toggle_focus(nimbo_server* s, bool cinema);
-/* AI 3D on / off for this run (Ctrl+Alt+3); the options' depth3d is applied again with nimbo_apply. */
+/* AI 3D on / off for this run (Ctrl+Alt+T); the options' depth3d is applied again with nimbo_apply. */
 NIMBO_API void nimbo_toggle_depth3d(nimbo_server* s);
 NIMBO_API void nimbo_get_status(nimbo_server* s, nimbo_status* out);
 

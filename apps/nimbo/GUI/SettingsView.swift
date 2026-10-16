@@ -88,7 +88,7 @@ struct SettingsView: View {
             Section(title: "Cine en 3D con IA") {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Ver el modo cine en 3D", isOn: $model.depth3D)
-                    Text("Una IA calcula la profundidad de cada fotograma y la pantalla del modo cine (⌘⌥P) se ve en relieve. Pon las gafas en modo 3D (Nimbo lo detecta solo, también con Nimbo ya abierto). La primera vez descarga el modelo (25 MB). ⌘⌥3 lo activa y lo quita. Netflix y otras plataformas con protección se ven en negro; YouTube y tus vídeos, sí.")
+                    Text("Una IA calcula la profundidad de cada fotograma y la pantalla del modo cine (⌘⌥P) se ve en relieve. Pon las gafas en modo 3D (Nimbo lo detecta solo, también con Nimbo ya abierto). La primera vez descarga el modelo (25 MB). ⌘⌥T lo activa y lo quita. Netflix y otras plataformas con protección se ven en negro; YouTube y tus vídeos, sí.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)

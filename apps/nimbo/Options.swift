@@ -100,7 +100,7 @@ struct ServerOptions {
                            own (default: centred above the monitors); repeatable
       --focus-panel N      start showing only panel N (focus mode, Cmd+Opt+O)
       --cinema             with --focus-panel: that panel centred and large (Cmd+Opt+P)
-      --depth3d            AI 3D: the cinema panel in depth, from a depth map per frame (Cmd+Opt+3;
+      --depth3d            AI 3D: the cinema panel in depth, from a depth map per frame (Cmd+Opt+T;
                            needs --sbs and the glasses in 3D mode)
       --depth-strength F   AI 3D parallax at the nearest depth, in panel widths (0.015)
       --depth-plane F      AI 3D depth left on the panel's plane, 0 far .. 1 near (0.35)

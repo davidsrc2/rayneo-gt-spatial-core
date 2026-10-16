@@ -1179,7 +1179,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         updateDepth3D()
     }
 
-    // ⌘⌥3: AI 3D on / off for this session (the app's setting is applied again when it changes).
+    // ⌘⌥T: AI 3D on / off for this session (⌘⌥1/2/3 are the app's layouts) (the app's setting is applied again when it changes).
     func toggleDepth3D() {
         options.depth3D.toggle()
         log("3d: \(options.depth3D ? "on" : "off")")
@@ -1226,7 +1226,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if depthPanel >= 0 { renderer.clearDepth(forPanel: UInt(depthPanel)) }
         if wanted >= 0 {
             log("3d: depth on panel \(wanted + 1) (strength \(ro.depthStrength), plane \(ro.depthConvergence))")
-            onNotice?("Cine en 3D con IA (⌘⌥3 para quitarlo)")
+            onNotice?("Cine en 3D con IA (⌘⌥T para quitarlo)")
         } else if depthPanel >= 0 {
             log("3d: off")
         }
@@ -1294,7 +1294,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         reg(kVK_ANSI_O, "O") { [weak self] in self?.toggleFocus(cinema: false) }
         reg(kVK_ANSI_P, "P") { [weak self] in self?.toggleFocus(cinema: true) }
         reg(kVK_ANSI_R, "R") { [weak self] in self?.toggleRecording() }
-        reg(kVK_ANSI_3, "3") { [weak self] in self?.toggleDepth3D() }
+        reg(kVK_ANSI_T, "T") { [weak self] in self?.toggleDepth3D() }
         // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
         // turning, the render FOV is too large (Cmd+Opt+-); against it, too small (Cmd+Opt+=).
         reg(kVK_ANSI_Minus, "-") { [weak self] in self?.adjustFov(-0.5) }

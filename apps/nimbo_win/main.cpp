@@ -40,7 +40,7 @@ space at real size (the app's mode)
   --tilt K             panels above / below: 1 face you (default) .. 0 upright
   --laptop-screen      the computer's own (primary) screen is panel 1, the rest virtual
 AI 3D (cinema mode, Ctrl+Alt+P)
-  --depth3d            the cinema panel in depth from a depth map per frame (Ctrl+Alt+3); needs
+  --depth3d            the cinema panel in depth from a depth map per frame (Ctrl+Alt+T); needs
                        --sbs and the glasses in 3D mode. ONNX Runtime + DirectML, model downloaded once
   --depth-strength F   parallax at the nearest depth, in panel widths (0.015)
   --depth-plane F      depth left on the panel's plane, 0 far .. 1 near (0.35)
