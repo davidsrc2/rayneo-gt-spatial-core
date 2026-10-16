@@ -9,7 +9,7 @@ final class ServerController: ObservableObject {
     }
 
     @Published private(set) var state: State = .stopped
-    @Published private(set) var glassesConnected = Displays.glassesScreen() != nil
+    @Published private(set) var glassesConnected = Displays.glassesConnected
     @Published var notice: String?  // transient, shown softly under the status line
     @Published private(set) var gazePanel: Int?  // monitor you are looking at, for the panel
 
@@ -21,7 +21,7 @@ final class ServerController: ObservableObject {
     private var runningOptions: ServerOptions?
     private var autoStartChecked = false
     private let notifier = Notifier()
-    private var glassesPresent = Displays.glassesScreen() != nil  // the display itself, for notices
+    private var glassesPresent = Displays.glassesConnected  // the display itself, for notices
     private var restarting: Task<Void, Never>?
 
     var isRunning: Bool { state != .stopped }
@@ -49,7 +49,7 @@ final class ServerController: ObservableObject {
     func start() {
         guard let model, server == nil, pending == nil else { return }
         let options = model.serverOptions()
-        guard options.windowed || Displays.glassesScreen() != nil else {
+        guard options.windowed || Displays.glassesConnected else {
             say("Conecta las gafas para empezar")
             return
         }
@@ -92,7 +92,7 @@ final class ServerController: ObservableObject {
         state = .starting
         restarting = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            for _ in 0..<20 where Displays.glassesScreen() == nil {  // the glasses come back last
+            for _ in 0..<20 where !Displays.glassesConnected {  // the glasses come back last
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
             guard let self, !Task.isCancelled else { return }
@@ -158,7 +158,7 @@ final class ServerController: ObservableObject {
 
     private func refresh() {
         // While running or starting, display reconfigurations can hide the glasses briefly.
-        let present = Displays.glassesScreen() != nil || server != nil || pending != nil
+        let present = Displays.glassesConnected || server != nil || pending != nil
         if present != glassesPresent {
             glassesPresent = present
             if present {
@@ -168,7 +168,7 @@ final class ServerController: ObservableObject {
             }
         }
         let was = glassesConnected
-        glassesConnected = Displays.glassesScreen() != nil || server != nil
+        glassesConnected = Displays.glassesConnected || server != nil
         // Plug and forget: start when the glasses appear (or are already there at launch).
         if let model, model.autoStart, server == nil, pending == nil, state == .stopped, glassesConnected,
            !was || !autoStartChecked {

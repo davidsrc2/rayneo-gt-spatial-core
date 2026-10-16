@@ -18,6 +18,19 @@ enum Displays {
         }
     }
 
+    // The glasses connected, also while macOS mirrors them (hardware mirror): then they are no
+    // NSScreen of their own and glassesScreen() does not see them.
+    static func glassesDisplayID() -> CGDirectDisplayID? {
+        if let s = glassesScreen() { return id(of: s) }
+        var n: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &n) == .success, n > 0 else { return nil }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(n))
+        guard CGGetOnlineDisplayList(n, &ids, &n) == .success else { return nil }
+        return ids.prefix(Int(n)).first { CGDisplayVendorNumber($0) == 0x506c }
+    }
+
+    static var glassesConnected: Bool { glassesDisplayID() != nil }
+
     // The display's area without the menu bar (and Dock), in global top-left coordinates
     // (CGDisplayBounds space).
     static func visibleBounds(_ display: CGDirectDisplayID) -> CGRect? {

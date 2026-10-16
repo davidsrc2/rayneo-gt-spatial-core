@@ -147,7 +147,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             options: [.userInitiated, .latencyCritical, .idleDisplaySleepDisabled],
             reason: "Nimbo: head tracking and rendering on the glasses")
 
-        // Output: the glasses, or a debug window on the Mac screen.
+        // Output: the glasses, or a debug window on the Mac screen. Mirrored by the hardware they
+        // are no screen of their own: mirroring off first, then they appear.
+        if !options.windowed, Displays.glassesScreen() == nil, let id = Displays.glassesDisplayID() {
+            log(Displays.unmirror(glasses: id) ? "mirroring: off (the glasses were a mirror)" : "mirroring: could not disable")
+            for _ in 0..<20 where Displays.glassesScreen() == nil { try await settle(0.25) }
+        }
         let glasses = Displays.glassesScreen()
         var screen: NSScreen
         if options.windowed {
@@ -483,6 +488,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     private func glassesLost() {
         guard !reconnecting else { return }
+        if Displays.glassesScreen() == nil, let id = Displays.glassesDisplayID(), Date() > arrangingUntil {
+            arrangingUntil = Date().addingTimeInterval(2)
+            log("glasses: back as a mirror; mirroring off")
+            _ = Displays.unmirror(glasses: id)  // they become a screen of their own: next check picks them
+        }
         if let s = Displays.glassesScreen(), CGDisplayIsOnline(Displays.id(of: s)) != 0 {
             glassesLostSince = nil
             reconnecting = true
