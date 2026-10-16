@@ -52,12 +52,17 @@ std::string process_name(DWORD pid) {
 
 BOOL CALLBACK collect(HWND hwnd, LPARAM lp) {
     auto* out = reinterpret_cast<std::vector<WindowInfo>*>(lp);
-    if (!IsWindowVisible(hwnd) || IsIconic(hwnd) || GetWindow(hwnd, GW_OWNER) != nullptr) return TRUE;
+    // Minimised windows count too (Teams lives minimised): they are restored when floated.
+    if (!IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER) != nullptr) return TRUE;
     if ((GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0) return TRUE;
     BOOL cloaked = FALSE;
     if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return TRUE;
     RECT r{};
-    if (!GetWindowRect(hwnd, &r) || r.right - r.left < 200 || r.bottom - r.top < 120) return TRUE;
+    WINDOWPLACEMENT wp{};
+    wp.length = sizeof(wp);
+    if (IsIconic(hwnd) && GetWindowPlacement(hwnd, &wp)) r = wp.rcNormalPosition;  // its restored size
+    else if (!GetWindowRect(hwnd, &r)) return TRUE;
+    if (r.right - r.left < 200 || r.bottom - r.top < 120) return TRUE;
     wchar_t title[256];
     const int n = GetWindowTextW(hwnd, title, 256);
     if (n <= 0) return TRUE;

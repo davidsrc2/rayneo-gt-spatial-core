@@ -1290,6 +1290,7 @@ void Server::start_floating(std::vector<Options::Floating> specs) {
     std::string error;
     for (auto& f : specs) {
         if (monitor_panels_ + static_cast<int>(poses.size()) >= win::SpatialRenderer::kMaxPanels) break;
+        if (IsIconic(f.hwnd)) ShowWindow(f.hwnd, SW_RESTORE);  // a minimised window draws nothing
         auto cap = std::make_unique<win::WindowCapture>();
         if (!cap->start(render_adapter_.Get(), f.hwnd, device_.Get(), &error)) {
             logln("window: %s", error.c_str());

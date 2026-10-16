@@ -45,6 +45,7 @@ layout
   --dim B              brightness of the panels you are not looking at, 0..1 (1 = off)
   --window TEXT[@Y,P,S] float the window whose title or app contains TEXT as a panel of its own
                        (default: centred above the monitors); repeatable
+  --list-windows       print the windows that can float (app and title), then exit
   --pinned             the glasses are in their pinned mode: panels stay put, fitted inside the image
   --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
   --brightness N       glasses' brightness 1..8 (8 = factory level)
@@ -277,6 +278,13 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
             std::printf("%s", kUsage);
+            return 0;
+        }
+        if (std::string(argv[i]) == "--list-windows") {
+            nimbo_window list[64];
+            const int n = nimbo_list_windows(list, 64);
+            for (int k = 0; k < n; ++k) std::printf("  %-20s  %s\n", list[k].app, list[k].title);
+            if (n == 0) std::printf("no windows\n");
             return 0;
         }
     }
