@@ -82,6 +82,7 @@ typedef struct {
     bool depth3d;
     float depth_strength;               /* parallax between the eyes at the nearest depth, in panel widths (0.015) */
     float depth_plane;                  /* depth left on the panel's plane, 0 far .. 1 near (0.35) */
+    float zoom;                         /* every panel this much larger (Ctrl+Alt++ / -); <= 0: 1 */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -108,6 +109,7 @@ typedef struct {
     float capture_fps;
     float latency_ms;      /* IMU sample -> scanout, last second */
     char message[256];     /* why it stopped or failed to start; empty otherwise */
+    float zoom;            /* current, after Ctrl+Alt++ / - / 0 / K (the app saves it) */
 } nimbo_status;
 
 NIMBO_API nimbo_server* nimbo_create(void);
@@ -186,6 +188,7 @@ typedef struct {
     bool depth3d;          /* "depth3D": cinema mode in depth (AI) */
     float depth_strength;  /* "depthStrength" */
     float depth_plane;     /* "depthPlane" */
+    float zoom;            /* "zoom": as left last time */
 } nimbo_settings;
 
 NIMBO_API nimbo_settings nimbo_default_settings(void);

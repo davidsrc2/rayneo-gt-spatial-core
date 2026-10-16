@@ -184,10 +184,15 @@ internal sealed class ServerController : IDisposable
             GazePanel = st.GazePanel;
             if (st.FovYDeg > 0 && Math.Abs(st.FovYDeg - _model.Fov) > 0.01f && _running != null)
             {
-                _model.Fov = st.FovYDeg;  // tuned with Ctrl+Alt+- / =
+                _model.Fov = st.FovYDeg;  // tuned with Ctrl+Alt+Shift+- / +
                 _model.Save();
             }
             FovY = st.FovYDeg;
+            if (st.Zoom > 0 && Math.Abs(st.Zoom - _model.Zoom) > 0.001f && _running != null)
+            {
+                _model.Zoom = st.Zoom;  // Ctrl+Alt++ / - / 0 / K: the same zoom next time
+                _model.Save();
+            }
             if (_running != null && st.State == NimboNative.State.Stopped)  // stopped on its own
             {
                 _running = null;

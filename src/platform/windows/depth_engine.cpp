@@ -197,6 +197,20 @@ void DepthEngine::run(std::string model_path) {
         DepthOutput out;
         out.seq = in.seq;
         out.scene_cut = scene_cut(in);
+        {
+            std::vector<uint8_t> grid(VideoArea::kColumns * VideoArea::kRows);
+            for (int gy = 0; gy < VideoArea::kRows; ++gy) {
+                const int y = gy * in.height / VideoArea::kRows + in.height / (2 * VideoArea::kRows);
+                for (int gx = 0; gx < VideoArea::kColumns; ++gx) {
+                    const int x = gx * in.width / VideoArea::kColumns + in.width / (2 * VideoArea::kColumns);
+                    const uint8_t* px = &in.bgra[(static_cast<size_t>(y) * static_cast<size_t>(in.width) + static_cast<size_t>(x)) * 4];
+                    grid[static_cast<size_t>(gy * VideoArea::kColumns + gx)] =
+                        static_cast<uint8_t>((px[2] * 54 + px[1] * 183 + px[0] * 19) >> 8);
+                }
+            }
+            const float* v = video_area_.update(grid, out.scene_cut);
+            for (int i = 0; i < 4; ++i) out.video[i] = v[i];
+        }
         double infer_ms = 0;
         const bool ok = infer(in, &out, &infer_ms);
         const double total_ms = ms_since(t0);
@@ -429,11 +443,19 @@ bool DepthEngine::infer(const DepthInput& in, DepthOutput* out, double* infer_ms
     out->depth.assign(data, data + n);
     a->ReleaseValue(output);
 
-    // Percentiles from a histogram between the extremes: a few odd pixels do not squash the rest.
+    // Percentiles from a histogram between the extremes, inside the video only (the page around
+    // it is flat anyway): a few odd pixels do not squash the rest.
+    const int xs = std::clamp(static_cast<int>(out->video[0] * out->width), 0, out->width - 1);
+    const int xe = std::clamp(static_cast<int>(out->video[2] * out->width), xs + 1, out->width);
+    const int ys = std::clamp(static_cast<int>(out->video[1] * out->height), 0, out->height - 1);
+    const int ye = std::clamp(static_cast<int>(out->video[3] * out->height), ys + 1, out->height);
+    auto at = [&](int x, int y) { return out->depth[static_cast<size_t>(y) * static_cast<size_t>(out->width) + static_cast<size_t>(x)]; };
     float lo = INFINITY, hi = -INFINITY;
-    for (float v : out->depth) {
-        lo = std::min(lo, v);
-        hi = std::max(hi, v);
+    for (int y = ys; y < ye; ++y) {
+        for (int x = xs; x < xe; ++x) {
+            lo = std::min(lo, at(x, y));
+            hi = std::max(hi, at(x, y));
+        }
     }
     if (!(hi > lo)) {
         out->low = std::isfinite(lo) ? lo : 0.0f;
@@ -443,17 +465,20 @@ bool DepthEngine::infer(const DepthInput& in, DepthOutput* out, double* infer_ms
     constexpr int kBins = 1024;
     int histogram[kBins] = {};
     const float k = (kBins - 1) / (hi - lo);
-    for (float v : out->depth) histogram[static_cast<int>((v - lo) * k)] += 1;
+    for (int y = ys; y < ye; ++y) {
+        for (int x = xs; x < xe; ++x) histogram[static_cast<int>((at(x, y) - lo) * k)] += 1;
+    }
+    const size_t count = static_cast<size_t>(xe - xs) * static_cast<size_t>(ye - ys);
     size_t acc = 0;
     int p2 = 0, p98 = kBins - 1;
     bool found2 = false;
     for (int i = 0; i < kBins; ++i) {
         acc += static_cast<size_t>(histogram[i]);
-        if (!found2 && acc >= n * 2 / 100) {
+        if (!found2 && acc >= count * 2 / 100) {
             p2 = i;
             found2 = true;
         }
-        if (acc >= n * 98 / 100) {
+        if (acc >= count * 98 / 100) {
             p98 = i;
             break;
         }
@@ -485,6 +510,7 @@ bool DepthEngine::scene_cut(const DepthInput& in) {
     if (reset || previous_thumb_.size() != thumb.size()) {
         previous_thumb_ = std::move(thumb);
         diff_average_ = 0;
+        if (reset) video_area_.reset();
         return true;
     }
     int sum = 0;
@@ -494,6 +520,67 @@ bool DepthEngine::scene_cut(const DepthInput& in) {
     const bool cut = diff > 0.2f || (diff > 0.08f && diff > 4 * diff_average_);
     if (!cut) diff_average_ += (diff - diff_average_) * 0.1f;
     return cut;
+}
+
+void VideoArea::reset() {
+    previous_.clear();
+    std::fill(energy_.begin(), energy_.end(), 0.0f);
+    moving_ = 0;
+    rect_[0] = rect_[1] = 0.0f;
+    rect_[2] = rect_[3] = 1.0f;
+}
+
+const float* VideoArea::update(const std::vector<uint8_t>& grid, bool cut) {
+    const size_t n = static_cast<size_t>(kColumns * kRows);
+    if (grid.size() != n) return rect_;
+    if (previous_.size() != n || cut) {
+        previous_ = grid;
+        return rect_;
+    }
+    std::vector<float> diff(n);
+    float total = 0;
+    for (size_t i = 0; i < n; ++i) {
+        diff[i] = static_cast<float>(std::abs(static_cast<int>(grid[i]) - static_cast<int>(previous_[i]))) / 255.0f;
+        total += diff[i];
+    }
+    previous_ = grid;
+    if (total / static_cast<float>(n) < 0.0005f) return rect_;  // nothing moving: paused or a still page
+    moving_ += 1;
+    for (size_t i = 0; i < n; ++i) energy_[i] += (std::min(diff[i], 0.1f) - energy_[i]) * 0.05f;
+    if (moving_ < 10) return rect_;  // half a second of motion before deciding
+    int cols[kColumns] = {}, rows[kRows] = {};
+    for (int y = 0; y < kRows; ++y) {
+        for (int x = 0; x < kColumns; ++x) {
+            if (energy_[static_cast<size_t>(y * kColumns + x)] > 0.0008f) {
+                cols[x] += 1;
+                rows[y] += 1;
+            }
+        }
+    }
+    const int col_min = std::max(2, kRows / 7), row_min = std::max(2, kColumns / 7);
+    int x0 = -1, x1 = -1, y0 = -1, y1 = -1;
+    for (int x = 0; x < kColumns; ++x) {
+        if (cols[x] >= col_min) {
+            if (x0 < 0) x0 = x;
+            x1 = x;
+        }
+    }
+    for (int y = 0; y < kRows; ++y) {
+        if (rows[y] >= row_min) {
+            if (y0 < 0) y0 = y;
+            y1 = y;
+        }
+    }
+    if (x0 < 0 || y0 < 0) return rect_;
+    float t[4] = {static_cast<float>(x0) / kColumns, static_cast<float>(y0) / kRows, static_cast<float>(x1 + 1) / kColumns,
+                  static_cast<float>(y1 + 1) / kRows};
+    const float area = (t[2] - t[0]) * (t[3] - t[1]);
+    if (area < 0.06f || area > 0.85f) {  // a spinner / the whole panel
+        t[0] = t[1] = 0.0f;
+        t[2] = t[3] = 1.0f;
+    }
+    for (int i = 0; i < 4; ++i) rect_[i] += (t[i] - rect_[i]) * 0.12f;  // glides there
+    return rect_;
 }
 
 }  // namespace rayneo::win

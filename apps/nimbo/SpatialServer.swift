@@ -28,6 +28,7 @@ struct LatencyStats {
     var intervalN = 0
     var intervalSum = 0.0, intervalSq = 0.0, intervalMax = 0.0  // ms
     var targetErrSum = 0.0                      // presentedTime - targetPresentationTimestamp (ms)
+    var missed = 0                              // frames shown a refresh (or more) after their target
     var tracking = false
     var idle = 0                                // frames skipped: nothing changed
     // With the head still (< 1 deg/s): frame-to-frame change of the pose drawn, i.e. how much
@@ -361,9 +362,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.trackingAxes = options.trackingAxes
         ro.depthStrength = options.depthStrength
         ro.depthConvergence = options.depthConvergence
+        zoom = max(0.5, min(3, options.zoom))
+        codeMode = abs(zoom - 1.7) < 0.01
+        ro.zoom = zoom
         depth3D.allowGPU = options.depthGPU
-        depth3D.onFrame = { [weak self] color, depth, low, high, cut, panel in
-            self?.renderer?.setSourcePixelBuffer(color, depth: depth, low: low, high: high, sceneCut: cut, forPanel: UInt(panel))
+        depth3D.onFrame = { [weak self] color, depth, low, high, cut, video, panel in
+            self?.renderer?.setSourcePixelBuffer(color, depth: depth, low: low, high: high, sceneCut: cut, videoRect: video,
+                                                 forPanel: UInt(panel))
         }
         let panels = max(1, panelDisplays.count)
         renderer.panelCount = UInt(panels)
@@ -1369,6 +1374,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     func setZoom(_ z: Float, message: String? = nil) {
         zoom = max(0.5, min(3, z))
         renderer?.options.zoom = zoom
+        SettingsFile.shared.set(Double(zoom), forKey: "zoom")  // as left, next time too
         renderer?.invalidateSkippedFrame()
         requestRedraw()
         log(String(format: "zoom: %.0f %%", zoom * 100))
@@ -1607,7 +1613,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // streaks, and the pose predicted for one moment was shown at the other (the panels
         // jittered while the head moved). Steady 35 ms predicts right every frame: simulated,
         // 0.18 -> 0.15 deg rms moving, peaks 0.49 -> 0.34.
-        link.preferredFrameLatency = 2
+        link.preferredFrameLatency = frameLatency
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         displayLink = link
         let thread = Thread {
@@ -1673,6 +1679,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             self.statsLock.lock()
             let lateMs = (d.presentedTime - target) * 1e3
             self.stats.addPresented(latency: (d.presentedTime - sampleMedia) * 1e3, targetError: lateMs)
+            if lateMs > self.framePeriodS * 500 { self.stats.missed += 1 }
             if lateMs > max(3, self.framePeriodS * 500) {  // missed its frame: read earlier
                 self.latchMarginS = min(0.012, self.latchMarginS + 0.001)
                 self.latchOnTime = 0
@@ -1713,6 +1720,29 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statsLock.unlock()
         isTracking = p.tracking
         return true
+    }
+
+    // MARK: frame pacing
+
+    // A frame shown a refresh late shows the pose predicted for the refresh before: while the
+    // head moves the panels jump back and forth (the tremor in the logs: up to all seconds with
+    // a missed refresh at 120 Hz). With more than 15 % missed for 3 seconds while drawing
+    // steadily, one more frame is queued: 8 ms more to predict (the prediction covers it),
+    // in exchange for an even rhythm.
+    private var missingSeconds = 0
+    private var frameLatency: Float = 2
+
+    private func adaptFrameLatency(_ s: LatencyStats) {
+        guard frameLatency < 3, s.presentedN >= 60 else {
+            missingSeconds = 0
+            return
+        }
+        missingSeconds = Double(s.missed) / Double(s.presentedN) > 0.15 ? missingSeconds + 1 : 0
+        guard missingSeconds >= 3 else { return }
+        frameLatency = 3
+        displayLink?.preferredFrameLatency = frameLatency
+        missingSeconds = 0
+        log("render: refreshes missed (\(s.missed) of \(s.presentedN) last second); one more frame queued for an even rhythm")
     }
 
     // MARK: fallback render loop
@@ -1799,10 +1829,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let inN = Double(max(1, s.intervalN))
         let inMean = s.intervalSum / inN
         let inStd = (max(0, s.intervalSq / inN - inMean * inMean)).squareRoot()
-        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | latch %.1f ms%@",
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d | latch %.1f ms%@",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
-                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, latchMs,
+                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, latchMs,
                    s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) as NSString : "" as NSString))
+        adaptFrameLatency(s)
         if depthPanel >= 0 {
             let d = depth3D.takeStats()
             let n = Double(max(1, d.frames))

@@ -16,9 +16,10 @@ import Foundation
 // Thread-safe: submit from the capture queues, route and stats from the main thread.
 final class DepthEngine: @unchecked Sendable {
     // One frame and its depth for `panel` (one-component half float, larger = nearer; low / high
-    // its 2-98 % percentiles; sceneCut: a new shot, the smoothing starts afresh).
+    // its 2-98 % percentiles inside the video; sceneCut: a new shot, the smoothing starts afresh;
+    // video: where the video is in the frame, 0..1, the rest stays flat).
     typealias Output = (_ color: CVPixelBuffer, _ depth: CVPixelBuffer, _ low: Float, _ high: Float,
-                        _ sceneCut: Bool, _ panel: Int) -> Void
+                        _ sceneCut: Bool, _ video: CGRect, _ panel: Int) -> Void
 
     struct Stats {
         var frames = 0          // depth maps delivered
@@ -52,7 +53,7 @@ final class DepthEngine: @unchecked Sendable {
     // Guarded by lock: finished frames waiting for an earlier one (nil result: failed or stale).
     private var finished: [Int: (result: Result?, generation: Int, slot: Slot, at: UInt64)] = [:]
     private typealias Result = (depth: CVPixelBuffer, low: Float, high: Float, color: CVPixelBuffer, panel: Int,
-                                scaleMs: Double, inferMs: Double)
+                                scaleMs: Double, inferMs: Double, video: CGRect)
     private var droppingSeconds = 0       // guarded by lock: consecutive stats periods with drops
     private var stats = Stats()           // guarded by lock
 
@@ -66,6 +67,7 @@ final class DepthEngine: @unchecked Sendable {
     private var previousThumb: [UInt8] = []  // prep queue
     private var diffAverage: Float = 0    // prep queue
     private var resetScene = true         // prep queue
+    private let videoArea = VideoArea()   // prep queue
 
     var isLoaded: Bool {
         lock.lock()
@@ -187,7 +189,10 @@ final class DepthEngine: @unchecked Sendable {
             pending = nil
         }
         lock.unlock()
-        prepQueue.async { self.resetScene = true }
+        prepQueue.async {
+            self.resetScene = true
+            self.videoArea.reset()
+        }
     }
 
     var routedPanel: Int {
@@ -264,23 +269,25 @@ final class DepthEngine: @unchecked Sendable {
                 self.finish(nil, seq: seq, generation: g, slot: slot)
                 return
             }
-            if self.sceneCut(input) {
+            let cut = self.sceneCut(input)
+            if cut {
                 self.lock.lock()
                 self.cutFrames.insert(seq)
                 self.lock.unlock()
             }
+            let video = self.videoArea.update(Self.lumaGrid(input, VideoArea.columns, VideoArea.rows), cut: cut)
             let scaleMs = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
             self.inferQueue.async {
                 autoreleasepool {
-                    let depth = self.infer(input, slot: slot)
-                    self.finish(depth.map { Result($0.0, $0.1, $0.2, color, p, scaleMs, $0.3) }, seq: seq, generation: g, slot: slot)
+                    let depth = self.infer(input, slot: slot, video: video)
+                    self.finish(depth.map { Result($0.0, $0.1, $0.2, color, p, scaleMs, $0.3, video) }, seq: seq, generation: g, slot: slot)
                 }
             }
         }
     }
 
     // (depth, low, high, inference ms)
-    private func infer(_ input: CVPixelBuffer, slot: Slot) -> (CVPixelBuffer, Float, Float, Double)? {
+    private func infer(_ input: CVPixelBuffer, slot: Slot, video: CGRect) -> (CVPixelBuffer, Float, Float, Double)? {
         lock.lock()
         let m = slot == .gpu ? gpuModel : model
         lock.unlock()
@@ -296,7 +303,7 @@ final class DepthEngine: @unchecked Sendable {
             // Core ML may return its own buffer when it cannot write into ours.
             let depth = result.featureValue(for: outputName)?.imageBufferValue ?? output
             let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
-            let (low, high) = percentiles(depth)
+            let (low, high) = percentiles(depth, in: video)
             return (depth, low, high, ms)
         } catch {
             FileHandle.standardError.write("3d: prediction failed: \(error.localizedDescription)\n".data(using: .utf8)!)
@@ -329,7 +336,7 @@ final class DepthEngine: @unchecked Sendable {
             stats.scaleMs += r.scaleMs
             stats.inferMs += r.inferMs
             stats.waitMs += Double(now - f.at) / 1e6
-            onFrame?(r.color, r.depth, r.low, r.high, cut, r.panel)
+            onFrame?(r.color, r.depth, r.low, r.high, cut, r.video, r.panel)
         }
         var next: ((CVPixelBuffer, Int, Int), Slot)?
         if let job = pending, let s = takeSlot() {
@@ -388,16 +395,37 @@ final class DepthEngine: @unchecked Sendable {
         return cut
     }
 
+    // Luma of a grid of points over the shrunk frame (BGRA).
+    private static func lumaGrid(_ frame: CVPixelBuffer, _ gw: Int, _ gh: Int) -> [UInt8] {
+        CVPixelBufferLockBaseAddress(frame, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(frame, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(frame) else { return [] }
+        let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame), bpr = CVPixelBufferGetBytesPerRow(frame)
+        var grid = [UInt8](repeating: 0, count: gw * gh)
+        for gy in 0..<gh {
+            let row = base.advanced(by: (gy * h / gh + h / (2 * gh)) * bpr).assumingMemoryBound(to: UInt8.self)
+            for gx in 0..<gw {
+                let px = row.advanced(by: (gx * w / gw + w / (2 * gw)) * 4)
+                grid[gy * gw + gx] = UInt8((Int(px[2]) * 54 + Int(px[1]) * 183 + Int(px[0]) * 19) >> 8)
+            }
+        }
+        return grid
+    }
+
     // 2 % and 98 % of the depth values: a few extreme pixels do not squash the rest.
-    private func percentiles(_ depth: CVPixelBuffer) -> (Float, Float) {
+    // Only inside the video: the page around it (flat anyway) would stretch the range.
+    private func percentiles(_ depth: CVPixelBuffer, in video: CGRect) -> (Float, Float) {
         CVPixelBufferLockBaseAddress(depth, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(depth, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(depth) else { return (0, 1) }
-        let w = CVPixelBufferGetWidth(depth), h = CVPixelBufferGetHeight(depth), bpr = CVPixelBufferGetBytesPerRow(depth)
+        let fw = CVPixelBufferGetWidth(depth), fh = CVPixelBufferGetHeight(depth), bpr = CVPixelBufferGetBytesPerRow(depth)
+        let xs = max(0, min(fw - 1, Int(video.minX * CGFloat(fw)))), xe = max(xs + 1, min(fw, Int(video.maxX * CGFloat(fw))))
+        let ys = max(0, min(fh - 1, Int(video.minY * CGFloat(fh)))), ye = max(ys + 1, min(fh, Int(video.maxY * CGFloat(fh))))
+        let w = xe - xs, h = ye - ys
         var lo = Float.infinity, hi = -Float.infinity
-        for y in 0..<h {
+        for y in ys..<ye {
             let row = base.advanced(by: y * bpr).assumingMemoryBound(to: Float16.self)
-            for x in 0..<w {
+            for x in xs..<xe {
                 let v = Float(row[x])
                 lo = min(lo, v)
                 hi = max(hi, v)
@@ -407,9 +435,9 @@ final class DepthEngine: @unchecked Sendable {
         let bins = 1024
         var histogram = [Int](repeating: 0, count: bins)
         let k = Float(bins - 1) / (hi - lo)
-        for y in 0..<h {
+        for y in ys..<ye {
             let row = base.advanced(by: y * bpr).assumingMemoryBound(to: Float16.self)
-            for x in 0..<w { histogram[Int((Float(row[x]) - lo) * k)] += 1 }
+            for x in xs..<xe { histogram[Int((Float(row[x]) - lo) * k)] += 1 }
         }
         let total = w * h
         var acc = 0, p2 = 0, p98 = bins - 1
@@ -421,5 +449,63 @@ final class DepthEngine: @unchecked Sendable {
         }
         let low = lo + Float(p2) / k, high = lo + Float(p98 + 1) / k
         return (low, max(high, low + 1e-3))
+    }
+}
+
+// Where the video is in the captured frame: a browser or player shows it inside a page that
+// does not move. Video changes in every frame almost everywhere (motion, grain, compression),
+// a page not at all: columns and rows of a coarse grid that keep changing make the box. The
+// depth is applied there only; the page, menus and black bars stay flat. While nothing moves
+// (paused) the box stays where it was; a cut says nothing about where the video is.
+final class VideoArea {
+    static let columns = 64, rows = 48
+    private var previous: [UInt8] = []
+    private var energy = [Float](repeating: 0, count: columns * rows)
+    private var moving = 0
+    private(set) var rect = CGRect(x: 0, y: 0, width: 1, height: 1)
+
+    func reset() {
+        previous = []
+        energy = [Float](repeating: 0, count: Self.columns * Self.rows)
+        moving = 0
+        rect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    }
+
+    func update(_ grid: [UInt8], cut: Bool) -> CGRect {
+        defer { previous = grid }
+        let gw = Self.columns, gh = Self.rows
+        guard grid.count == gw * gh, previous.count == grid.count, !cut else { return rect }
+        var total: Float = 0
+        var diff = [Float](repeating: 0, count: grid.count)
+        for i in grid.indices {
+            diff[i] = Float(abs(Int(grid[i]) - Int(previous[i]))) / 255
+            total += diff[i]
+        }
+        if total / Float(grid.count) < 0.0005 { return rect }  // nothing moving: paused or a still page
+        moving += 1
+        for i in energy.indices { energy[i] += (min(diff[i], 0.1) - energy[i]) * 0.05 }
+        guard moving >= 10 else { return rect }  // half a second of motion before deciding
+        // A cell is video when it keeps changing; a column / row when enough of its cells do
+        // (the cursor's trail is a few cells, never a whole column).
+        let active = energy.map { $0 > 0.0008 }
+        var cols = [Int](repeating: 0, count: gw), rws = [Int](repeating: 0, count: gh)
+        for y in 0..<gh {
+            for x in 0..<gw where active[y * gw + x] {
+                cols[x] += 1
+                rws[y] += 1
+            }
+        }
+        let colMin = max(2, gh / 7), rowMin = max(2, gw / 7)
+        guard let x0 = cols.firstIndex(where: { $0 >= colMin }), let x1 = cols.lastIndex(where: { $0 >= colMin }),
+              let y0 = rws.firstIndex(where: { $0 >= rowMin }), let y1 = rws.lastIndex(where: { $0 >= rowMin }) else { return rect }
+        var target = CGRect(x: CGFloat(x0) / CGFloat(gw), y: CGFloat(y0) / CGFloat(gh),
+                            width: CGFloat(x1 - x0 + 1) / CGFloat(gw), height: CGFloat(y1 - y0 + 1) / CGFloat(gh))
+        let area = target.width * target.height
+        if area < 0.06 || area > 0.85 { target = CGRect(x: 0, y: 0, width: 1, height: 1) }  // a spinner / the whole panel
+        // Glides there (the box would twitch with every scene otherwise).
+        let k: CGFloat = 0.12
+        rect = CGRect(x: rect.minX + (target.minX - rect.minX) * k, y: rect.minY + (target.minY - rect.minY) * k,
+                      width: rect.width + (target.width - rect.width) * k, height: rect.height + (target.height - rect.height) * k)
+        return rect
     }
 }

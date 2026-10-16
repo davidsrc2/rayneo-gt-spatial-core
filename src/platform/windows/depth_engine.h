@@ -31,8 +31,26 @@ struct DepthOutput {
     uint64_t seq = 0;
     int width = 0, height = 0;
     std::vector<float> depth;   // larger = nearer, unnormalised
-    float low = 0, high = 1;    // 2 % and 98 % percentiles
+    float low = 0, high = 1;    // 2 % and 98 % percentiles (inside the video)
     bool scene_cut = false;     // a new shot: the smoothing starts afresh
+    float video[4] = {0, 0, 1, 1};  // where the video is in the frame, 0..1 (x0, y0, x1, y1): flat outside
+};
+
+// Where the video is in the captured frame (apps/nimbo/DepthEngine.swift, VideoArea): video
+// changes in every frame almost everywhere, a page around it not at all; columns and rows of a
+// coarse grid that keep changing make the box. Kept while nothing moves; cuts are ignored.
+class VideoArea {
+public:
+    static constexpr int kColumns = 64, kRows = 48;
+    void reset();
+    // grid: kColumns x kRows luma; returns the box, 0..1.
+    const float* update(const std::vector<uint8_t>& grid, bool cut);
+
+private:
+    std::vector<uint8_t> previous_;
+    std::vector<float> energy_ = std::vector<float>(kColumns * kRows, 0.0f);
+    int moving_ = 0;
+    float rect_[4] = {0, 0, 1, 1};
 };
 
 class DepthEngine {
@@ -80,6 +98,7 @@ private:
     void release_session();
     bool infer(const DepthInput& in, DepthOutput* out, double* infer_ms);
     bool scene_cut(const DepthInput& in);
+    VideoArea video_area_;  // worker thread
     void fail(const std::string& message);
 
     Log log_;

@@ -62,6 +62,7 @@ NS_ASSUME_NONNULL_BEGIN
                          low:(float)low
                         high:(float)high
                     sceneCut:(BOOL)sceneCut
+                   videoRect:(CGRect)videoRect
                     forPanel:(NSUInteger)panel;
 // The panel is flat again (AI 3D off). Any thread.
 - (void)clearDepthForPanel:(NSUInteger)panel;

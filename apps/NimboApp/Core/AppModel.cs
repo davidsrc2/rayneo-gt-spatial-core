@@ -201,8 +201,10 @@ internal sealed unsafe class AppModel
         return new PanelPos(0, top + Gap + v / 2 + Math.Max(0, above));
     }
 
-    // Ctrl+Alt+G (for this run): the glasses' own pinned mode instead of the space at real size.
-    public bool PinnedMode { get; set; }
+    // Ctrl+Alt+G: the glasses' own pinned mode instead of the space at real size, as left last time.
+    public bool PinnedMode { get => _s.GlassesMode == 1; set => _s.GlassesMode = value ? 1 : 0; }
+    // Ctrl+Alt++ / - / 0 / K: the zoom, as left last time (the server reports it).
+    public float Zoom { get => _s.Zoom > 0 ? _s.Zoom : 1f; set => _s.Zoom = value; }
 
     public void ResetPlacement() => _s.PoseCount = 0;
 

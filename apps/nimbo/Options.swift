@@ -68,7 +68,9 @@ struct ServerOptions {
     var depth3D = false           // AI 3D: the cinema panel in depth (needs side by side, glasses in 3D mode)
     var depthStrength: Float = 0.03    // parallax between the eyes at the nearest depth, in panel widths
     var depthConvergence: Float = 0.35  // depth left on the panel's plane: farther recedes, nearer stands out
-    var lateLatch = true          // read the pose just before the frame's deadline, not when the display link wakes
+    var zoom: Float = 1           // every panel this much larger (⌘⌥+ / -): remembered between runs
+    var lateLatch = false         // read the pose just before the frame's deadline (on the glasses its margin
+                                  // always grew to the 12 ms maximum: no gain, so off unless asked)
     var depthGPU = true           // AI 3D: the GPU helps when the Neural Engine falls behind (60 fps video)
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
@@ -106,7 +108,7 @@ struct ServerOptions {
       --depth-strength F   AI 3D parallax at the nearest depth, in panel widths (0.03)
       --depth-plane F      AI 3D depth left on the panel's plane, 0 far .. 1 near (0.35)
       --depth-ane-only     AI 3D on the Neural Engine only (no GPU help above ~48 fps)
-      --no-late-latch      read the head pose as soon as the display link wakes (3 frames early)
+      --late-latch         read the head pose just before each frame's deadline (experimental)
       --test-pattern       labelled grid on each virtual monitor
       --mac-screen         the Mac's own screen is panel 1 (when the lid is open); the other
                            panels are virtual monitors next to it
@@ -186,6 +188,7 @@ struct ServerOptions {
             case "--depth-plane": guard let v = float(), (0...1).contains(v) else { return nil }; o.depthConvergence = v
             case "--depth-ane-only": o.depthGPU = false
             case "--no-late-latch": o.lateLatch = false
+            case "--late-latch": o.lateLatch = true
             case "--dead-zone": guard let v = float() else { return nil }; o.deadZoneDeg = v
             case "--vd-size":
                 let parts = value()?.split(separator: "x").compactMap { Int($0) } ?? []

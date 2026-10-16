@@ -61,6 +61,7 @@ internal static unsafe class NimboNative
         public byte Depth3D;        // AI 3D: the cinema panel in depth (needs SideBySide)
         public float DepthStrength; // parallax at the nearest depth, in panel widths (0.03)
         public float DepthPlane;    // depth left on the panel's plane, 0 far .. 1 near (0.35)
+        public float Zoom;          // every panel this much larger; <= 0: 1
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -90,6 +91,7 @@ internal static unsafe class NimboNative
         public float CaptureFps;
         public float LatencyMs;
         public fixed byte Message[256];
+        public float Zoom;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -122,6 +124,7 @@ internal static unsafe class NimboNative
         public byte Depth3D;
         public float DepthStrength;
         public float DepthPlane;
+        public float Zoom;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -103,6 +103,7 @@ struct Options {
     bool depth3d = false;                  // AI 3D: the cinema panel in depth (needs side by side)
     float depth_strength = 0.03f;         // parallax between the eyes at the nearest depth, in panel widths
     float depth_plane = 0.35f;             // depth left on the panel's plane, 0 far .. 1 near
+    float zoom = 1.0f;                     // every panel this much larger (shortcuts), as left last time
 
     float panel_arc_deg() const { return arc_deg.value_or(displays > 0 ? 38.0f : 50.0f); }
 };
@@ -164,6 +165,7 @@ Options from_c(const nimbo_options& c) {
     o.depth3d = c.depth3d;
     if (c.depth_strength > 0) o.depth_strength = std::min(c.depth_strength, 0.08f);
     o.depth_plane = std::clamp(c.depth_plane, 0.0f, 1.0f);
+    if (c.zoom > 0) o.zoom = std::clamp(c.zoom, 0.5f, 3.0f);
     return o;
 }
 
@@ -849,6 +851,9 @@ bool Server::start() {
     ro.tracking_axes = static_cast<core::TrackingAxes>(opt_.tracking_axes);
     ro.depth_strength = opt_.depth_strength;
     ro.depth_convergence = opt_.depth_plane;
+    zoom_ = opt_.zoom;
+    code_mode_ = std::fabs(zoom_ - 1.7f) < 0.01f;
+    ro.zoom = zoom_;
     renderer_.set_depth_engine(&depth_);
     renderer_.set_panel_count(panels);
     if (static_cast<int>(opt_.layout.size()) == panels) renderer_.set_grid(opt_.layout);
@@ -934,6 +939,7 @@ bool Server::start() {
         std::lock_guard<std::mutex> lock(shared_mutex_);
         status_.panel_count = panels;
         status_.fov_y_deg = renderer_.options.fov_y_deg;
+        status_.zoom = zoom_;
     }
 
     start_ns_ = steady_ns();
@@ -1459,6 +1465,10 @@ void Server::set_zoom(float z, const std::wstring& message) {
     renderer_.invalidate_skipped_frame();
     redraw_ = true;
     logln("zoom: %.0f %%", zoom_ * 100.0f);
+    {
+        std::lock_guard<std::mutex> lock(shared_mutex_);
+        status_.zoom = zoom_;  // the app saves it: the same zoom next time
+    }
     flash(message.empty() ? L"Zoom " + std::to_wstring(static_cast<int>(std::lround(zoom_ * 100.0f))) + L" %" : message);
 }
 
@@ -2247,6 +2257,7 @@ core::Settings to_core(const nimbo_settings& c) {
     s.depth3d = c.depth3d;
     s.depth_strength = c.depth_strength;
     s.depth_plane = c.depth_plane;
+    s.zoom = c.zoom > 0 ? c.zoom : 1.0f;
     for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
         s.panels.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
     }
@@ -2285,6 +2296,7 @@ nimbo_settings to_c(const core::Settings& s) {
     c.depth3d = s.depth3d;
     c.depth_strength = s.depth_strength;
     c.depth_plane = s.depth_plane;
+    c.zoom = s.zoom;
     c.pose_count = static_cast<int>(std::min<size_t>(s.panels.size(), NIMBO_MAX_PANELS));
     for (int i = 0; i < c.pose_count; ++i) {
         c.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;
@@ -2333,6 +2345,7 @@ nimbo_options nimbo_default_options(void) {
     o.tilt = 1.0f;
     o.depth_strength = 0.03f;
     o.depth_plane = 0.35f;
+    o.zoom = 1.0f;
     return o;
 }
 
@@ -2533,6 +2546,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.depth3d = s.depth3d;
     o.depth_strength = s.depth_strength;
     o.depth_plane = s.depth_plane;
+    o.zoom = s.zoom;
     o.brightness = s.brightness;
     o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;
     for (int i = 0; i < o.pose_count; ++i) {

@@ -45,14 +45,20 @@ struct StereoUniforms {
     float eye;          // -1 left, +1 right
     float strength;     // parallax between the eyes at depth 1, in panel widths
     float convergence;  // depth seen on the panel's plane (no parallax)
-    float edge;         // width of the side margins where the parallax fades to 0, in panel widths
+    float edge;         // margins where the parallax fades to 0, in widths of the video
+    float pad0, pad1, pad2;
+    float4 rect;        // where the video is in the frame, 0..1 (x0, y0, x1, y1): flat outside
 };
 
 float stereo_shift(texture2d<float> depth, sampler s, float x, float y, constant StereoUniforms& u) {
     const float d = depth.sample(s, float2(x, y), level(0)).r;
-    // At the sides the image goes back to the panel's plane: something in front of it cut by the
-    // frame would contradict the frame being in front of it (window violation).
-    const float fade = smoothstep(0.0, u.edge, x) * smoothstep(0.0, u.edge, 1.0 - x);
+    // At the video's sides the image goes back to the panel's plane: something in front of it
+    // cut by the frame would contradict the frame being in front of it (window violation). Above
+    // and below too when the video does not reach the panel's edge (a page around it).
+    const float ew = u.edge * (u.rect.z - u.rect.x), eh = u.edge * (u.rect.w - u.rect.y);
+    float fade = smoothstep(0.0, ew, x - u.rect.x) * smoothstep(0.0, ew, u.rect.z - x);
+    if (u.rect.y > 0.005) fade *= smoothstep(0.0, eh, y - u.rect.y);
+    if (u.rect.w < 0.995) fade *= smoothstep(0.0, eh, u.rect.w - y);
     return -u.eye * 0.5 * u.strength * (d - u.convergence) * fade;
 }
 

@@ -219,6 +219,7 @@ private:
     int depth_map_w_ = 0, depth_map_h_ = 0;
     int depth_smooth_index_ = 0;
     bool depth_valid_ = false;              // a smoothed map exists for depth_active_
+    float depth_video_[4] = {0, 0, 1, 1};   // where the video is in the frame: depth only there
     DepthStats depth_stats_;
 };
 

@@ -200,6 +200,7 @@ std::string settings_to_json(const Settings& s) {
     put(out, "depth3D", s.depth3d);
     put(out, "depthStrength", s.depth_strength);
     put(out, "depthPlane", s.depth_plane);
+    put(out, "zoom", s.zoom);
     put(out, "k1", s.k1);
     put(out, "k2", s.k2);
     put(out, "onboardingDone", s.onboarding_done, true);
@@ -217,7 +218,7 @@ std::optional<Settings> settings_from_json(std::string_view json) {
                   {"size", &s.size_deg},       {"fovY", &s.fov_y_deg},  {"ipd", &s.ipd_mm},
                   {"deadZone", &s.dead_zone_deg}, {"k1", &s.k1},        {"k2", &s.k2},
                   {"tilt", &s.tilt},           {"depthStrength", &s.depth_strength},
-                  {"depthPlane", &s.depth_plane}};
+                  {"depthPlane", &s.depth_plane},      {"zoom", &s.zoom}};
     const struct {
         const char* key;
         bool* value;

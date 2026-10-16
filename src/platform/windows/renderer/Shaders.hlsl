@@ -99,8 +99,9 @@ cbuffer StereoUniforms : register(b4) {
     float stereo_eye;          // -1 left, +1 right
     float stereo_strength;     // parallax between the eyes at depth 1, in panel widths
     float stereo_convergence;  // depth seen on the panel's plane (no parallax)
-    float stereo_edge;         // side margins where the parallax fades to 0, in panel widths
+    float stereo_edge;         // margins where the parallax fades to 0, in widths of the video
     float3 stereo_pad;
+    float4 stereo_rect;        // where the video is in the frame, 0..1 (x0, y0, x1, y1): flat outside
 };
 
 cbuffer DepthBlendUniforms : register(b5) {
@@ -115,8 +116,12 @@ SamplerState depth_samp : register(s1);  // bilinear, clamped
 
 float stereo_shift(float x, float y) {
     const float d = depth_map.SampleLevel(depth_samp, float2(x, y), 0).r;
-    // At the sides the image goes back to the panel's plane (no window violation).
-    const float fade = smoothstep(0.0, stereo_edge, x) * smoothstep(0.0, stereo_edge, 1.0 - x);
+    // At the video's sides the image goes back to the panel's plane (no window violation); above
+    // and below too when the video does not reach the panel's edge (a page around it).
+    const float ew = stereo_edge * (stereo_rect.z - stereo_rect.x), eh = stereo_edge * (stereo_rect.w - stereo_rect.y);
+    float fade = smoothstep(0.0, ew, x - stereo_rect.x) * smoothstep(0.0, ew, stereo_rect.z - x);
+    if (stereo_rect.y > 0.005) fade *= smoothstep(0.0, eh, y - stereo_rect.y);
+    if (stereo_rect.w < 0.995) fade *= smoothstep(0.0, eh, stereo_rect.w - y);
     return -stereo_eye * 0.5 * stereo_strength * (d - stereo_convergence) * fade;
 }
 

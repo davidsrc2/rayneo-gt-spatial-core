@@ -95,9 +95,8 @@ final class AppModel: ObservableObject {
         dimOthers = d.object(forKey: "dimOthers") as? Bool ?? false  // optical see-through: dimmed reads as cut off
         gatherWindows = d.object(forKey: "gatherWindows") as? Bool ?? true
         tracking = d.object(forKey: "tracking") as? Int ?? ((d.object(forKey: "yawOnly") as? Bool ?? true) ? 1 : 0)
-        // One way of seeing the panels in the app: the space at real size (glasses in follow).
-        // The one-large-panel pinned mode stays in the server for the command line only.
-        glassesPinned = false
+        // The space at real size, or the glasses' own pinned mode (⌘⌥G): as left last time.
+        glassesPinned = d.int(forKey: "glassesMode") == 1
         growFocused = d.object(forKey: "growFocused") as? Bool ?? true
         macScreen = d.object(forKey: "macScreen") as? Bool ?? true
         anchorAtRest = d.bool(forKey: "anchorAtRest")
@@ -351,6 +350,7 @@ final class AppModel: ObservableObject {
         o.macScreen = macScreen
         o.focusWindows = focusWindows
         o.depth3D = false  // AI 3D only with ⌘⌥T, for the run
+        o.zoom = Float(d.double(forKey: "zoom") ?? 1)  // as left last time (⌘⌥+ / - / 0, ⌘⌥K)
         o.depthStrength = Float(depthStrength)
         o.depthConvergence = Float(depthPlane)
         o.brightness = brightness

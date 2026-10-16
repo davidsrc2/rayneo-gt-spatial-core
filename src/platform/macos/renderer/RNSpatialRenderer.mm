@@ -36,6 +36,8 @@ struct StereoUniforms {
     float strength;
     float convergence;
     float edge;
+    float pad[3];
+    simd_float4 rect;  // where the video is, 0..1: x0, y0, x1, y1
 };
 
 struct DepthBlendUniforms {
@@ -86,6 +88,7 @@ struct Panel {
     // AI 3D. Guarded by _sourceLock: the latest depth map, its range and whether it starts a scene.
     CVMetalTextureRef depth = nullptr;
     float depth_low = 0.0f, depth_high = 1.0f;
+    simd_float4 depth_rect = {0, 0, 1, 1};  // the video's part of the frame (the rest stays flat)
     bool depth_dirty = false, depth_cut = false;
     // Render thread: the smoothed maps (ping-pong); `smoothed_valid` false until the first one.
     id<MTLTexture> smoothed[2];
@@ -555,6 +558,7 @@ static float panel_arc(RNRenderOptions* o) {
                          low:(float)low
                         high:(float)high
                     sceneCut:(BOOL)sceneCut
+                   videoRect:(CGRect)videoRect
                     forPanel:(NSUInteger)panel {
     if (panel >= kMaxPanels) return;
     CVMetalTextureRef dtex = nullptr;
@@ -571,6 +575,8 @@ static float panel_arc(RNRenderOptions* o) {
     p.depth_low = low;
     p.depth_high = high;
     p.depth_cut = p.depth_cut || sceneCut;  // a cut between two drawn frames still resets
+    p.depth_rect = simd_make_float4(static_cast<float>(CGRectGetMinX(videoRect)), static_cast<float>(CGRectGetMinY(videoRect)),
+                                    static_cast<float>(CGRectGetMaxX(videoRect)), static_cast<float>(CGRectGetMaxY(videoRect)));
     p.depth_dirty = true;
     os_unfair_lock_unlock(&_sourceLock);
     if (old != nullptr) CFRelease(old);
@@ -751,6 +757,7 @@ static float effective_curvature(RNRenderOptions* o) {
     bool fresh[kMaxPanels] = {};
     bool depthChanged[kMaxPanels] = {}, depthCut[kMaxPanels] = {};
     float depthLow[kMaxPanels] = {}, depthHigh[kMaxPanels] = {};
+    simd_float4 depthRect[kMaxPanels];
     os_unfair_lock_lock(&_sourceLock);
     const NSUInteger count = _panelCount;
     for (NSUInteger i = 0; i < count; ++i) {
@@ -758,6 +765,7 @@ static float effective_curvature(RNRenderOptions* o) {
         textures[i] = p.texture;
         if (textures[i] != nullptr) CFRetain(textures[i]);
         aspects[i] = p.aspect;
+        depthRect[i] = p.depth_rect;
         fresh[i] = p.dirty;
         p.dirty = false;
         if (p.depth_dirty) {
@@ -860,7 +868,7 @@ static float effective_curvature(RNRenderOptions* o) {
             const bool deep = o.sideBySide && p.smoothed_valid && p.mipmapped != nil;
             if (deep) {
                 const StereoUniforms su{p.brightness, eye == 0 ? -1.0f : 1.0f, o.depthStrength,
-                                        std::clamp(o.depthConvergence, 0.0f, 1.0f), kDepthEdge};
+                                        std::clamp(o.depthConvergence, 0.0f, 1.0f), kDepthEdge, {0, 0, 0}, depthRect[i]};
                 [enc setRenderPipelineState:_stereoPipeline];
                 [enc setFragmentBytes:&su length:sizeof(su) atIndex:0];
                 [enc setFragmentTexture:p.smoothed[p.smoothed_index] atIndex:1];

@@ -34,6 +34,7 @@ struct OverlayUniforms {
 };
 struct StereoUniforms {
     float brightness, eye, strength, convergence, edge, pad[3];
+    float rect[4];  // where the video is, 0..1: x0, y0, x1, y1
 };
 struct DepthBlendUniforms {
     float low, high, alpha, lod;
@@ -559,6 +560,8 @@ void SpatialRenderer::depth_reset() {
         s.input = DepthInput{};
     }
     depth_valid_ = false;
+    depth_video_[0] = depth_video_[1] = 0.0f;
+    depth_video_[2] = depth_video_[3] = 1.0f;
     depth_captured_generation_ = ~0ull;
     if (depth_ != nullptr) {
         DepthOutput stale;
@@ -741,6 +744,7 @@ void SpatialRenderer::depth_frame(Panel& p) {
         for (auto& s : depth_slots_) {
             if (s.state != DepthSlot::State::Inferring || s.seq != out.seq) continue;
             blend_depth(out);
+            for (int k = 0; k < 4; ++k) depth_video_[k] = out.video[k];
             if (compose_copy(p, s.color.Get(), s.width, s.height)) compose_finish(p, s.pointer);
             s.state = DepthSlot::State::Free;
             depth_generation_ += 1;
@@ -907,7 +911,8 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
             const bool deep = i == depth_active_ && depth_valid_ && options.side_by_side && p.composite_srv;
             if (deep) {
                 const StereoUniforms st{p.brightness, eye == 0 ? -1.0f : 1.0f, options.depth_strength,
-                                        std::clamp(options.depth_convergence, 0.0f, 1.0f), kDepthEdge, {0, 0, 0}};
+                                        std::clamp(options.depth_convergence, 0.0f, 1.0f), kDepthEdge, {0, 0, 0},
+                                        {depth_video_[0], depth_video_[1], depth_video_[2], depth_video_[3]}};
                 ctx_->UpdateSubresource(stereo_cb_.Get(), 0, nullptr, &st, 0, 0);
                 ctx_->PSSetShader(stereo_ps_.Get(), nullptr, 0);
                 ctx_->PSSetConstantBuffers(4, 1, stereo_cb_.GetAddressOf());
