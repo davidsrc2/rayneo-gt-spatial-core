@@ -893,6 +893,20 @@ void test_track_no_roll() {
     CHECK(std::fabs(n.rotate({0, 1, 0}).z) < 1e-5f);  // the view's left axis stays level: no tilt
 }
 
+// Neck model: at rest nothing moves; turned 30 deg, the eyes have moved sideways by
+// forward * sin(30) and a point straight ahead in the room shifts accordingly.
+void test_neck_model() {
+    const Mat4 rest = view_matrix(Quat{}, 0.0f, kNeckUpM, kNeckForwardM);
+    CHECK(near(rest.at(0, 3), 0.0f, 1e-6f) && near(rest.at(1, 3), 0.0f, 1e-6f) && near(rest.at(2, 3), 0.0f, 1e-6f));
+    const float d2r = 0.0174533f;
+    const Quat yaw = Quat::from_axis_angle({0, 0, 1}, 30 * d2r);  // core: +Z up, turning left
+    const Mat4 plain = view_matrix(yaw, 0.0f), neck = view_matrix(yaw, 0.0f, kNeckUpM, kNeckForwardM);
+    const auto eye_x = [](const Mat4& v) { return v.at(0, 0) * 0 + v.at(0, 1) * 0 + v.at(0, 2) * 2.0f + v.at(0, 3); };
+    // The point 2 m ahead in the room, horizontally in the eye frame: shifted by about the eyes'
+    // sideways travel (0.08 * sin 30 = 4 cm).
+    CHECK(std::fabs(std::fabs(eye_x(neck) - eye_x(plain)) - kNeckForwardM * 0.5f) < 0.01f);
+}
+
 void test_slerp() {
     const Quat a{}, b = Quat::from_axis_angle({0, 0, 1}, 1.0f);
     CHECK(quat_near(slerp(a, b, 0.0f), a, 1e-6f) && quat_near(slerp(a, b, 1.0f), b, 1e-6f));
@@ -1292,6 +1306,7 @@ int main() {
     test_separate_floating();
     test_place_pitched();
     test_track_no_roll();
+    test_neck_model();
     test_pinned_zoom();
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();

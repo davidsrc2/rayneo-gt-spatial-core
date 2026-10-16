@@ -32,7 +32,15 @@ Mat4 render_rotation(const Quat& head_rel);
 
 // World -> eye view matrix. eye_offset_m is the eye's lateral position in head space
 // (render X, i.e. -IPD/2 for the left eye).
-Mat4 view_matrix(const Quat& head_rel, float eye_offset_m);
+// `neck_up_m` / `neck_forward_m`: where the eyes sit relative to the neck's pivot (the head
+// turns about the neck, not about the eyes). With them the eyes move a few centimetres as the
+// head turns and near panels shift against the real room as real objects do; without, on
+// see-through glasses the panels seemed to follow the head a little (> 1 deg in a 30 deg turn).
+Mat4 view_matrix(const Quat& head_rel, float eye_offset_m, float neck_up_m = 0.0f, float neck_forward_m = 0.0f);
+
+// Typical eye position from the neck's pivot (render frame: up, forward), metres.
+inline constexpr float kNeckUpM = 0.075f;
+inline constexpr float kNeckForwardM = 0.08f;
 
 // Left-handed perspective with Metal/D3D clip depth [0, 1].
 Mat4 perspective_lh(float fovy_rad, float aspect, float near_z, float far_z);

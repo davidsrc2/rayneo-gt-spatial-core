@@ -26,7 +26,8 @@ struct RenderOptions {
     float arc_deg = 50.0f;       // horizontal extent of each panel
     float gap_deg = 1.0f;        // space between panels
     float curvature = 0.0f;      // 0 = flat monitors angled towards you, 1 = cylinder
-    float tilt = 1.0f;           // panels above / below: 1 face you, 0 upright (core::place_pitched)
+    float tilt = 1.0f;
+    bool neck_model = false;     // eyes ahead of the neck's pivot (core::view_matrix)           // panels above / below: 1 face you, 0 upright (core::place_pitched)
     float fov_y_deg = 24.5f;     // per-eye vertical FOV of the optics
     float eye_aspect = 16.0f / 9.0f;
     float k1 = 0.0f;             // barrel pre-distortion, 0 = off

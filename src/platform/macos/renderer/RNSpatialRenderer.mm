@@ -79,6 +79,7 @@ struct Panel {
         _curved = NO;
         _curvature = 0.0f;
         _tilt = 1.0f;
+        _neckModel = NO;
         _fovYDegrees = 24.5f;
         _eyeAspect = 16.0f / 9.0f;
         _k1 = 0.0f;
@@ -670,7 +671,8 @@ static float effective_curvature(RNRenderOptions* o) {
         pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);  // black = see-through
         id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
         const float offset = o.sideBySide ? (eye == 0 ? -0.5f : 0.5f) * o.ipdMeters : 0.0f;
-        SceneUniforms u{to_simd(proj * core::view_matrix(head, offset))};
+        const float up = o.neckModel ? core::kNeckUpM : 0.0f, fwd = o.neckModel ? core::kNeckForwardM : 0.0f;
+        SceneUniforms u{to_simd(proj * core::view_matrix(head, offset, up, fwd))};
         [enc setRenderPipelineState:_screenPipeline];
         [enc setCullMode:MTLCullModeNone];
         [enc setVertexBytes:&u length:sizeof(u) atIndex:1];

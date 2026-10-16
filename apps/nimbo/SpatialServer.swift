@@ -783,6 +783,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // must fit both ways: the Mac's own screen (3024x1964) is taller than the image, and at
         // the image's full width its top and bottom were cut. 94 % of what fits, clear of the
         // lenses' soft edge. The arc is set so the distance scaling cancels out.
+        // Fixed in the room on see-through glasses: the eyes turn about the neck, not about
+        // themselves (core::view_matrix).
+        ro.neckModel = !o.glassesPinned && o.realSize
         if !o.glassesPinned && o.realSize {
             ro.trackingAxes = 0  // full rotation: fixed in the room, level with the floor
             let fovY = ro.fovYDegrees * .pi / 180

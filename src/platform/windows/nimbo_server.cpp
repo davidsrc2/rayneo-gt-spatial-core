@@ -1189,6 +1189,7 @@ void Server::apply_pinned(const Options& o) {
     // reached by looking up.
     if (o.glasses_pinned) ro.tracking_axes = core::TrackingAxes::Both;
     ro.tilt = o.tilt;
+    ro.neck_model = !o.glasses_pinned && o.real_size;  // the eyes turn about the neck (core::view_matrix)
     // Space at real size (glasses in follow): every panel nearly as large as the glasses' own
     // image, fixed in the room on both axes. It fits both ways (a 16:10 laptop screen is taller
     // than the image): 94 % of what fits. The arc is set so the distance scaling cancels out.

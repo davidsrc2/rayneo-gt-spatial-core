@@ -522,7 +522,8 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         ctx_->ClearRenderTargetView(rtv, black);
         const float offset = options.side_by_side ? (eye == 0 ? -0.5f : 0.5f) * options.ipd_m : 0.0f;
         SceneUniforms su;
-        std::memcpy(su.view_projection, (proj * core::view_matrix(head, offset)).m, sizeof(su.view_projection));
+        const float up = options.neck_model ? core::kNeckUpM : 0.0f, fwd = options.neck_model ? core::kNeckForwardM : 0.0f;
+        std::memcpy(su.view_projection, (proj * core::view_matrix(head, offset, up, fwd)).m, sizeof(su.view_projection));
         ctx_->UpdateSubresource(scene_cb_.Get(), 0, nullptr, &su, 0, 0);
         for (int i = 0; i < count_; ++i) {
             if (options.focus_panel >= 0 && i != options.focus_panel) continue;  // focus / cinema
