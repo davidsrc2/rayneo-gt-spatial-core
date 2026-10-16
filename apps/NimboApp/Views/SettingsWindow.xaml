@@ -59,18 +59,6 @@
             </StackPanel>
 
             <StackPanel Spacing="8">
-                <TextBlock Text="Perfiles por app" FontSize="13" Opacity="0.7" />
-                <StackPanel x:Name="RuleList" Spacing="6" />
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                    <ComboBox x:Name="RuleApp" Width="220" PlaceholderText="Elige una app" />
-                    <ComboBox x:Name="RuleProfile" Width="140" />
-                    <Button Content="Añadir" Click="RuleAdd_Click" />
-                </StackPanel>
-                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
-                           Text="Mientras esa app está delante, Nimbo usa la distancia, la curvatura y el tamaño de su perfil; al cambiar de app vuelve a los tuyos. El número de monitores no cambia." />
-            </StackPanel>
-
-            <StackPanel Spacing="8">
                 <TextBlock Text="Cómo se ven" FontSize="13" Opacity="0.7" />
                 <Slider x:Name="TextSizeSlider" Header="Tamaño del texto" Minimum="0" Maximum="4" StepFrequency="1"
                         SnapsTo="StepValues" ValueChanged="SliderChanged" />
@@ -125,6 +113,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Windows" FontSize="12" Opacity="0.6" />
                     <TextBlock Grid.Row="0" Grid.Column="1" Text="Mac" FontSize="12" Opacity="0.6" />
@@ -147,41 +136,33 @@
                     <TextBlock Grid.Row="6" Grid.Column="0" Text="Ctrl+Alt+J" FontWeight="SemiBold" />
                     <TextBlock Grid.Row="6" Grid.Column="1" Text="⌘⌥J" Opacity="0.6" />
                     <TextBlock Grid.Row="6" Grid.Column="2" Text="Llevar el cursor a la pantalla que miras" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Ctrl+Alt+O" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="7" Grid.Column="1" Text="⌘⌥O" Opacity="0.6" />
-                    <TextBlock Grid.Row="7" Grid.Column="2" Text="Modo enfoque: solo la pantalla que miras (otra vez: todas)" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="8" Grid.Column="0" Text="Ctrl+Alt+P" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="8" Grid.Column="1" Text="⌘⌥P" Opacity="0.6" />
-                    <TextBlock Grid.Row="8" Grid.Column="2" Text="Modo cine: la pantalla que miras, delante y grande" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="9" Grid.Column="0" Text="Ctrl+Alt+T" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="9" Grid.Column="1" Text="⌘⌥T" Opacity="0.6" />
-                    <TextBlock Grid.Row="9" Grid.Column="2" Text="Cine en 3D con IA (con las gafas en modo 3D)" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="10" Grid.Column="0" Text="—" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="10" Grid.Column="1" Text="⌘⌥R" Opacity="0.6" />
-                    <TextBlock Grid.Row="10" Grid.Column="2" Text="Grabar lo que ves en las gafas (solo Mac por ahora)" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="11" Grid.Column="0" Text="Ctrl+Alt+[  ]" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="11" Grid.Column="1" Text="⌘⌥[  ⌘⌥]" Opacity="0.6" />
-                    <TextBlock Grid.Row="11" Grid.Column="2" Text="Bajar / subir el brillo de las gafas" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="12" Grid.Column="0" Text="Ctrl+Alt+-  =" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="12" Grid.Column="1" Text="⌘⌥-  ⌘⌥=" Opacity="0.6" />
-                    <TextBlock Grid.Row="12" Grid.Column="2" Text="Campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (=)" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="13" Grid.Column="0" Text="Ctrl+Alt+Q" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="13" Grid.Column="1" Text="⌘⌥Q" Opacity="0.6" />
-                    <TextBlock Grid.Row="13" Grid.Column="2" Text="Parar Nimbo (todo vuelve a la normalidad)" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Ctrl+Alt+K" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="7" Grid.Column="1" Text="⌘⌥K" Opacity="0.6" />
+                    <TextBlock Grid.Row="7" Grid.Column="2" Text="Modo código: las pantallas más cerca (otra vez: como estaban)" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="8" Grid.Column="0" Text="Ctrl+Alt+O" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="8" Grid.Column="1" Text="⌘⌥O" Opacity="0.6" />
+                    <TextBlock Grid.Row="8" Grid.Column="2" Text="Modo enfoque: solo la pantalla que miras (otra vez: todas)" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="9" Grid.Column="0" Text="Ctrl+Alt+P" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="9" Grid.Column="1" Text="⌘⌥P" Opacity="0.6" />
+                    <TextBlock Grid.Row="9" Grid.Column="2" Text="Modo cine: la pantalla que miras, delante y grande" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="10" Grid.Column="0" Text="Ctrl+Alt+T" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="10" Grid.Column="1" Text="⌘⌥T" Opacity="0.6" />
+                    <TextBlock Grid.Row="10" Grid.Column="2" Text="Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="11" Grid.Column="0" Text="—" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="11" Grid.Column="1" Text="⌘⌥R" Opacity="0.6" />
+                    <TextBlock Grid.Row="11" Grid.Column="2" Text="Grabar lo que ves en las gafas (solo Mac por ahora)" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="12" Grid.Column="0" Text="Ctrl+Alt+[  ]" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="12" Grid.Column="1" Text="⌘⌥[  ⌘⌥]" Opacity="0.6" />
+                    <TextBlock Grid.Row="12" Grid.Column="2" Text="Bajar / subir el brillo de las gafas" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="13" Grid.Column="0" Text="Ctrl+Alt+-  =" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="13" Grid.Column="1" Text="⌘⌥-  ⌘⌥=" Opacity="0.6" />
+                    <TextBlock Grid.Row="13" Grid.Column="2" Text="Campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (=)" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="14" Grid.Column="0" Text="Ctrl+Alt+Q" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="14" Grid.Column="1" Text="⌘⌥Q" Opacity="0.6" />
+                    <TextBlock Grid.Row="14" Grid.Column="2" Text="Parar Nimbo (todo vuelve a la normalidad)" TextWrapping="Wrap" />
                 </Grid>
                 <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
                            Text="Funcionan con cualquier app delante mientras Nimbo está en marcha; el panel, el brillo y las disposiciones, también con Nimbo parado." />
-            </StackPanel>
-
-            <StackPanel Spacing="8">
-                <TextBlock Text="Cine en 3D con IA" FontSize="13" Opacity="0.7" />
-                <ToggleSwitch x:Name="Depth3DToggle" Header="Ver el modo cine en 3D" Toggled="Changed" />
-                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
-                           Text="Una IA calcula la profundidad de cada fotograma y la pantalla del modo cine (Ctrl+Alt+P) se ve en relieve. Pon las gafas en modo 3D (Nimbo lo detecta solo, también con Nimbo ya abierto). La primera vez descarga el modelo (50 MB). Ctrl+Alt+T lo activa y lo quita. Netflix y otras plataformas con protección se ven en negro; YouTube y tus vídeos, sí." />
-                <Slider x:Name="DepthStrengthSlider" Header="Intensidad (%)" Minimum="0.5" Maximum="8" StepFrequency="0.25"
-                        ValueChanged="SliderChanged" />
-                <Slider x:Name="DepthPlaneSlider" Header="Plano de la pantalla (0 todo sale hacia ti, 1 todo hacia el fondo)"
-                        Minimum="0" Maximum="1" StepFrequency="0.05" ValueChanged="SliderChanged" />
             </StackPanel>
 
             <Expander Header="Avanzado" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">

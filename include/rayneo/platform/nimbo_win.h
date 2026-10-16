@@ -130,6 +130,8 @@ NIMBO_API void nimbo_adjust_fov(nimbo_server* s, float delta_deg);
 NIMBO_API void nimbo_toggle_focus(nimbo_server* s, bool cinema);
 /* AI 3D on / off for this run (Ctrl+Alt+T); the options' depth3d is applied again with nimbo_apply. */
 NIMBO_API void nimbo_toggle_depth3d(nimbo_server* s);
+/* A short message on the glasses for a few seconds (the app's own shortcuts: code mode...). UTF-8. */
+NIMBO_API void nimbo_show_message(nimbo_server* s, const char* text);
 NIMBO_API void nimbo_get_status(nimbo_server* s, nimbo_status* out);
 
 /* Log lines of every server in the process (and the calibration), from any thread. NULL:

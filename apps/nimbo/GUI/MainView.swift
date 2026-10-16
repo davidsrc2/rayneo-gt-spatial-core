@@ -48,10 +48,6 @@ struct MainView: View {
                     FloatingWindowsList(model: model, running: server.isRunning)
                 }
 
-                Section(title: "Perfiles por app") {
-                    AppRulesList(model: model)
-                }
-
                 Section(title: "Cómo se ven") {
                     LabeledSlider(title: "Tamaño del texto",
                                   value: Binding(get: { Double(model.textSize) }, set: { model.textSize = Int($0.rounded()) }),

@@ -120,6 +120,10 @@ final class ServerController: ObservableObject {
     func recenter() { server?.recenter() }
     func toggleFocus(cinema: Bool) { server?.toggleFocus(cinema: cinema) }
     func toggleRecording() { server?.toggleRecording() }
+    // A short message on the glasses (or a notification while Nimbo is stopped).
+    func showMessage(_ text: String) {
+        if let server { server.showMessage(text) } else { notifier.post(text, "") }
+    }
 
     // Live where possible; monitors, text size or the stabilizer need a restart.
     func settingsChanged() {

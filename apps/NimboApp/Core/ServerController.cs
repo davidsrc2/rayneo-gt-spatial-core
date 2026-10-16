@@ -118,6 +118,12 @@ internal sealed class ServerController : IDisposable
         if (IsRunning) NimboNative.nimbo_toggle_focus(_server, cinema ? (byte)1 : (byte)0);
     }
 
+    // A short message on the glasses.
+    public void ShowMessage(string text)
+    {
+        if (IsRunning) NimboNative.nimbo_show_message(_server, text);
+    }
+
     public void ToggleDepth3D()
     {
         if (IsRunning) NimboNative.nimbo_toggle_depth3d(_server);

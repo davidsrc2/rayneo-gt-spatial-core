@@ -79,27 +79,3 @@ struct LayoutGlyph: View {
     }
 }
 
-struct ProfileChips: View {
-    @ObservedObject var model: AppModel
-    let onChange: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(AppModel.profiles) { p in
-                let active = model.activeProfile == p.id
-                Button {
-                    withAnimation(.easeInOut(duration: 0.35)) { model.apply(p) }
-                    onChange()
-                } label: {
-                    Label("Modo \(p.title)", systemImage: p.symbol)
-                        .font(.system(size: 12, weight: active ? .semibold : .regular))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(.white.opacity(active ? 0.16 : 0.06)))
-                        .overlay(Capsule().stroke(.white.opacity(active ? 0.3 : 0.08)))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-}

@@ -382,11 +382,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             focusMode = options.startCinema ? 1 : 2  // toggled into the wanted mode below
             toggleFocus(cinema: options.startCinema)
         }
-        // Started with the glasses already in 3D and AI 3D on: straight into cinema.
-        if glassesID != nil, options.sideBySide == nil, renderer.options.sideBySide, options.depth3D, focusMode == 0 {
-            toggleFocus(cinema: true)
-            cinemaFor3D = true
-        }
         try Task.checkCancellation()
         startRenderLoop(layer: layer)
         startMonitoring()
@@ -495,7 +490,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var glassesLostSince: Date?
 
     private var reconnecting = false  // main thread: setting the glasses' display up again
-    private var cinemaFor3D = false   // cinema entered because the glasses went 3D with AI 3D on
+    private var cinemaFor3D = false   // cinema entered by ⌘⌥T
     private var lastUnmirror = Date.distantPast
 
     private func glassesLost() {
@@ -581,15 +576,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         log(String(format: "surface: %.0fx%.0f px, %@", size.width, size.height, sbs ? "side by side (glasses in 3D)" : "mono (glasses in 2D)"))
         onNotice?(sbs ? "Gafas en 3D: una imagen para cada ojo" : "Gafas en 2D")
         flash(sbs ? "Modo 3D de las gafas activado" : "Gafas en modo 2D")
-        // With AI 3D on, putting the glasses in 3D means watching in 3D: cinema on the panel you
-        // look at; back in 2D, all the panels again (if it was this that went to cinema).
-        if sbs && options.depth3D && focusMode == 0 {
-            toggleFocus(cinema: true)
-            cinemaFor3D = true
-        } else if !sbs && cinemaFor3D && focusMode == 2 {
-            toggleFocus(cinema: true)
-        }
-        if !sbs { cinemaFor3D = false }
         updateDepth3D()
         requestRedraw()
     }
@@ -616,6 +602,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         flashWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
+
+    // For the app's own shortcuts (⌘⌥K...): the same card on the glasses.
+    func showMessage(_ text: String) { flash(text) }
 
     private func shutDown(_ reason: String) {
         log("\(reason): stopping and restoring the displays")
@@ -1244,10 +1233,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         log("3d: \(options.depth3D ? "on" : "off")")
         if options.depth3D {
             if renderer?.options.sideBySide == false {
-                // Glasses in 2D: nothing to see in depth yet. Cinema starts when they go 3D.
-                onNotice?("Pon las gafas en modo 3D para ver el relieve")
-                flash("Cine en 3D con IA listo")
+                // Glasses in 2D: nothing to see in depth. Nothing changes; it says what to do.
+                options.depth3D = false
+                log("3d: glasses in 2D, not started")
                 flash("Pon las gafas en modo 3D")
+                flash("y pulsa ⌘⌥T")
                 return
             }
             if focusMode != 2 {

@@ -201,29 +201,9 @@ internal sealed unsafe class AppModel
         return new PanelPos(0, top + Gap + v / 2 + Math.Max(0, above));
     }
 
-    // --- per-app profiles (app_profiles.json) ------------------------------------------------
-
-    public sealed record AppRule(string App, string Name, string Profile);
-
-    public static string AppRulesPath => Path.Combine(DataDirectory, "app_profiles.json");
-    public List<AppRule> AppRules { get; private set; } = LoadRules();
-    public string? ActiveAppProfile { get; set; }  // profile id applied for the front app
-
-    private static List<AppRule> LoadRules()
-    {
-        try
-        {
-            return File.Exists(AppRulesPath)
-                ? System.Text.Json.JsonSerializer.Deserialize<List<AppRule>>(File.ReadAllText(AppRulesPath)) ?? new()
-                : new();
-        }
-        catch (Exception e) when (e is IOException or System.Text.Json.JsonException)
-        {
-            return new();
-        }
-    }
-
-    public void SaveRules() => File.WriteAllText(AppRulesPath, System.Text.Json.JsonSerializer.Serialize(AppRules));
+    // Code mode (Ctrl+Alt+K, for this run only): the "code" profile's look on top of the saved
+    // settings (the panels closer), which stay untouched.
+    public bool CodeMode { get; set; }
 
     public void ResetPlacement() => _s.PoseCount = 0;
 
@@ -337,8 +317,9 @@ internal sealed unsafe class AppModel
             o.FloatingPitch[i] = Floating[i].Pose.Pitch;
             o.FloatingScale[i] = Floating[i].Pose.Scale;
         }
-        // Per-app profile on top (transient: the saved settings stay as they are).
-        var active = Profiles.FirstOrDefault(p => p.Id == ActiveAppProfile);
+        // Code mode on top (transient: the saved settings stay as they are).
+        var active = CodeMode ? Profiles.FirstOrDefault(p => p.Id == "code") : null;
+        o.Depth3D = 0;  // AI 3D only with Ctrl+Alt+T, for the run
         if (active != null)
         {
             o.DistanceM = active.Distance;

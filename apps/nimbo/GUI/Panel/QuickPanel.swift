@@ -36,7 +36,6 @@ struct QuickPanel: View {
                     BrightnessSlider(model: model)
                 }
             }
-            focusButtons
             footer
         }
         .padding(18)
@@ -105,29 +104,8 @@ struct QuickPanel: View {
         .animation(.easeInOut(duration: 0.35), value: server.isRunning)
     }
 
-    // Focus (only the monitor you look at) and cinema (that one centred and large).
-    private var focusButtons: some View {
-        HStack(spacing: 10) {
-            Button { server.toggleFocus(cinema: false) } label: {
-                Label("Enfoque  ⌘⌥O", systemImage: "scope").font(.system(size: 12))
-            }
-            Button { server.toggleFocus(cinema: true) } label: {
-                Label("Cine  ⌘⌥P", systemImage: "film").font(.system(size: 12))
-            }
-            Button { server.toggleRecording() } label: {
-                Label("Grabar  ⌘⌥R", systemImage: "record.circle").font(.system(size: 12))
-            }
-            .help("Graba lo que ves en las gafas y lo guarda en Descargas; otra vez para parar")
-            Spacer()
-        }
-        .buttonStyle(.bordered)
-        .disabled(!server.isRunning)
-    }
-
     private var footer: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ProfileChips(model: model) { server.settingsChanged() }
-            Divider().opacity(0.4)
             HStack {
                 Toggle(isOn: $model.autoStart) {
                     Text("Auto-iniciar al conectar las RayNeo GT").font(.system(size: 13))

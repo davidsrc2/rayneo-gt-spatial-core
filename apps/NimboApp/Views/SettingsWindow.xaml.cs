@@ -71,7 +71,6 @@ public sealed partial class SettingsWindow : Window
         DrawLayout();
         DrawPlacement();
         DrawFloating();
-        DrawRules();
         DimToggle.IsOn = _model.DimOthers;
         AnchorToggle.IsOn = _model.AnchorAtRest;
         LaptopToggle.IsOn = _model.LaptopScreen;
@@ -83,9 +82,6 @@ public sealed partial class SettingsWindow : Window
         CurvatureSlider.Value = _model.Curvature;
         SizeSlider.Value = _model.Size;
         TiltSlider.Value = _model.Tilt;
-        Depth3DToggle.IsOn = _model.Depth3D;
-        DepthStrengthSlider.Value = _model.DepthStrength * 100;
-        DepthPlaneSlider.Value = _model.DepthPlane;
         GazeToggle.IsOn = _model.GazeCursor;
         GatherToggle.IsOn = _model.GatherWindows;
         K1Slider.Value = _model.K1;
@@ -111,9 +107,6 @@ public sealed partial class SettingsWindow : Window
         _model.Curvature = (float)CurvatureSlider.Value;
         _model.Size = (float)SizeSlider.Value;
         _model.Tilt = (float)TiltSlider.Value;
-        _model.Depth3D = Depth3DToggle.IsOn;
-        _model.DepthStrength = (float)DepthStrengthSlider.Value / 100f;
-        _model.DepthPlane = (float)DepthPlaneSlider.Value;
         _model.GazeCursor = GazeToggle.IsOn;
         _model.GatherWindows = GatherToggle.IsOn;
         _model.K1 = (float)K1Slider.Value;
@@ -236,48 +229,6 @@ public sealed partial class SettingsWindow : Window
         _server.SettingsChanged();
         DrawFloating();
         DrawPlacement();
-    }
-
-    // --- per-app profiles ------------------------------------------------------------------------
-
-    private void DrawRules()
-    {
-        RuleList.Children.Clear();
-        foreach (var rule in _model.AppRules.ToList())
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-            row.Children.Add(new TextBlock { Text = rule.Name, Width = 220, VerticalAlignment = VerticalAlignment.Center });
-            row.Children.Add(new TextBlock
-            {
-                Text = AppModel.Profiles.FirstOrDefault(p => p.Id == rule.Profile)?.Title ?? rule.Profile,
-                Width = 120,
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-            var remove = new Button { Content = "Quitar" };
-            remove.Click += (_, _) =>
-            {
-                _model.AppRules.Remove(rule);
-                _model.SaveRules();
-                DrawRules();
-            };
-            row.Children.Add(remove);
-            RuleList.Children.Add(row);
-        }
-        RuleApp.ItemsSource = NimboNative.ListWindows().Select(w => w.App).Where(a => a.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Where(a => _model.AppRules.All(r => !r.App.Equals(a, StringComparison.OrdinalIgnoreCase)))
-            .OrderBy(a => a).ToList();
-        RuleProfile.ItemsSource = AppModel.Profiles.Select(p => p.Title).ToList();
-        if (RuleProfile.SelectedIndex < 0 && AppModel.Profiles.Count > 0) RuleProfile.SelectedIndex = 0;
-    }
-
-    private void RuleAdd_Click(object sender, RoutedEventArgs e)
-    {
-        if (RuleApp.SelectedItem is not string app || RuleProfile.SelectedIndex < 0) return;
-        var profile = AppModel.Profiles[RuleProfile.SelectedIndex];
-        _model.AppRules.Add(new AppModel.AppRule(app, app, profile.Id));
-        _model.SaveRules();
-        DrawRules();
     }
 
     // --- hand placement (SpatialEditor.swift on macOS) -------------------------------------------

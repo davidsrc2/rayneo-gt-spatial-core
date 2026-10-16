@@ -37,9 +37,6 @@ struct SettingsView: View {
         .onChange(of: model.focusWindows) { server.settingsChanged() }
         .onChange(of: model.macScreen) { server.settingsChanged() }
         .onChange(of: model.anchorAtRest) { server.settingsChanged() }
-        .onChange(of: model.depth3D) { server.settingsChanged() }
-        .onChange(of: model.depthStrength) { server.settingsChanged() }
-        .onChange(of: model.depthPlane) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
         .onChange(of: model.k2) { server.settingsChanged() }
     }
@@ -89,22 +86,6 @@ struct SettingsView: View {
                 ShortcutSheet()
             }
 
-            Section(title: "Cine en 3D con IA") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Toggle("Ver el modo cine en 3D", isOn: $model.depth3D)
-                    Text("Una IA calcula la profundidad de cada fotograma y la pantalla del modo cine (⌘⌥P) se ve en relieve. Pon las gafas en modo 3D (Nimbo lo detecta solo, también con Nimbo ya abierto). La primera vez descarga el modelo (25 MB). ⌘⌥T lo activa y lo quita. Netflix y otras plataformas con protección se ven en negro; YouTube y tus vídeos, sí.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                }
-                .font(Theme.body).foregroundStyle(Theme.text)
-                if model.depth3D {
-                    LabeledSlider(title: "Intensidad", value: $model.depthStrength, range: 0.005...0.08, step: 0.0025,
-                                  caption: String(format: "%.1f %%", model.depthStrength * 100))
-                    LabeledSlider(title: "Plano de la pantalla", value: $model.depthPlane, range: 0...1, step: 0.05,
-                                  caption: model.depthPlane < 0.2 ? "todo sale hacia ti"
-                                      : model.depthPlane > 0.8 ? "todo hacia el fondo" : String(format: "%.2f", model.depthPlane))
-                }
-            }
-
             DisclosureGroup(isExpanded: $advancedBox.value) {
                 VStack(alignment: .leading, spacing: 14) {
                     LabeledSlider(title: "Campo de visión", value: $model.fov, range: 15...35, step: 0.5,
@@ -145,8 +126,9 @@ private struct ShortcutSheet: View {
         ("⌘⌥C", "Ctrl+Alt+C", "Recentrar: las pantallas vuelven delante de ti"),
         ("⌘⌥J", "Ctrl+Alt+J", "Llevar el cursor a la pantalla que miras"),
         ("⌘⌥O", "Ctrl+Alt+O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
+        ("⌘⌥K", "Ctrl+Alt+K", "Modo código: las pantallas más cerca (otra vez: como estaban)"),
         ("⌘⌥P", "Ctrl+Alt+P", "Modo cine: la pantalla que miras, delante y grande"),
-        ("⌘⌥T", "Ctrl+Alt+T", "Cine en 3D con IA (con las gafas en modo 3D)"),
+        ("⌘⌥T", "Ctrl+Alt+T", "Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)"),
         ("⌘⌥R", "—", "Grabar lo que ves en las gafas (vídeo en Descargas)"),
         ("⌘⌥[  ⌘⌥]", "Ctrl+Alt+[  ]", "Bajar / subir el brillo de las gafas"),
         ("⌘⌥-  ⌘⌥=", "Ctrl+Alt+-  =", "Campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (=)"),

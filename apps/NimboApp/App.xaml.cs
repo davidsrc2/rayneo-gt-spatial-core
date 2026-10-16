@@ -21,7 +21,6 @@ public partial class App : Application
     private PanelWindow? _panel;
     private SettingsWindow? _settings;
     private OnboardingWindow? _onboarding;
-    private ForegroundWatcher? _frontApp;
 
     public App()
     {
@@ -88,16 +87,6 @@ public partial class App : Application
         _panel = new PanelWindow(_model, _server, OpenSettings);
         Trace("launch: panel ok");
         _server.GlassesChanged += OnGlassesChanged;
-        _frontApp = new ForegroundWatcher(app =>
-        {
-            // Per-app profiles: the front app decides which profile's look applies (Nimbo itself
-            // in front keeps the current one).
-            if (app.Equals("Nimbo", StringComparison.OrdinalIgnoreCase)) return;
-            var profile = _model.AppRules.FirstOrDefault(r => r.App.Equals(app, StringComparison.OrdinalIgnoreCase))?.Profile;
-            if (profile == _model.ActiveAppProfile) return;
-            _model.ActiveAppProfile = profile;
-            _server.SettingsChanged();
-        });
 
         // Ctrl+Alt+1 / 2 / 3: the one-click layouts without opening the panel. Ctrl+Alt+N: the panel.
         _hotKeys = new HotKeys();
@@ -113,6 +102,16 @@ public partial class App : Application
                 _panel.Refresh();
             });
         }
+        // Ctrl+Alt+K: code mode on / off (the panels closer), for this run.
+        _hotKeys.Register('K', () =>
+        {
+            _model.CodeMode = !_model.CodeMode;
+            _server.SettingsChanged();
+            var text = _model.CodeMode ? "Modo código activado" : "Modo código desactivado";
+            if (_server.IsRunning) _server.ShowMessage(text);
+            else _tray?.ShowNotification(text, "");
+            _panel.Refresh();
+        });
         for (int i = 0; i < Math.Min(3, AppModel.Layouts.Count); ++i)
         {
             var preset = AppModel.Layouts[i];
@@ -192,7 +191,6 @@ public partial class App : Application
     private void Quit()
     {
         _hotKeys?.Dispose();
-        _frontApp?.Dispose();
         _server?.Dispose();  // stops the server: displays restored
         _tray?.Dispose();
         _panel?.Destroy();

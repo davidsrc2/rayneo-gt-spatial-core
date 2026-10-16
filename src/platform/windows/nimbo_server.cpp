@@ -415,6 +415,9 @@ private:
     // A short message on the glasses ("Modo 3D de las gafas activado"), on the start-up card;
     // two in a row share it. Waits for the start-up message to end.
     void flash(const std::wstring& line, double seconds = 2.5);
+public:
+    void show_message(const std::wstring& text) { flash(text); }
+private:
     std::vector<std::wstring> flash_lines_, pending_flash_;
     uint64_t flash_at_ns_ = 0, flash_until_ns_ = 0;
     bool cinema_for_3d_ = false;  // cinema entered because of AI 3D (glasses to 3D, Ctrl+Alt+T)
@@ -522,6 +525,11 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_APP + 4:  // nimbo_toggle_depth3d
         if (server != nullptr) server->on_hotkey(kDepth3D);
         return 0;
+    case WM_APP + 5: {  // nimbo_show_message: lp = new std::wstring
+        std::unique_ptr<std::wstring> text(reinterpret_cast<std::wstring*>(lp));
+        if (server != nullptr && text) server->show_message(*text);
+        return 0;
+    }
     case WM_APP + 2:  // nimbo_adjust_fov: lp = delta in hundredths of a degree
         if (server != nullptr) server->adjust_fov(static_cast<float>(static_cast<int>(lp)) / 100.0f);
         return 0;
@@ -1261,15 +1269,6 @@ void Server::handle_display_change() {
         logln("surface: %dx%d px, %s", width_, height_,
               renderer_.options.side_by_side ? "side by side (glasses in 3D)" : "mono (glasses in 2D)");
         flash(renderer_.options.side_by_side ? L"Modo 3D de las gafas activado" : L"Gafas en modo 2D");
-        // With AI 3D on, the glasses going 3D means watching in 3D: cinema on the panel looked
-        // at; back in 2D, all the panels again (if that is how cinema started).
-        if (renderer_.options.side_by_side && opt_.depth3d && focus_mode_ == 0) {
-            toggle_focus(true);
-            cinema_for_3d_ = true;
-        } else if (!renderer_.options.side_by_side && cinema_for_3d_ && focus_mode_ == 2) {
-            toggle_focus(true);
-        }
-        if (!renderer_.options.side_by_side) cinema_for_3d_ = false;
         update_depth3d();
         renderer_.invalidate_skipped_frame();
         redraw_ = true;
@@ -1346,9 +1345,10 @@ void Server::toggle_depth3d() {
     opt_.depth3d = !opt_.depth3d;
     logln("3d: %s", opt_.depth3d ? "on" : "off");
     if (opt_.depth3d && !renderer_.options.side_by_side) {
-        // Glasses in 2D: nothing to see in depth yet. Cinema starts when they go 3D.
-        flash(L"Cine en 3D con IA listo");
+        // Glasses in 2D: nothing to see in depth. Nothing changes; it says what to do.
+        opt_.depth3d = false;
         flash(L"Pon las gafas en modo 3D");
+        flash(L"y pulsa Ctrl+Alt+T");
         return;
     }
     if (opt_.depth3d && focus_mode_ != 2) {
@@ -2284,6 +2284,20 @@ void nimbo_recenter(nimbo_server* s) {
 void nimbo_adjust_fov(nimbo_server* s, float delta_deg) {
     std::lock_guard<std::mutex> lock(s->mutex);
     if (s->server) s->server->post(WM_APP + 2, 0, static_cast<LPARAM>(std::lround(delta_deg * 100.0f)));
+}
+
+void nimbo_show_message(nimbo_server* s, const char* text) {
+    if (s == nullptr || text == nullptr) return;
+    const int n = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
+    if (n <= 1) return;
+    auto* w = new std::wstring(static_cast<size_t>(n - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text, -1, w->data(), n);
+    std::lock_guard<std::mutex> lock(s->mutex);
+    if (s->server) {
+        s->server->post(WM_APP + 5, 0, reinterpret_cast<LPARAM>(w));  // freed by the server thread
+    } else {
+        delete w;
+    }
 }
 
 void nimbo_toggle_depth3d(nimbo_server* s) {

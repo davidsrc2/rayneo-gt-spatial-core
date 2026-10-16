@@ -19,7 +19,6 @@ public sealed partial class PanelWindow : Window
     private readonly ServerController _server;
     private readonly Action _openSettings;
     private readonly List<(Preset Preset, Button Button, Canvas Glyph)> _cards = new();
-    private readonly List<(ProfilePreset Profile, ToggleButton Button)> _profiles = new();
     private bool _updating;
     private bool _destroying;
     private DateTime _hiddenAt;
@@ -56,7 +55,6 @@ public sealed partial class PanelWindow : Window
         };
 
         BuildCards();
-        BuildProfiles();
         _server.Changed += Refresh;
         Refresh();
     }
@@ -149,8 +147,6 @@ public sealed partial class PanelWindow : Window
         TextSlider.Value = _model.TextSize;
         UpdateValueLabels();
 
-        var activeProfile = _model.ActiveProfile;
-        foreach (var (profile, button) in _profiles) button.IsChecked = profile.Id == activeProfile;
         AutoStart.IsOn = _model.AutoStart;
         BrightnessSlider.Value = _model.Brightness == 0 ? 8 : _model.Brightness;
         NoticeText.Text = _server.Notice ?? "";
@@ -229,22 +225,6 @@ public sealed partial class PanelWindow : Window
         }
     }
 
-    private void BuildProfiles()
-    {
-        foreach (var profile in AppModel.Profiles)
-        {
-            var button = new ToggleButton { Content = profile.Title, CornerRadius = new CornerRadius(12), FontSize = 12 };
-            button.Click += (_, _) =>
-            {
-                _model.Apply(profile);
-                _server.SettingsChanged();
-                Refresh();
-            };
-            Profiles.Children.Add(button);
-            _profiles.Add((profile, button));
-        }
-    }
-
     // --- input ----------------------------------------------------------------------------------
 
     private async void Power_Toggled(object sender, RoutedEventArgs e)
@@ -256,10 +236,6 @@ public sealed partial class PanelWindow : Window
     }
 
     private void Recenter_Click(object sender, RoutedEventArgs e) => _server.Recenter();
-
-    private void Focus_Click(object sender, RoutedEventArgs e) => _server.ToggleFocus(cinema: false);
-
-    private void Cinema_Click(object sender, RoutedEventArgs e) => _server.ToggleFocus(cinema: true);
 
     private void Slider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {

@@ -35,16 +35,9 @@ final class AppModel: ObservableObject {
     // the app: found again when Nimbo starts).
     @Published var floating: [FloatingWindow] { didSet { save(floating, "floatingWindows") } }
 
-    // Per-app profiles: while one of these apps is in front, its profile's look (distance,
-    // curvature, size) applies on top of the saved settings, which stay untouched. The number
-    // of monitors does not change, so nothing is rebuilt and no window moves.
-    struct AppRule: Codable, Hashable {
-        var bundleID: String
-        var name: String
-        var profile: String
-    }
-    @Published var appRules: [AppRule] { didSet { save(appRules, "appProfiles") } }
-    @Published var activeAppProfile: String? = nil  // profile id applied for the front app
+    // Code mode (⌘⌥K, for this run only): the "code" profile's look on top of the saved
+    // settings (the panels closer), which stay untouched.
+    @Published var codeMode = false
     private var keepingPoses = false
     @Published var textSize: Int { didSet { d.set(textSize, forKey: "textSize") } }
     @Published var distance: Double { didSet { d.set(distance, forKey: "distance") } }
@@ -88,7 +81,6 @@ final class AppModel: ObservableObject {
         cells = Self.load([GridPos].self, "layoutCells")
             ?? [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0)]
         panelPoses = Self.load([PanelPos].self, "panels") ?? []
-        appRules = Self.load([AppRule].self, "appProfiles") ?? []
         floating = (Self.load([FloatingWindow].self, "floatingWindows") ?? [])
             .map { var w = $0; w.windowID = 0; return w }  // ids of an earlier session
         textSize = d.object(forKey: "textSize") as? Int ?? 3
@@ -279,20 +271,6 @@ final class AppModel: ObservableObject {
                        size: p.arc_deg >= 0 ? Double(p.arc_deg) : nil)
     }
 
-    var activeProfile: String? {
-        Self.profiles.first { p in
-            activeLayout == p.layout && abs(distance - p.distance) < 0.05 && textSize == p.textSize
-        }?.id
-    }
-
-    func apply(_ p: Profile) {
-        if let l = Self.layouts.first(where: { $0.id == p.layout }) { apply(l) }
-        if let c = p.curvature { curvature = c }
-        if let s = p.size { size = s }
-        distance = p.distance
-        textSize = p.textSize
-    }
-
     // Adds a monitor touching the arrangement: right of a row first, then below a column,
     // keeping the whole layout within 4 columns x 3 rows.
     func addMonitor() {
@@ -375,7 +353,7 @@ final class AppModel: ObservableObject {
         o.growFocused = growFocused
         o.macScreen = macScreen
         o.focusWindows = focusWindows
-        o.depth3D = depth3D
+        o.depth3D = false  // AI 3D only with ⌘⌥T, for the run
         o.depthStrength = Float(depthStrength)
         o.depthConvergence = Float(depthPlane)
         o.brightness = brightness
@@ -388,7 +366,7 @@ final class AppModel: ObservableObject {
             o.windowed = true
         }
         // Per-app profile on top (transient: the saved settings stay as they are).
-        if let id = activeAppProfile, let p = Self.profiles.first(where: { $0.id == id }) {
+        if codeMode, let p = Self.profiles.first(where: { $0.id == "code" }) {
             o.distanceM = Float(p.distance)
             if let c = p.curvature { o.curvature = Float(c) }
             if let s = p.size { o.arcDeg = Float(s) }
