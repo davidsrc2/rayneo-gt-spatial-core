@@ -228,6 +228,7 @@ public:
     virtual std::optional<PoseSample> latest() = 0;
     virtual void nudge(float, float) {}
     virtual void set_glasses_mode(int) {}  // the glasses' own display mode (IMU only)
+    virtual bool stats(rayneo_stats*) { return false; }  // IMU transport counters (IMU only)
     virtual void set_glasses_brightness(int) {}
 };
 
@@ -259,6 +260,7 @@ public:
     }
     void recenter() override { rayneo_engine_recenter(engine_); }
     void set_glasses_mode(int mode) override { rayneo_engine_set_glasses_mode(engine_, mode); }
+    bool stats(rayneo_stats* out) override { return rayneo_engine_stats(engine_, out); }
     void set_glasses_brightness(int level) override { rayneo_engine_set_glasses_brightness(engine_, level); }
     std::optional<PoseSample> latest() override {
         rayneo_pose p;
@@ -337,6 +339,10 @@ struct LatencyStats {
     double presented_sum = 0, presented_max = 0;  // sample -> scanout (DXGI frame statistics)
     double target_err_sum = 0;                    // scanout - predicted target (ms)
     bool tracking = false;
+    // With the head still (< 1 deg/s): frame-to-frame change of the pose drawn, i.e. how much
+    // the panels wobble in the room (deg rms), as on macOS.
+    int still_n = 0;
+    double still_sq = 0;
 };
 
 class Server {
@@ -376,6 +382,9 @@ private:
     // How much later than its target a frame reaches the glasses (ms, smoothed): the pose is
     // predicted for that real moment, or the panels lag and jerk while turning (as on macOS).
     double present_late_ms_ = 0.0;
+    core::Quat last_drawn_{};
+    bool have_last_drawn_ = false;
+    rayneo_stats last_imu_{};  // counters at the previous stats line
     bool frame();
     void collect_presented();
     void periodic();
@@ -1016,6 +1025,18 @@ bool Server::frame() {
     UINT id = 0;
     if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) sent_[id % 128] = {p->host_ns, vsync};
     if (p) {
+        // Still head: how much the drawn pose changes frame to frame (the panels' wobble).
+        if (p->angular_velocity.norm() < 0.0175f && have_last_drawn_) {
+            const float d = std::fabs(last_drawn_.w * p->orientation.w + last_drawn_.x * p->orientation.x +
+                                      last_drawn_.y * p->orientation.y + last_drawn_.z * p->orientation.z);
+            const double step = 2.0 * std::acos(std::fmin(1.0f, d)) * 57.29577951308232;
+            if (step < 1.0) {
+                stats_.still_n += 1;
+                stats_.still_sq += step * step;
+            }
+        }
+        last_drawn_ = p->orientation;
+        have_last_drawn_ = true;
         const double age = static_cast<double>(static_cast<int64_t>(steady_ns() - p->host_ns)) / 1e6;
         stats_.frames += 1;
         stats_.pose_age_sum += age;
@@ -1083,11 +1104,29 @@ void Server::periodic() {
         status_.capture_fps = static_cast<float>(cap_fps);
         status_.latency_ms = static_cast<float>(s.presented_sum / pn);
     }
+    // IMU health over the last second: samples received (457 expected), lost, dropped.
+    std::string imu;
+    rayneo_stats st{};
+    if (pose_ && pose_->stats(&st)) {
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), " | imu %llu Hz (missed %llu, dropped %llu)",
+                      static_cast<unsigned long long>(st.imu_samples - last_imu_.imu_samples),
+                      static_cast<unsigned long long>(st.missed_samples - last_imu_.missed_samples),
+                      static_cast<unsigned long long>(st.reports_dropped - last_imu_.reports_dropped));
+        imu = buf;
+        last_imu_ = st;
+    }
+    std::string wobble;
+    if (s.still_n > 30) {
+        char buf[48];
+        std::snprintf(buf, sizeof(buf), " | still wobble %.4f deg/frame", std::sqrt(s.still_sq / s.still_n));
+        wobble = buf;
+    }
     logln("%s render %3d fps%s | capture %3llu fps (%zu src) | pose age %.1f/%.1f ms | sample->scanout %.1f/%.1f ms"
-        " (target err %+.1f) | predicted %.1f ms",
+        " (target err %+.1f) | predicted %.1f ms%s%s",
         s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? (" (" + std::to_string(s.idle) + " idle)").c_str() : "",
         static_cast<unsigned long long>(cap_fps), captures_.size(), s.pose_age_sum / n, s.pose_age_max, s.presented_sum / pn,
-        s.presented_max, s.target_err_sum / pn, s.pred_sum / n);
+        s.presented_max, s.target_err_sum / pn, s.pred_sum / n, imu.c_str(), wobble.c_str());
 }
 
 // Keeps the render window on the glasses whatever Windows does with the layout.
