@@ -114,7 +114,7 @@ Opciones de la consola nuevas: `--space` (modo de la app, mono salvo `--sbs`), `
 4. **Revisar para meter 3D** (macOS y Windows): la imagen lado a lado existe (half-SBS, «Imagen en 3D», distancia entre ojos) pero no está pensada para el modo espacio: modo 3D de las gafas con el follow que pone Nimbo, tamaño real por ojo, profundidad.
 5. Grabación de lo que muestran las gafas en Windows (en macOS: ⌘⌥R).
 6. **Linux** (idea): el núcleo ya compila y pasa tests en Linux; faltaría captura (PipeWire / wlr-screencopy), dibujado (Vulkan/OpenGL), monitores virtuales (en Hyprland: `hyprctl output create headless`, sin drivers) e interfaz.
-7. **W5 · Distribución** (preguntar antes): instalador con el driver VDD, firma, actualizaciones.
+7. **W5 · Distribución**: ya hecho el paso intermedio — botón «Preparar pantallas virtuales» (asistente y Ajustes > Diagnóstico) que lanza `nimbo_win --setup-displays` como administrador: pool de 6 monitores en `vdd_settings.xml`, quita dispositivos VDD duplicados y reinicia el driver con `pnputil`, sin reiniciar Windows. Falta el instalador que instale el propio driver (empaquetar el VDD firmado y crear su dispositivo raíz `Root\MttVDD` con SetupAPI / `pnputil /add-driver`), firma y actualizaciones (preguntar antes): instalador con el driver VDD, firma, actualizaciones.
 8. Que la app de macOS use `settings.json` en vez de UserDefaults.
 
 Forma de trabajar acordada: hasta la beta, commit y push directos a `main` (ver README, «Flujo de trabajo»); presentar cada paso siguiente y preguntar antes de empezarlo; respuestas en español.
