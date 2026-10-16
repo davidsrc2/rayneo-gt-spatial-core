@@ -37,7 +37,8 @@ public:
 };
 
 // The first driver that answers: Virtual Display Driver, then virtual-display-rs. nullptr if none.
-std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend();
+// wait_for_pipe: give a just-reloaded Virtual Display Driver up to 12 s (never from a UI thread).
+std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend(bool wait_for_pipe = true);
 // A driver is installed, answering or not (for the message when none answers).
 bool virtual_display_driver_installed();
 

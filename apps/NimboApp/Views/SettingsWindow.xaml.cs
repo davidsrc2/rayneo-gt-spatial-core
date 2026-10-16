@@ -121,6 +121,18 @@ public sealed partial class SettingsWindow : Window
 
     private void SliderChanged(object sender, RangeBaseValueChangedEventArgs e) => Save();
 
+    // The driver prepared once (pool of monitors, duplicates removed, restarted): Nimbo stops
+    // first, the driver restarts underneath it.
+    private async void SetupDisplays_Click(object sender, RoutedEventArgs e)
+    {
+        SetupDisplaysButton.IsEnabled = false;
+        if (_server.IsRunning) await _server.StopAsync();
+        SetupDisplaysText.Text = "Preparando… (acepta el permiso de administrador)";
+        var (_, message) = await DisplaySetup.RunAsync();
+        SetupDisplaysText.Text = message;
+        SetupDisplaysButton.IsEnabled = true;
+    }
+
     private void OpenLog_Click(object sender, RoutedEventArgs e)
     {
         if (File.Exists(ServerController.LogPath))

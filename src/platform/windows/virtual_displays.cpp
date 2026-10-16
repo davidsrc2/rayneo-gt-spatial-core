@@ -284,14 +284,14 @@ bool vdrs_available() {
 
 }  // namespace
 
-std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend() {
+std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend(bool wait_for_pipe) {
     if (VirtualDisplayDriver::available()) return std::make_unique<VddBackend>();
     // After a reload (Nimbo's last exit, the device switched back on) its pipe takes a while
     // to come back: wait up to 12 s before falling back to another driver or none.
     if (VirtualDisplayDriver::installed()) {
         // Its monitors are there already: no pipe needed unless the count must change.
         if (VirtualDisplayDriver::live_monitors() > 0) return std::make_unique<VddBackend>();
-        for (int waited = 0; waited < 12000; waited += 500) {
+        for (int waited = 0; wait_for_pipe && waited < 12000; waited += 500) {
             Sleep(500);
             if (VirtualDisplayDriver::available()) return std::make_unique<VddBackend>();
         }

@@ -8,15 +8,21 @@
 
 #include <windows.h>
 
+#include <devguid.h>
+#include <setupapi.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cctype>
 #include <cstring>
+#include <fstream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "rayneo/platform/nimbo_win.h"
 
@@ -46,6 +52,8 @@ layout
   --window TEXT[@Y,P,S] float the window whose title or app contains TEXT as a panel of its own
                        (default: centred above the monitors); repeatable
   --list-windows       print the windows that can float (app and title), then exit
+  --setup-displays     (administrator) prepare the Virtual Display Driver once: a pool of 6
+                       monitors, duplicate devices removed, the driver restarted; then exit
   --pinned             the glasses are in their pinned mode: panels stay put, fitted inside the image
   --glasses-mode M     put the glasses in follow, steady or pinned (pinned implies --pinned)
   --brightness N       glasses' brightness 1..8 (8 = factory level)
@@ -262,6 +270,121 @@ bool load_app_settings(nimbo_options* o) {
     return true;
 }
 
+// --- --setup-displays ----------------------------------------------------------------------
+// What had to be done by hand in PowerShell: the Virtual Display Driver's count raised to a
+// pool of 6 (Nimbo never changes it afterwards: a reload can leave its pipe silent until
+// Windows restarts), duplicate devices of it removed, and the driver restarted.
+
+bool elevated() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return false;
+    TOKEN_ELEVATION e{};
+    DWORD n = 0;
+    const bool ok = GetTokenInformation(token, TokenElevation, &e, sizeof(e), &n) && e.TokenIsElevated;
+    CloseHandle(token);
+    return ok;
+}
+
+int run_quiet(std::wstring cmd) {
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        return -1;
+    }
+    WaitForSingleObject(pi.hProcess, 60000);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return static_cast<int>(code);
+}
+
+std::vector<std::wstring> vdd_devices() {
+    std::vector<std::wstring> out;
+    HDEVINFO set = SetupDiGetClassDevsW(&GUID_DEVCLASS_DISPLAY, nullptr, nullptr, 0);
+    if (set == INVALID_HANDLE_VALUE) return out;
+    SP_DEVINFO_DATA d{};
+    d.cbSize = sizeof(d);
+    for (DWORD i = 0; SetupDiEnumDeviceInfo(set, i, &d); ++i) {
+        wchar_t desc[256] = {};
+        if (!SetupDiGetDeviceRegistryPropertyW(set, &d, SPDRP_DEVICEDESC, nullptr, reinterpret_cast<PBYTE>(desc),
+                                               sizeof(desc), nullptr) ||
+            std::wcsstr(desc, L"Virtual Display Driver") == nullptr) {
+            continue;
+        }
+        wchar_t id[512] = {};
+        if (SetupDiGetDeviceInstanceIdW(set, &d, id, 512, nullptr)) out.push_back(id);
+    }
+    SetupDiDestroyDeviceInfoList(set);
+    return out;
+}
+
+int live_vdd_monitors() {
+    int n = 0;
+    DISPLAY_DEVICEW dev{};
+    dev.cb = sizeof(dev);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dev, 0); ++i) {
+        if (std::wcsstr(dev.DeviceString, L"Virtual Display Driver") != nullptr) {
+            DISPLAY_DEVICEW mon{};
+            mon.cb = sizeof(mon);
+            if (EnumDisplayDevicesW(dev.DeviceName, 0, &mon, 0)) ++n;
+        }
+        dev = DISPLAY_DEVICEW{};
+        dev.cb = sizeof(dev);
+    }
+    return n;
+}
+
+// Exit codes the app reads: 0 ok, 2 not administrator, 3 driver not installed, 4 settings file
+// not understood, 5 no device, 6 could not restart it.
+int setup_displays() {
+    if (!elevated()) {
+        std::printf("setup: run as administrator\n");
+        return 2;
+    }
+    const char* path = "C:\\VirtualDisplayDriver\\vdd_settings.xml";
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        std::printf("setup: the Virtual Display Driver is not installed (%s missing)\n", path);
+        return 3;
+    }
+    const std::string xml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    const std::regex count(R"(<count>\s*\d+\s*</count>)");
+    if (!std::regex_search(xml, count)) {
+        std::printf("setup: no <count> in %s\n", path);
+        return 4;
+    }
+    const std::string backup = std::string(path) + ".nimbo-backup";
+    if (GetFileAttributesA(backup.c_str()) == INVALID_FILE_ATTRIBUTES) std::ofstream(backup, std::ios::binary) << xml;
+    std::ofstream(path, std::ios::binary | std::ios::trunc)
+        << std::regex_replace(xml, count, "<count>6</count>", std::regex_constants::format_first_only);
+    std::printf("setup: driver set to 6 monitors\n");
+
+    const auto devices = vdd_devices();
+    if (devices.empty()) {
+        std::printf("setup: no Virtual Display Driver device found\n");
+        return 5;
+    }
+    for (size_t i = 1; i < devices.size(); ++i) {  // installed twice: one is enough
+        run_quiet(L"pnputil /remove-device \"" + devices[i] + L"\"");
+        std::printf("setup: removed a duplicate driver device\n");
+    }
+    if (run_quiet(L"pnputil /restart-device \"" + devices[0] + L"\"") != 0) {
+        run_quiet(L"pnputil /disable-device \"" + devices[0] + L"\"");
+        Sleep(1500);
+        if (run_quiet(L"pnputil /enable-device \"" + devices[0] + L"\"") != 0) {
+            std::printf("setup: could not restart the driver (restart Windows once)\n");
+            return 6;
+        }
+    }
+    for (int waited = 0; waited < 15000 && live_vdd_monitors() < 6; waited += 500) Sleep(500);
+    std::printf("setup: done, the driver has %d monitors (Nimbo keeps the ones it does not use off the desktop)\n",
+                live_vdd_monitors());
+    return 0;
+}
+
 std::atomic<bool> g_quit{false};
 
 BOOL WINAPI console_handler(DWORD type) {
@@ -280,6 +403,7 @@ int main(int argc, char** argv) {
             std::printf("%s", kUsage);
             return 0;
         }
+        if (std::string(argv[i]) == "--setup-displays") return setup_displays();
         if (std::string(argv[i]) == "--list-windows") {
             nimbo_window list[64];
             const int n = nimbo_list_windows(list, 64);

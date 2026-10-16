@@ -2127,7 +2127,8 @@ bool nimbo_glasses_connected(void) {
     return win::find_glasses(win::enumerate_outputs()) != nullptr;
 }
 
-bool nimbo_virtual_driver_available(void) { return win::find_virtual_display_backend() != nullptr; }
+// Instant (the app asks from its UI thread): no waiting for a reloading driver's pipe.
+bool nimbo_virtual_driver_available(void) { return win::find_virtual_display_backend(false) != nullptr; }
 
 bool nimbo_restore_displays(void) {
     DpiScope dpi;

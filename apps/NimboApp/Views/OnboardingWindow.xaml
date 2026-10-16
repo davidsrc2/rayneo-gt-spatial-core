@@ -28,10 +28,11 @@
             <InfoBar x:Name="DriverInfo" IsOpen="True" IsClosable="False" />
             <StackPanel Orientation="Horizontal" Spacing="10">
                 <Button Content="Descargar el driver" Click="DownloadDriver_Click" />
+                <Button x:Name="SetupDisplaysButton" Content="Preparar pantallas virtuales" Click="SetupDisplays_Click" />
                 <Button Content="Comprobar de nuevo" Click="CheckDriver_Click" />
             </StackPanel>
             <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
-                       Text="Sin el driver, Nimbo muestra una de tus pantallas actuales en las gafas." />
+                       Text="Instala el driver con «VDD Control» y luego pulsa «Preparar pantallas virtuales» (pide permiso de administrador una vez): deja el driver listo para todas las pantallas y ventanas flotantes que uses, sin reiniciar Windows. Sin el driver, Nimbo muestra una de tus pantallas actuales en las gafas." />
         </StackPanel>
 
         <!-- 3. Guided calibration -->

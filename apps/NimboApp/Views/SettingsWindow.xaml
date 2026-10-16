@@ -121,6 +121,11 @@
             <StackPanel Spacing="6">
                 <TextBlock Text="Diagnóstico" FontSize="13" Opacity="0.7" />
                 <TextBlock x:Name="DiagnosticsText" TextWrapping="Wrap" Opacity="0.8" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button x:Name="SetupDisplaysButton" Content="Preparar pantallas virtuales" Click="SetupDisplays_Click" />
+                    <TextBlock x:Name="SetupDisplaysText" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="380"
+                               FontSize="12" Opacity="0.7" />
+                </StackPanel>
                 <HyperlinkButton Content="Abrir el registro" Click="OpenLog_Click" Padding="0" />
             </StackPanel>
 

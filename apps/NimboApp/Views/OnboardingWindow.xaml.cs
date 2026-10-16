@@ -131,6 +131,16 @@ public sealed partial class OnboardingWindow : Window
 
     private void CheckDriver_Click(object sender, RoutedEventArgs e) => RefreshDriver();
 
+    private async void SetupDisplays_Click(object sender, RoutedEventArgs e)
+    {
+        SetupDisplaysButton.IsEnabled = false;
+        var (ok, message) = await DisplaySetup.RunAsync();
+        SetupDisplaysButton.IsEnabled = true;
+        RefreshDriver();
+        DriverInfo.Severity = ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
+        DriverInfo.Message = message;
+    }
+
     // --- calibration ------------------------------------------------------------------------------
 
     private static string Prompt(NimboNative.CalibStep step) => step switch

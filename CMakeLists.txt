@@ -313,7 +313,7 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
   rayneo_warnings(nimbo)
 
   add_executable(nimbo_win apps/nimbo_win/main.cpp)
-  target_link_libraries(nimbo_win PRIVATE nimbo)
+  target_link_libraries(nimbo_win PRIVATE nimbo setupapi)
   rayneo_warnings(nimbo_win)
 
   if(RAYNEO_BUILD_TESTS)
