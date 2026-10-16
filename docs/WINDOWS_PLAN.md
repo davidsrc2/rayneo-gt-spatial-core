@@ -107,6 +107,35 @@ dotnet publish apps/NimboApp/NimboApp.csproj -c Release -o build-win\NimboApp -p
 ```
 Opciones de la consola nuevas: `--space` (modo de la app, mono salvo `--sbs`), `--anchor`, `--tilt K`, `--laptop-screen`, `--app` (arranca con el `settings.json` de la app). `--restore` deshace las pantallas tras un cuelgue.
 
+**Estado al terminar el 16-10-2026 (tarde)**
+- **Atajos, ahora la única forma de cambiar de modo** (Ajustes y panel rápido > «Atajos»):
+  - ⌘⌥K / Ctrl+Alt+K: modo código (pantallas más cerca).
+  - ⌘⌥G / Ctrl+Alt+G: modo fijo nativo de las gafas.
+  - ⌘⌥P: modo cine.
+  - ⌘⌥T: cine en 3D con IA.
+  - ⌘⌥1/2/3: disposiciones.
+  - Quitados los perfiles por app y los botones de cine, enfoque y perfiles.
+- **3D:**
+  - «Imagen en 3D» es automática: las gafas en 3D son una pantalla de 3840x1080 y Nimbo dibuja una imagen por ojo.
+  - Cambiar las gafas entre 2D y 3D con Nimbo abierto lo reconfigura sin pararse. En el Mac quita el espejo que vuelve a poner macOS y reinicia las capturas.
+  - Avisos en una tarjeta dentro de las gafas.
+  - En modo cine, la pantalla como mucho llena la imagen de las gafas.
+  - Intensidad por defecto del 3 %.
+- **Mac:**
+  - Colores capturados en sRGB.
+  - Anclaje en reposo de 0,6° con salida suave a 0,4 Hz.
+  - Lectura tardía de la pose («late latching», margen adaptativo).
+  - Si Mission Control para el display link, un bucle de reserva sigue dibujando.
+  - Gafas detectadas aunque estén en espejo por hardware.
+  - `settings.json` compartido con Windows.
+- **Instalador de Windows** con el driver VDD (Inno Setup, artefacto `nimbo-setup-win-x64`).
+- **Sin comprobar:**
+  - Triple Ultrawide en el Mac (no arrancaba: monitores en el espejo del Mac). Arreglo puesto; ahora el error de arranque queda en el log.
+  - ⌘⌥G con las gafas.
+  - El bucle de reserva con Mission Control.
+  - Lectura tardía de la pose con las gafas.
+  - Todo el 3D en el PC con Windows.
+
 **Siguiente, en orden:**
 1. **Windows: comprobar los arreglos del final del día** (sin probar): «Más opciones» ya no debería cerrar la app (los deslizadores lanzaban eventos mientras XAML construía la ventana); la corrección del retraso de presentación (se medía contra el objetivo ya corregido y se quedaba en la mitad: `target err` debería bajar de +4,2 a ~0); dos arranques seguidos con dos paneles sin reiniciar Windows (pool de 6).
 2. **Windows: igualar la sensación al Mac**: probar quietud, giros a izquierda y derecha y golpecitos en las patillas con `--space --anchor`. Añadir al log de Windows la medida `still wobble` del Mac para comparar con cifras.
