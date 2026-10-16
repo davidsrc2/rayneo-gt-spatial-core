@@ -2,7 +2,8 @@ import AppKit
 import Combine
 import Foundation
 
-// Every user-facing setting, persisted in UserDefaults, and how it maps to ServerOptions.
+// Every user-facing setting, persisted in settings.json (SettingsFile, the same file as on
+// Windows), and how it maps to ServerOptions.
 final class AppModel: ObservableObject {
     struct TextSize {
         let width: Int
@@ -19,7 +20,7 @@ final class AppModel: ObservableObject {
         TextSize(width: 1024, height: 576, label: "Muy grande"),
     ]
 
-    private let d = UserDefaults.standard
+    private let d = SettingsFile.shared
 
     @Published var cells: [GridPos] {
         didSet {
@@ -29,7 +30,7 @@ final class AppModel: ObservableObject {
         }
     }
     // Hand-placed monitors (layout editor); empty = the grid. Same count and order as cells.
-    @Published var panelPoses: [PanelPos] { didSet { save(panelPoses, "panelPoses") } }
+    @Published var panelPoses: [PanelPos] { didSet { save(panelPoses, "panels") } }
     // Single windows floating as panels, remembered by app and title (window ids do not survive
     // the app: found again when Nimbo starts).
     @Published var floating: [FloatingWindow] { didSet { save(floating, "floatingWindows") } }
@@ -58,7 +59,7 @@ final class AppModel: ObservableObject {
     }
 
     // Advanced
-    @Published var fov: Double { didSet { d.set(Float(fov), forKey: "fovY") } }
+    @Published var fov: Double { didSet { d.set(fov, forKey: "fovY") } }
     @Published var ipd: Double { didSet { d.set(ipd, forKey: "ipd") } }
     @Published var stereo: Bool { didSet { d.set(stereo, forKey: "stereo") } }
     @Published var deadZone: Double { didSet { d.set(deadZone, forKey: "deadZone") } }
@@ -84,11 +85,11 @@ final class AppModel: ObservableObject {
     @Published var onboardingDone: Bool { didSet { d.set(onboardingDone, forKey: "onboardingDone") } }
 
     init() {
-        cells = Self.load([GridPos].self, "layoutCells", from: UserDefaults.standard)
+        cells = Self.load([GridPos].self, "layoutCells")
             ?? [GridPos(col: 0, row: 0), GridPos(col: 1, row: 0)]
-        panelPoses = Self.load([PanelPos].self, "panelPoses", from: UserDefaults.standard) ?? []
-        appRules = Self.load([AppRule].self, "appProfiles", from: UserDefaults.standard) ?? []
-        floating = (Self.load([FloatingWindow].self, "floatingWindows", from: UserDefaults.standard) ?? [])
+        panelPoses = Self.load([PanelPos].self, "panels") ?? []
+        appRules = Self.load([AppRule].self, "appProfiles") ?? []
+        floating = (Self.load([FloatingWindow].self, "floatingWindows") ?? [])
             .map { var w = $0; w.windowID = 0; return w }  // ids of an earlier session
         textSize = d.object(forKey: "textSize") as? Int ?? 3
         distance = d.object(forKey: "distance") as? Double ?? 2.0
@@ -393,12 +394,9 @@ final class AppModel: ObservableObject {
 
     // MARK: persistence
 
-    private func save<T: Encodable>(_ v: T, _ key: String) {
-        if let data = try? JSONEncoder().encode(v) { d.set(data, forKey: key) }
-    }
+    private func save<T: Encodable>(_ v: T, _ key: String) { d.encode(v, forKey: key) }
 
-    private static func load<T: Decodable>(_ t: T.Type, _ key: String, from d: UserDefaults) -> T? {
-        guard let data = d.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(t, from: data)
+    private static func load<T: Decodable>(_ t: T.Type, _ key: String) -> T? {
+        SettingsFile.shared.decode(t, forKey: key)
     }
 }

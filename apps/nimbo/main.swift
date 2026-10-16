@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         if #available(macOS 14.0, *), let s = server as? SpatialServer { s.stop() }
         if #available(macOS 14.0, *), let a = app as? GUIApp { a.shutdown() }
+        SettingsFile.shared.flush()
     }
 }
 

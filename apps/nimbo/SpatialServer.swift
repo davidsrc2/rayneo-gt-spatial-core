@@ -309,8 +309,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.curvature = options.curvature
         ro.tilt = options.tilt
         ro.fovYDegrees = options.fovYDeg
-        if !options.fovFromCLI, UserDefaults.standard.object(forKey: "fovY") != nil {
-            ro.fovYDegrees = UserDefaults.standard.float(forKey: "fovY")
+        if !options.fovFromCLI, SettingsFile.shared.object(forKey: "fovY") != nil {
+            ro.fovYDegrees = SettingsFile.shared.float(forKey: "fovY")
         }
         ro.k1 = options.k1
         ro.k2 = options.k2
@@ -992,7 +992,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     func adjustFov(_ delta: Float) {
         let ro = renderer.options
         ro.fovYDegrees = max(10, min(45, ro.fovYDegrees + delta))
-        UserDefaults.standard.set(ro.fovYDegrees, forKey: "fovY")
+        SettingsFile.shared.set(Double(ro.fovYDegrees), forKey: "fovY")
         options.fovYDeg = ro.fovYDegrees
         onFovChanged?(ro.fovYDegrees)
         requestRedraw()
