@@ -117,7 +117,7 @@ struct SettingsView: View {
 
 // Every shortcut, on macOS and on Windows (the same letters with Ctrl+Alt). Global: they work
 // with any app in front, while Nimbo runs (the panel and layouts also while it is stopped).
-private struct ShortcutSheet: View {
+struct ShortcutSheet: View {
     private static let rows: [(mac: String, win: String, what: String)] = [
         ("⌘⌥N", "Ctrl+Alt+N", "Abrir o cerrar el panel de Nimbo"),
         ("⌘⌥1", "Ctrl+Alt+1", "Disposición «1 Pantalla Curva»"),

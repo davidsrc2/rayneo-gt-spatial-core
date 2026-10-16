@@ -89,8 +89,11 @@
             <Grid>
                 <TextBlock x:Name="NoticeText" FontSize="12" Opacity="0.7" TextWrapping="Wrap" MaxWidth="230"
                            HorizontalAlignment="Left" VerticalAlignment="Center" />
-                <HyperlinkButton Content="Más opciones…" HorizontalAlignment="Right" FontSize="12"
-                                 Click="More_Click" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
+                    <!-- The cheat sheet of every shortcut (also in Settings), right here. -->
+                    <HyperlinkButton x:Name="ShortcutsButton" Content="Atajos" FontSize="12" Click="Shortcuts_Click" />
+                    <HyperlinkButton Content="Más opciones…" FontSize="12" Click="More_Click" />
+                </StackPanel>
             </Grid>
         </StackPanel>
         </ScrollViewer>

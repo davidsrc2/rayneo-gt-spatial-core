@@ -7,6 +7,7 @@ struct QuickPanel: View {
     @ObservedObject var model: AppModel
     @ObservedObject var server: ServerController
     let openMore: () -> Void
+    @StateObject private var showShortcuts = Box(false)  // @State needs a macro plugin the CLT lack
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -119,6 +120,20 @@ struct QuickPanel: View {
                     Text(notice).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer()
+                // The cheat sheet of every shortcut (also in Settings), right here.
+                Button {
+                    showShortcuts.value.toggle()
+                } label: {
+                    Label("Atajos", systemImage: "keyboard").font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .popover(isPresented: $showShortcuts.value, arrowEdge: .bottom) {
+                    ShortcutSheet()
+                        .padding(18)
+                        .frame(width: 560)
+                        .preferredColorScheme(.dark)
+                }
                 Button("Más opciones…", action: openMore)
                     .buttonStyle(.plain)
                     .font(.system(size: 12))

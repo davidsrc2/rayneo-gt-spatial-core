@@ -237,6 +237,12 @@ public sealed partial class PanelWindow : Window
 
     private void Recenter_Click(object sender, RoutedEventArgs e) => _server.Recenter();
 
+    private void Shortcuts_Click(object sender, RoutedEventArgs e)
+    {
+        var flyout = new Flyout { Content = Shortcuts.Sheet(), Placement = FlyoutPlacementMode.Top };
+        flyout.ShowAt(ShortcutsButton);
+    }
+
     private void Slider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (_updating) return;
