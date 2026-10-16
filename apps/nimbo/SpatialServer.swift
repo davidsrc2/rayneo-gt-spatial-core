@@ -359,6 +359,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             focusMode = options.startCinema ? 1 : 2  // toggled into the wanted mode below
             toggleFocus(cinema: options.startCinema)
         }
+        // Started with the glasses already in 3D and AI 3D on: straight into cinema.
+        if glassesID != nil, options.sideBySide == nil, renderer.options.sideBySide, options.depth3D, focusMode == 0 {
+            toggleFocus(cinema: true)
+            cinemaFor3D = true
+        }
         try Task.checkCancellation()
         startRenderLoop(layer: layer)
         startMonitoring()
@@ -467,6 +472,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var glassesLostSince: Date?
 
     private var reconnecting = false  // main thread: setting the glasses' display up again
+    private var cinemaFor3D = false   // cinema entered because the glasses went 3D with AI 3D on
     private var lastUnmirror = Date.distantPast
 
     private func glassesLost() {
@@ -543,6 +549,15 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         renderer.invalidateSkippedFrame()
         log(String(format: "surface: %.0fx%.0f px, %@", size.width, size.height, sbs ? "side by side (glasses in 3D)" : "mono (glasses in 2D)"))
         onNotice?(sbs ? "Gafas en 3D: una imagen para cada ojo" : "Gafas en 2D")
+        // With AI 3D on, putting the glasses in 3D means watching in 3D: cinema on the panel you
+        // look at; back in 2D, all the panels again (if it was this that went to cinema).
+        if sbs && options.depth3D && focusMode == 0 {
+            toggleFocus(cinema: true)
+            cinemaFor3D = true
+        } else if !sbs && cinemaFor3D && focusMode == 2 {
+            toggleFocus(cinema: true)
+        }
+        if !sbs { cinemaFor3D = false }
         updateDepth3D()
         requestRedraw()
     }
@@ -1264,17 +1279,26 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func registerHotKeys() {
         let mods = cmdKey | optionKey
         guard let hotKeys else { return }
-        hotKeys.register(keyCode: kVK_ANSI_C, modifiers: mods) { [weak self] in self?.recenter() }
-        hotKeys.register(keyCode: kVK_ANSI_Q, modifiers: mods) { [weak self] in self?.requestStop("stopped (⌘⌥Q)") }
-        hotKeys.register(keyCode: kVK_ANSI_J, modifiers: mods) { [weak self] in self?.jumpCursorToGaze() }
-        hotKeys.register(keyCode: kVK_ANSI_O, modifiers: mods) { [weak self] in self?.toggleFocus(cinema: false) }
-        hotKeys.register(keyCode: kVK_ANSI_P, modifiers: mods) { [weak self] in self?.toggleFocus(cinema: true) }
-        hotKeys.register(keyCode: kVK_ANSI_R, modifiers: mods) { [weak self] in self?.toggleRecording() }
-        hotKeys.register(keyCode: kVK_ANSI_3, modifiers: mods) { [weak self] in self?.toggleDepth3D() }
+        // Logged: a shortcut another app holds never reaches Nimbo, and nothing else says so.
+        let reg = { [weak self] (key: Int, name: String, action: @escaping () -> Void) in
+            if !hotKeys.register(keyCode: key, modifiers: mods, { [weak self] in
+                self?.log("hotkey: ⌘⌥\(name)")
+                action()
+            }) {
+                self?.log("hotkey: ⌘⌥\(name) is taken by another app")
+            }
+        }
+        reg(kVK_ANSI_C, "C") { [weak self] in self?.recenter() }
+        reg(kVK_ANSI_Q, "Q") { [weak self] in self?.requestStop("stopped (⌘⌥Q)") }
+        reg(kVK_ANSI_J, "J") { [weak self] in self?.jumpCursorToGaze() }
+        reg(kVK_ANSI_O, "O") { [weak self] in self?.toggleFocus(cinema: false) }
+        reg(kVK_ANSI_P, "P") { [weak self] in self?.toggleFocus(cinema: true) }
+        reg(kVK_ANSI_R, "R") { [weak self] in self?.toggleRecording() }
+        reg(kVK_ANSI_3, "3") { [weak self] in self?.toggleDepth3D() }
         // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
         // turning, the render FOV is too large (Cmd+Opt+-); against it, too small (Cmd+Opt+=).
-        hotKeys.register(keyCode: kVK_ANSI_Minus, modifiers: mods) { [weak self] in self?.adjustFov(-0.5) }
-        hotKeys.register(keyCode: kVK_ANSI_Equal, modifiers: mods) { [weak self] in self?.adjustFov(0.5) }
+        reg(kVK_ANSI_Minus, "-") { [weak self] in self?.adjustFov(-0.5) }
+        reg(kVK_ANSI_Equal, "=") { [weak self] in self?.adjustFov(0.5) }
         if let sim = pose as? SimPoseSource {
             let step: Float = 10
             hotKeys.register(keyCode: kVK_LeftArrow, modifiers: mods) { sim.nudge(yaw: step, pitch: 0) }
