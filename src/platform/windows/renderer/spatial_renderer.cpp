@@ -217,9 +217,14 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
         }
         core::separate_floating(out, w, h, static_cast<size_t>(monitors), options.gap_deg * kDegToRad);
     }
-    // Cinema: the focused panel straight ahead, large (the others are not drawn).
+    // Cinema: the focused panel straight ahead, large (the others are not drawn), but never
+    // larger than the glasses' image (at real size a panel nearly fills it already).
     if (options.cinema && options.focus_panel >= 0 && options.focus_panel < static_cast<int>(out.size())) {
-        out[static_cast<size_t>(options.focus_panel)] = core::PanelPlacement{0.0f, 0.0f, 1.6f};
+        const float a = panels_[std::min(options.focus_panel, kMaxPanels - 1)].aspect;
+        const float fw = core::horizontal_fov(options.fov_y_deg * kDegToRad, options.eye_aspect);
+        const float fh = options.fov_y_deg * kDegToRad;
+        const float fit = 0.95f * std::min(fw / panel_arc(), fh / core::panel_vertical_arc(panel_arc(), a, true));
+        out[static_cast<size_t>(options.focus_panel)] = core::PanelPlacement{0.0f, 0.0f, std::min(1.6f, fit)};
     }
     if (options.static_head) fit_in_glasses_image(out);
     return out;

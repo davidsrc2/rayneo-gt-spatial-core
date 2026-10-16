@@ -387,9 +387,17 @@ static float panel_arc(RNRenderOptions* o) {
         }
         core::separate_floating(out, w, h, count - floats, o.gapDegrees * kDegToRad);
     }
-    // Cinema: the focused panel straight ahead, large (the others are not drawn).
+    // Cinema: the focused panel straight ahead, large (the others are not drawn), but never
+    // larger than the glasses' image: at real size a panel nearly fills it already, and 1.6x
+    // left the film cut on every side.
     if (o.cinema && o.focusPanel >= 0 && static_cast<NSUInteger>(o.focusPanel) < out.size()) {
-        out[static_cast<size_t>(o.focusPanel)] = core::PanelPlacement{0.0f, 0.0f, kCinemaScale};
+        os_unfair_lock_lock(&_sourceLock);
+        const float a = _panels[std::min<NSUInteger>(static_cast<NSUInteger>(o.focusPanel), kMaxPanels - 1)].aspect;
+        os_unfair_lock_unlock(&_sourceLock);
+        const float arc = panel_arc(o);
+        const float fw = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect), fh = o.fovYDegrees * kDegToRad;
+        const float fit = 0.95f * std::min(fw / arc, fh / core::panel_vertical_arc(arc, a, true));
+        out[static_cast<size_t>(o.focusPanel)] = core::PanelPlacement{0.0f, 0.0f, std::min(kCinemaScale, fit)};
     }
     if (o.staticHead) [self arrangeInGlassesImage:out];
     return out;
