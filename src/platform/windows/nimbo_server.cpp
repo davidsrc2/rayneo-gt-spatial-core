@@ -2143,7 +2143,15 @@ bool nimbo_virtual_driver_available(void) { return win::find_virtual_display_bac
 
 bool nimbo_restore_displays(void) {
     DpiScope dpi;
-    return restore_from_backup();
+    const bool restored = restore_from_backup();
+    // A run that ended abruptly left the Virtual Display Driver on: its monitors (the pool of 6)
+    // slow the PC down while Nimbo is not running. Off again (Nimbo switches it on when it starts).
+    bool driver = false;
+    if (!g_server_running.load() && win::virtual_display_driver_installed() &&
+        win::VirtualDisplayDriver::live_monitors() > 0) {
+        driver = win::virtual_driver_off();
+    }
+    return restored || driver;
 }
 
 nimbo_settings nimbo_default_settings(void) { return to_c(core::Settings{}); }
