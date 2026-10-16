@@ -78,6 +78,11 @@ public sealed partial class SettingsWindow : Window
         FovSlider.Value = _model.Fov;
         IpdSlider.Value = _model.Ipd;
         GapSlider.Value = _model.Gap;
+        TextSizeSlider.Value = _model.TextSize;
+        DistanceSlider.Value = _model.Distance;
+        CurvatureSlider.Value = _model.Curvature;
+        SizeSlider.Value = _model.Size;
+        TiltSlider.Value = _model.Tilt;
         StereoToggle.IsOn = _model.Stereo;
         GazeToggle.IsOn = _model.GazeCursor;
         GatherToggle.IsOn = _model.GatherWindows;
@@ -99,6 +104,11 @@ public sealed partial class SettingsWindow : Window
         _model.Fov = (float)FovSlider.Value;
         _model.Ipd = (float)IpdSlider.Value;
         _model.Gap = (float)GapSlider.Value;
+        _model.TextSize = (int)Math.Round(TextSizeSlider.Value);
+        _model.Distance = (float)DistanceSlider.Value;
+        _model.Curvature = (float)CurvatureSlider.Value;
+        _model.Size = (float)SizeSlider.Value;
+        _model.Tilt = (float)TiltSlider.Value;
         _model.Stereo = StereoToggle.IsOn;
         _model.GazeCursor = GazeToggle.IsOn;
         _model.GatherWindows = GatherToggle.IsOn;
@@ -129,6 +139,22 @@ public sealed partial class SettingsWindow : Window
     }
 
     // --- layout editor ----------------------------------------------------------------------------
+
+    // The one-click layouts of the macOS window (Templates in MainView.swift).
+    private void Template_Click(object sender, RoutedEventArgs e)
+    {
+        (int, int)[] cells = (sender as Button)?.Tag as string switch
+        {
+            "one" => new[] { (0, 0) },
+            "twoStacked" => new[] { (0, 0), (0, 1) },
+            "threeArc" => new[] { (0, 0), (1, 0), (2, 0) },
+            _ => new[] { (0, 0), (1, 0) },
+        };
+        _model.Cells = cells;
+        _server.SettingsChanged();
+        DrawLayout();
+        DrawPlacement();
+    }
 
     private void AddMonitor_Click(object sender, RoutedEventArgs e)
     {
