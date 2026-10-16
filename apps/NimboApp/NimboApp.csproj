@@ -42,7 +42,7 @@
          Windows (case-insensitive), and each build overwrote the other. -->
     <None Include="$(NimboNativeDir)nimbo_server.dll" Link="nimbo_server.dll" CopyToOutputDirectory="Always"
           CopyToPublishDirectory="Always" Condition="Exists('$(NimboNativeDir)nimbo_server.dll')" />
-    <!-- The CLI next to the app: its --setup-displays prepares the driver (run elevated). -->
+    <!-- The CLI next to the app: with setup-displays it prepares the driver (run elevated). -->
     <None Include="$(NimboNativeDir)nimbo_win.exe" Link="nimbo_win.exe" CopyToOutputDirectory="Always"
           CopyToPublishDirectory="Always" Condition="Exists('$(NimboNativeDir)nimbo_win.exe')" />
     <Content Include="..\..\assets\icon\Nimbo.ico" Link="Assets\Nimbo.ico" CopyToOutputDirectory="PreserveNewest" />
