@@ -1388,7 +1388,7 @@ bool Server::setup_virtual_displays() {
         logln("virtual monitors: %s", error.c_str());
         return false;
     }
-    const int n = opt_.displays - (laptop_gdi_.empty() ? 0 : 1);  // the laptop screen is one of them
+    int n = opt_.displays - (laptop_gdi_.empty() ? 0 : 1);  // the laptop screen is one of them
     std::vector<std::wstring> before;  // displays that are not Nimbo's
     for (const auto& o : outputs_) before.push_back(o.gdi_name);
     logln("virtual monitors: %s", backend_->name());
@@ -1400,8 +1400,16 @@ bool Server::setup_virtual_displays() {
         opt_.vd_height = (opt_.vd_width * laptop->height() / laptop->width()) & ~1;
     }
     if (!backend_->set_monitors(n, opt_.vd_width, opt_.vd_height, &error)) {
-        logln("virtual monitors: %s", error.c_str());
-        return false;
+        // More panels than the driver has, and it will not make more until Windows restarts:
+        // start with the ones it has rather than not at all.
+        const int live = std::string(backend_->name()) == "Virtual Display Driver" ? win::VirtualDisplayDriver::live_monitors() : 0;
+        if (live <= 0) {
+            logln("virtual monitors: %s", error.c_str());
+            return false;
+        }
+        logln("virtual monitors: %d asked, only %d available until Windows restarts (%s)", n, live, error.c_str());
+        n = live;
+        opt_.layout.resize(std::min(opt_.layout.size(), static_cast<size_t>(n + (laptop_gdi_.empty() ? 0 : 1))));
     }
     virtual_ = true;  // from here on shutdown() restores the arrangement
     std::vector<const win::OutputInfo*> panels;
