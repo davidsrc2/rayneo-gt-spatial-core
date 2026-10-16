@@ -73,11 +73,12 @@ public sealed partial class PanelWindow : Window
         // Before the window has been shown once its content is not in a live tree yet and
         // Measure throws E_UNEXPECTED (it did at start-up): show it first at a default height,
         // then fit it once the content is measurable.
-        double height = 660;
+        double room = WindowHelpers.RoomNearTray(this);
+        double height = room;  // not measurable yet: as tall as the screen allows (it scrolls)
         try
         {
             Root.Measure(new Windows.Foundation.Size(PanelWidth, double.PositiveInfinity));
-            if (Root.DesiredSize.Height > 200) height = Root.DesiredSize.Height;
+            if (Root.DesiredSize.Height > 200) height = Math.Min(Root.DesiredSize.Height, room);
         }
         catch (System.Runtime.InteropServices.COMException)
         {
@@ -95,7 +96,7 @@ public sealed partial class PanelWindow : Window
         {
             Root.Measure(new Windows.Foundation.Size(PanelWidth, double.PositiveInfinity));
             if (Root.DesiredSize.Height <= 200) return;
-            WindowHelpers.Resize(this, PanelWidth, Root.DesiredSize.Height);
+            WindowHelpers.Resize(this, PanelWidth, Math.Min(Root.DesiredSize.Height, WindowHelpers.RoomNearTray(this)));
             WindowHelpers.MoveNearTray(this);
         }
         catch (System.Runtime.InteropServices.COMException)

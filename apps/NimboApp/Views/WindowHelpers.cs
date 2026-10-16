@@ -18,6 +18,14 @@ internal static class WindowHelpers
         w.AppWindow.Resize(new Windows.Graphics.SizeInt32((int)Math.Round(width * s), (int)Math.Round(height * s)));
     }
 
+    // Height (DIPs) a window may take on the display with the cursor (the tray's), with a margin.
+    public static double RoomNearTray(Window w, int margin = 24)
+    {
+        GetCursorPos(out var cursor);
+        var area = DisplayArea.GetFromPoint(new Windows.Graphics.PointInt32(cursor.X, cursor.Y), DisplayAreaFallback.Primary);
+        return area.WorkArea.Height / Scale(w) - margin;
+    }
+
     // Bottom-right of the work area of the display with the cursor: where the tray is.
     public static void MoveNearTray(Window w, int margin = 12)
     {
