@@ -335,10 +335,10 @@ final class AppModel: ObservableObject {
         o.sideBySide = nil  // one image per eye exactly when the glasses are in their 3D mode
         // Space at real size: the panels never move with the head, not even a little (the dead
         // zone would hold them on the head while it moves less than it, then let go).
-        // Anchor at rest: frozen while the head holds within 0.6 deg (-1 - 0.6, see rayneo_config):
-        // above breathing and pulse sway (0.5-0.8 deg); at 0.3 it let go every few seconds and the
-        // panels trembled with the head.
-        o.deadZoneDeg = glassesPinned ? Float(deadZone) : (anchorAtRest ? -1.6 : -1)
+        // Anchor at rest: frozen while the head holds within 1 deg sideways (-1 - 1, see
+        // rayneo_config; 2 deg up / down): above breathing and pulse sway (0.5-0.8 deg); at 0.3 it
+        // let go every few seconds and the panels trembled with the head, at 0.6 still now and then.
+        o.deadZoneDeg = glassesPinned ? Float(deadZone) : (anchorAtRest ? -2 : -1)
         o.gazeCursor = gazeCursor
         o.dimOthers = dimOthers ? 0.55 : 1  // linear light: ~80 % perceived brightness
         o.gatherWindows = gatherWindows

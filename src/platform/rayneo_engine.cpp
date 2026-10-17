@@ -136,7 +136,7 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
                 // simulated at rest (breathing, pulse, tremor), 0.009 -> 0.0007 deg/frame and
                 // frozen 89 -> 99 % of the time; a 30 deg/s turn lags the same (the zone).
                 e->cfg.stabilizer.release_cutoff_hz = 0.4f;
-                // Up / down 2 deg: vertical bobbing at rest (breathing, talking, a nod) stays
+                // Up / down 2 deg (1 sideways): vertical bobbing at rest (breathing, talking, a nod) stays
                 // in the anchor; looking up or down at another panel is far more.
                 e->cfg.stabilizer.enter_vertical_deg = 2.0f;
             }

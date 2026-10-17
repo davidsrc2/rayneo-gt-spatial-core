@@ -337,7 +337,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         log(String(format: "surface: window %.0fx%.0f pt, scale %.1f, drawable %.0fx%.0f px",
                    rect.width, rect.height, scale, layer.drawableSize.width, layer.drawableSize.height))
-        layer.maximumDrawableCount = 2  // 3 measured identical; 2 holds less queued work
+        // Three: one on screen, one queued, one to draw into. With two, whenever the glasses
+        // still showed one and the other was queued the display link had nothing to draw into:
+        // frames went a refresh late in streaks of seconds (39 % of them even with nothing
+        // being captured, logs 17-10-2026), with one queued frame as with two.
+        layer.maximumDrawableCount = 3
         layer.displaySyncEnabled = true  // without vsync the scanout time does not move, only the estimate
 
         renderer = try RNSpatialRenderer(device: device, pixelFormat: .bgra8Unorm_srgb)
@@ -1700,10 +1704,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func startRenderLoop(layer: CAMetalLayer) {
         let link = CAMetalDisplayLink(metalLayer: layer)
         link.delegate = self
-        // Two frames: with one, frames reached the glasses 26 or 35 ms after the sample, in
-        // streaks, and the pose predicted for one moment was shown at the other (the panels
-        // jittered while the head moved). Steady 35 ms predicts right every frame: simulated,
-        // 0.18 -> 0.15 deg rms moving, peaks 0.49 -> 0.34.
+        // One frame queued (see adaptFrameLatency): the less time from the sample to the glasses,
+        // the less of the head's motion is predicted, and wrong.
         link.preferredFrameLatency = frameLatency
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         displayLink = link
@@ -1818,9 +1820,25 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: frame pacing
 
-    // Two frames queued. A third (tried when many refreshes were missed) did not miss fewer on
-    // the glasses (63 of 110 before, 103 of 118 after, logs 17-10-2026) and added 8 ms to predict.
-    private let frameLatency: Float = 2
+    // One frame queued, ~8 ms less to predict than two. If even so more than 15 % of the
+    // refreshes are missed for 3 seconds while drawing steadily, two (logged): an even rhythm
+    // matters more than the 8 ms. (A third did not miss fewer: the misses were the drawables,
+    // two for two queued frames, not the queue.)
+    private var frameLatency: Float = 1
+    private var missingSeconds = 0
+
+    private func adaptFrameLatency(_ s: LatencyStats) {
+        guard frameLatency < 2, s.presentedN >= 60 else {
+            missingSeconds = 0
+            return
+        }
+        missingSeconds = Double(s.missed) / Double(s.presentedN) > 0.15 ? missingSeconds + 1 : 0
+        guard missingSeconds >= 3 else { return }
+        frameLatency = 2
+        displayLink?.preferredFrameLatency = frameLatency
+        missingSeconds = 0
+        log("render: refreshes missed (\(s.missed) of \(s.presentedN) last second); two frames queued for an even rhythm")
+    }
 
     // MARK: fallback render loop
 
@@ -1910,6 +1928,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
                    s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, latchMs,
                    s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) as NSString : "" as NSString))
+        adaptFrameLatency(s)
         if depthPanel >= 0 {
             let d = depth3D.takeStats()
             let n = Double(max(1, d.frames))

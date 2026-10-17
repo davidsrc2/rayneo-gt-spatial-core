@@ -2601,7 +2601,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.glasses_pinned = false;
     o.recenter_glasses = false;
     o.real_size = true;
-    o.dead_zone_deg = s.anchor_at_rest ? -1.6f : -1.0f;  // see rayneo_config: -1 - hold
+    o.dead_zone_deg = s.anchor_at_rest ? -2.0f : -1.0f;  // see rayneo_config: -1 - hold (1 deg; 2 up / down)
     o.tilt = s.tilt;
     o.laptop_screen = s.mac_screen;
     o.depth3d = s.depth3d;
