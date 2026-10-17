@@ -776,6 +776,10 @@ static float effective_curvature(RNRenderOptions* o) {
         head = core::Quat{};
         horizon_s = 0.0f;
     }
+    core::Quat eye_pose = head;
+    if (_separateEyes && !o.staticHead) {
+        eye_pose = core::track_axes(from_simd(_eyesOrientation), static_cast<core::TrackingAxes>(o.trackingAxes));
+    }
 
     // Snapshot the panels' latest frames; each stays retained until the GPU is done.
     CVMetalTextureRef textures[kMaxPanels] = {};
@@ -880,7 +884,7 @@ static float effective_curvature(RNRenderOptions* o) {
         id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
         const float offset = o.sideBySide ? (eye == 0 ? -0.5f : 0.5f) * o.ipdMeters : 0.0f;
         const float up = o.neckModel ? core::kNeckUpM : 0.0f, fwd = o.neckModel ? core::kNeckForwardM : 0.0f;
-        SceneUniforms u{to_simd(proj * core::view_matrix(head, offset, up, fwd))};
+        SceneUniforms u{to_simd(proj * core::view_matrix(head, eye_pose, offset, up, fwd))};
         [enc setRenderPipelineState:_screenPipeline];
         [enc setCullMode:MTLCullModeNone];
         [enc setVertexBytes:&u length:sizeof(u) atIndex:1];

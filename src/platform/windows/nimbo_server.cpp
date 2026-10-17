@@ -35,6 +35,7 @@
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/presets.h"
+#include "rayneo/core/render_math.h"
 #include "rayneo/core/settings.h"
 #include "rayneo/platform/guided_calibration.h"
 #include "rayneo/platform/nimbo_win.h"
@@ -1123,12 +1124,26 @@ bool Server::frame() {
         while (steady_ns() < wake) YieldProcessor();
     }
     auto p = pose_->latest();
-    // Glasses in steady mode: drawn for where the glasses hold their image (modelled), as on macOS.
+    // Glasses in steady mode: drawn for where the glasses hold their image (modelled), as on macOS:
+    // the model runs on the head predicted to the photon time, and the eyes' position (neck
+    // model) comes from that head, not from where the glasses hold the image.
+    const core::Vec3 head_velocity = p ? p->angular_velocity : core::Vec3{};
+    core::Quat change_probe = p ? p->orientation : core::Quat{};
     if (p && p->tracking && opt_.glasses_mode == 2 && opt_.real_size && !opt_.glasses_pinned) {
-        p->orientation = steady_frame(p->orientation, steady_ns());
-        p->angular_velocity = core::Vec3{};
+        float horizon = 0.0f;
+        if (target > p->host_ns) {
+            horizon = std::min(static_cast<float>(target - p->host_ns) * 1e-9f, renderer_.options.max_prediction_ms * 1e-3f);
+        }
+        horizon *= core::prediction_gain(head_velocity.norm(), core::kPredictStartRads, core::kPredictFullRads);
+        const core::Quat head = core::predict_orientation(p->orientation, head_velocity, horizon);
+        p->orientation = steady_frame(head, steady_ns());
+        p->angular_velocity = core::Vec3{};  // already at the photon time
+        renderer_.set_eyes(&head);
+        change_probe = head;  // the eyes move with the head even while the image holds
     } else {
         have_steady_ = false;
+        renderer_.set_eyes(nullptr);
+        if (p) change_probe = p->orientation;
     }
     float prediction = 0;
     if (!p) {
@@ -1138,7 +1153,7 @@ bool Server::frame() {
         const bool forced = redraw_;
         redraw_ = false;
         stats_.tracking = p->tracking;
-        if (renderer_.can_skip_frame(p->orientation, p->angular_velocity, p->tracking, forced)) {
+        if (renderer_.can_skip_frame(change_probe, head_velocity, p->tracking, forced)) {
             stats_.idle += 1;
             return false;
         }
@@ -1155,7 +1170,7 @@ bool Server::frame() {
     if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) sent_[id % 128] = {p->host_ns, vsync};
     if (p) {
         // Still head: how much the drawn pose changes frame to frame (the panels' wobble).
-        if (p->angular_velocity.norm() < 0.0175f && have_last_drawn_) {
+        if (head_velocity.norm() < 0.0175f && have_last_drawn_) {
             // From the relative rotation's vector part: acos of a dot product near 1 rounds small
             // steps to 0 in float (the log read 0 while the panels trembled).
             const core::Quat r = last_drawn_.conjugate() * p->orientation;

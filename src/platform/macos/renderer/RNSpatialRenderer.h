@@ -114,6 +114,12 @@ NS_ASSUME_NONNULL_BEGIN
 // The screen shows something else (placeholder frame without a pose): never skip next.
 - (void)invalidateSkippedFrame;
 
+// Glasses in steady mode: the frame is drawn for the orientation given to render (where the
+// glasses hold their image) and the eyes' position (neck model) comes from this one instead, the
+// real head predicted to the photon time. Render thread only.
+@property(nonatomic) BOOL separateEyes;
+@property(nonatomic) simd_quatf eyesOrientation;
+
 // The pixel format must be an sRGB one (MTLPixelFormatBGRA8Unorm_sRGB): filtering and
 // dimming happen in linear light, which keeps text edges from darkening.
 // Predicts the pose to targetHostNs, renders both eyes and presents. Render thread only.

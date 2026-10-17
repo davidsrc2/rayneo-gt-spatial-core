@@ -37,6 +37,10 @@ Mat4 render_rotation(const Quat& head_rel);
 // head turns and near panels shift against the real room as real objects do; without, on
 // see-through glasses the panels seemed to follow the head a little (> 1 deg in a 30 deg turn).
 Mat4 view_matrix(const Quat& head_rel, float eye_offset_m, float neck_up_m = 0.0f, float neck_forward_m = 0.0f);
+// The same with the eyes' position taken from another pose than the rotation drawn: the glasses
+// in steady mode turn the image themselves (rotation only), so the frame is drawn for where they
+// hold it (`head_rel`) while the eyes still sit where the real head (`eyes_rel`) put them.
+Mat4 view_matrix(const Quat& head_rel, const Quat& eyes_rel, float eye_offset_m, float neck_up_m, float neck_forward_m);
 
 // Typical eye position from the neck's pivot (render frame: up, forward), metres.
 inline constexpr float kNeckUpM = 0.075f;

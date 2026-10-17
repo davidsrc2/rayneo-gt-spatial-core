@@ -1765,13 +1765,25 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         // Glasses in steady mode: drawn for where the glasses hold their image (modelled), not for
         // the head: still within their margin, and compensating exactly what they drag beyond it.
+        // The model runs on the head predicted to the photon time (the glasses turn their image
+        // with no delay of their own; unpredicted, the compensation came ~30 ms late and the
+        // panels went a little with the head), and the eyes sit where that head puts them: the
+        // glasses only turn the image, the few centimetres the eyes travel as the neck turns are
+        // Nimbo's to draw (without, the panels seemed to follow the head ~1 deg per 30 deg).
+        let headVelocity = p.angularVelocity
+        var changeProbe = p
         if options.glassesMode == 2 && options.realSize && !options.glassesPinned && p.tracking {
-            p.orientation = steadyFrame(p.orientation, nowNs: nowHost)
-            p.angularVelocity = .zero  // that frame moves slowly: nothing to predict
+            let head = predictHead(p, toNs: UInt64(max(0, targetHost)))
+            p.orientation = steadyFrame(head, nowNs: nowHost)
+            p.angularVelocity = .zero  // already at the photon time
+            renderer.eyesOrientation = head
+            renderer.separateEyes = true
+            changeProbe.orientation = head  // the eyes move with the head even while the image holds
         } else {
             steadyG = nil
+            renderer.separateEyes = false
         }
-        if nothingChanged(p) {
+        if nothingChanged(changeProbe) {
             statsLock.lock()
             stats.idle += 1
             stats.tracking = p.tracking
@@ -1809,7 +1821,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                                          sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))
         let poseAge = Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6
         let photon = Double(targetHost - Int64(p.hostTimeNs)) / 1e6
-        let still = simd_length(p.angularVelocity) < 0.0175
+        let still = simd_length(headVelocity) < 0.0175
         // From the relative rotation's vector part: acos of a dot product near 1 rounds every
         // step under ~0.02 deg to 0 in Float (the log read 0 while the panels trembled).
         var step = 0.0
@@ -1865,6 +1877,19 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // in Settings. Render thread.
     private var steadyG: simd_quatf?
     private var steadyLastNs: UInt64 = 0
+
+    // The head at the photon time, as the renderer predicts it in follow (core::predict_orientation,
+    // ramped in with the speed: core::prediction_gain).
+    private func predictHead(_ p: PoseSample, toNs target: UInt64) -> simd_quatf {
+        let w = p.angularVelocity
+        let speed = simd_length(w)
+        guard target > p.hostTimeNs, speed > 0.02 else { return p.orientation }
+        let horizon = min(Double(target - p.hostTimeNs) / 1e9, Double(renderer.options.maxPredictionMs) / 1e3)
+        let gain = min(1, (Double(speed) - 0.02) / (0.1 - 0.02))
+        let angle = Float(Double(speed) * horizon * gain)
+        guard angle > 1e-9 else { return p.orientation }
+        return simd_normalize(simd_mul(simd_quatf(angle: angle, axis: w / speed), p.orientation))
+    }
 
     private func steadyFrame(_ head: simd_quatf, nowNs: UInt64) -> simd_quatf {
         guard var g = steadyG else {

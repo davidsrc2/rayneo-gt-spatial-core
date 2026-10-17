@@ -45,18 +45,28 @@ Mat4 render_rotation(const Quat& head_rel) {
 }
 
 Mat4 view_matrix(const Quat& head_rel, float eye_offset_m, float neck_up_m, float neck_forward_m) {
-    // Eyes at E = R n - n (n: eyes from the neck pivot; at rest they are at the origin):
-    // v_eye = R^T (v_world - E) - eye_offset = R^T v_world + (R^T n - n) - eye_offset.
+    return view_matrix(head_rel, head_rel, eye_offset_m, neck_up_m, neck_forward_m);
+}
+
+Mat4 view_matrix(const Quat& head_rel, const Quat& eyes_rel, float eye_offset_m, float neck_up_m, float neck_forward_m) {
+    // Eyes at E = Re n - n (n: eyes from the neck pivot; at rest they are at the origin):
+    // v_eye = R^T (v_world - E) - eye_offset. With Re = R: R^T v_world + (R^T n - n) - eye_offset.
     const Mat4 r = render_rotation(head_rel);
+    const Mat4 re = render_rotation(eyes_rel);
     Mat4 v;
     for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 3; ++j) v.at(i, j) = r.at(j, i);
     }
     const float n[3] = {0.0f, neck_up_m, neck_forward_m};
+    float e[3];
     for (int i = 0; i < 3; ++i) {
-        float rtn = 0.0f;
-        for (int j = 0; j < 3; ++j) rtn += r.at(j, i) * n[j];
-        v.at(i, 3) = rtn - n[i];
+        e[i] = -n[i];
+        for (int j = 0; j < 3; ++j) e[i] += re.at(i, j) * n[j];
+    }
+    for (int i = 0; i < 3; ++i) {
+        float rte = 0.0f;
+        for (int j = 0; j < 3; ++j) rte += r.at(j, i) * e[j];
+        v.at(i, 3) = -rte;
     }
     v.at(0, 3) -= eye_offset_m;
     return v;

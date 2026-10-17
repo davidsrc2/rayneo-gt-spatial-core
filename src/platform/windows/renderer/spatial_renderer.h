@@ -104,8 +104,17 @@ public:
     // (an sRGB view of the back buffer) and returns the prediction horizon applied, in ms.
     float render(ID3D11RenderTargetView* target, int width, int height, const core::Quat& orientation,
                  const core::Vec3& angular_velocity, uint64_t sample_ns, uint64_t target_ns);
+    // Glasses in steady mode: render draws for the orientation given (where the glasses hold their
+    // image) and the eyes' position (neck model) comes from `eyes`, the real head predicted to the
+    // photon time. nullptr: from the drawn orientation.
+    void set_eyes(const core::Quat* eyes) {
+        separate_eyes_ = eyes != nullptr;
+        if (eyes) eyes_ = *eyes;
+    }
 
 private:
+    bool separate_eyes_ = false;
+    core::Quat eyes_{};
     struct Panel {
         FrameSource* source = nullptr;
         uint64_t composed_generation = ~0ull;
