@@ -62,6 +62,7 @@ internal static unsafe class NimboNative
         public float DepthStrength; // parallax at the nearest depth, in panel widths (0.03)
         public float DepthPlane;    // depth left on the panel's plane, 0 far .. 1 near (0.35)
         public float Zoom;          // every panel this much larger; <= 0: 1
+        public byte GrowByGaze;     // glasses' pinned mode: the panel looked at takes over (0: mouse only)
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -125,6 +126,7 @@ internal static unsafe class NimboNative
         public float DepthStrength;
         public float DepthPlane;
         public float Zoom;
+        public byte GrowByGaze;
     }
 
     [StructLayout(LayoutKind.Sequential)]

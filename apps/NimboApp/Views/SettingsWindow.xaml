@@ -86,6 +86,8 @@
                            Text="Cada pantalla mide lo que la imagen de las gafas y queda quieta en la habitación: gira la cabeza para pasar de una a otra. Nimbo pone las gafas en follow y, al parar, las devuelve a pinned. Ctrl+Alt+C las vuelve a poner delante." />
                 <ToggleSwitch x:Name="AnchorToggle" Toggled="Changed"
                               Header="Anclar las pantallas con la cabeza quieta (no se mueven ni un píxel; al moverla más de 0,6° vuelven a seguir el espacio con suavidad)" />
+                <ToggleSwitch x:Name="GrowGazeToggle" Toggled="Changed"
+                              Header="Modo fijo (Ctrl+Alt+G): cambiar de pantalla mirándola (desactivado: solo con el ratón; Ctrl+Alt+M lo cambia)" />
                 <ToggleSwitch x:Name="LaptopToggle" Toggled="Changed"
                               Header="La pantalla del portátil es una de las de Nimbo (con 2 pantallas, la del portátil y una más; con 1, solo la del portátil)" />
             </StackPanel>

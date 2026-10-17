@@ -60,7 +60,8 @@ struct ServerOptions {
     var trackingAxes = 1          // head rotations that move the panels: 0 both, 1 left/right, 2 up/down
     var glassesPinned = false     // glasses in their own pinned mode: panels fixed in the image, fitted inside it
     var realSize = false          // not pinned: each panel the size of the glasses' own image, the space moves with the head
-    var growFocused = true        // pinned: the panel you look at (1 s) or take the mouse to fills the image
+    var growFocused = true        // pinned: the panel you look at (0.6 s) or take the mouse to fills the image
+    var growByGaze = true         // pinned: false = only the mouse picks that panel, never the gaze
     var focusWindows = true       // floating windows can be that panel (and focus / cinema's) too
     var glassesMode = -1          // set the glasses' mode at start: 0 follow, 1 pinned, 2 steady; -1 = leave
     var brightness = 0            // set the glasses' brightness 1..8 at start; 0 = leave
@@ -216,6 +217,7 @@ struct ServerOptions {
             case "--full-tracking": o.trackingAxes = 0
             case "--pinned": o.glassesPinned = true; o.glassesMode = 1
             case "--no-grow": o.growFocused = false
+            case "--grow-mouse-only": o.growByGaze = false
             case "--real-size": o.realSize = true
             case "--focus-monitors": o.focusWindows = false
             case "--glasses-mode":

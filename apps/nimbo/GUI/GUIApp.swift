@@ -60,6 +60,14 @@ final class GUIApp: NSObject {
             self.server.tell(self.model.glassesPinned ? "Modo fijo de las gafas" : "Espacio a tamaño real",
                              self.model.glassesPinned ? "Las gafas sostienen la imagen (⌘⌥G para volver)" : "")
         }
+        // ⌘⌥M: in the glasses' pinned mode, the panel in use follows the mouse only (or the gaze
+        // too again). Saved, like the switch in Settings.
+        hotKeys.register(keyCode: kVK_ANSI_M, modifiers: cmdKey | optionKey) { [weak self] in
+            guard let self else { return }
+            self.model.growByGaze.toggle()
+            self.server.settingsChanged()
+            self.server.showMessage(self.model.growByGaze ? "Pantalla activa: mirada y ratón" : "Pantalla activa: solo con el ratón")
+        }
         let keys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3]
         for (key, preset) in zip(keys, AppModel.layouts) {
             hotKeys.register(keyCode: key, modifiers: cmdKey | optionKey) { [weak self] in

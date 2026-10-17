@@ -726,6 +726,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.brightness = o.brightness
         options.glassesPinned = o.glassesPinned
         options.growFocused = o.growFocused
+        options.growByGaze = o.growByGaze
         options.realSize = o.realSize
         options.focusWindows = o.focusWindows
         options.depth3D = o.depth3D
@@ -1085,6 +1086,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 grow(panel, "mouse")
                 return
             }
+        }
+        // Mouse only (⌘⌥M): the gaze never changes the panel in use.
+        guard options.growByGaze else {
+            growCandidate = -2
+            return
         }
         let panel = renderer.panel(atGaze: p.orientation)
         guard panel >= 0, panel != current, eligible(panel) else {

@@ -104,6 +104,7 @@ struct Options {
     float depth_strength = 0.03f;         // parallax between the eyes at the nearest depth, in panel widths
     float depth_plane = 0.35f;             // depth left on the panel's plane, 0 far .. 1 near
     float zoom = 1.0f;                     // every panel this much larger (shortcuts), as left last time
+    bool grow_by_gaze = true;              // glasses' pinned mode: the panel looked at takes over (else mouse only)
 
     float panel_arc_deg() const { return arc_deg.value_or(displays > 0 ? 38.0f : 50.0f); }
 };
@@ -166,6 +167,7 @@ Options from_c(const nimbo_options& c) {
     if (c.depth_strength > 0) o.depth_strength = std::min(c.depth_strength, 0.08f);
     o.depth_plane = std::clamp(c.depth_plane, 0.0f, 1.0f);
     if (c.zoom > 0) o.zoom = std::clamp(c.zoom, 0.5f, 3.0f);
+    o.grow_by_gaze = c.grow_by_gaze;
     return o;
 }
 
@@ -1427,6 +1429,10 @@ void Server::update_grow(uint64_t now) {
             }
         }
     }
+    if (!opt_.grow_by_gaze) {  // mouse only (Ctrl+Alt+M)
+        grow_candidate_ = -2;
+        return;
+    }
     const int panel = renderer_.panel_at_gaze(p->orientation);
     if (panel < 0 || panel == current) {
         grow_candidate_ = -2;
@@ -2186,6 +2192,7 @@ void Server::apply_pending() {
     opt_.gaze_cursor = o->gaze_cursor;
     opt_.gather_windows = o->gather_windows;
     opt_.depth3d = o->depth3d;
+    opt_.grow_by_gaze = o->grow_by_gaze;
     opt_.depth_strength = o->depth_strength;
     opt_.depth_plane = o->depth_plane;
     update_depth3d();
@@ -2258,6 +2265,7 @@ core::Settings to_core(const nimbo_settings& c) {
     s.depth_strength = c.depth_strength;
     s.depth_plane = c.depth_plane;
     s.zoom = c.zoom > 0 ? c.zoom : 1.0f;
+    s.grow_by_gaze = c.grow_by_gaze;
     for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
         s.panels.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
     }
@@ -2297,6 +2305,7 @@ nimbo_settings to_c(const core::Settings& s) {
     c.depth_strength = s.depth_strength;
     c.depth_plane = s.depth_plane;
     c.zoom = s.zoom;
+    c.grow_by_gaze = s.grow_by_gaze;
     c.pose_count = static_cast<int>(std::min<size_t>(s.panels.size(), NIMBO_MAX_PANELS));
     for (int i = 0; i < c.pose_count; ++i) {
         c.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;
@@ -2346,6 +2355,7 @@ nimbo_options nimbo_default_options(void) {
     o.depth_strength = 0.03f;
     o.depth_plane = 0.35f;
     o.zoom = 1.0f;
+    o.grow_by_gaze = true;
     return o;
 }
 
@@ -2547,6 +2557,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.depth_strength = s.depth_strength;
     o.depth_plane = s.depth_plane;
     o.zoom = s.zoom;
+    o.grow_by_gaze = s.grow_by_gaze;
     o.brightness = s.brightness;
     o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;
     for (int i = 0; i < o.pose_count; ++i) {

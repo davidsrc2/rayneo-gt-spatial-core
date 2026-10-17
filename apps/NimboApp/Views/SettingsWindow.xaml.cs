@@ -75,6 +75,7 @@ public sealed partial class SettingsWindow : Window
         DimToggle.IsOn = _model.DimOthers;
         AnchorToggle.IsOn = _model.AnchorAtRest;
         LaptopToggle.IsOn = _model.LaptopScreen;
+        GrowGazeToggle.IsOn = _model.GrowByGaze;
         FovSlider.Value = _model.Fov;
         IpdSlider.Value = _model.Ipd;
         GapSlider.Value = _model.Gap;
@@ -102,6 +103,7 @@ public sealed partial class SettingsWindow : Window
         _model.DimOthers = DimToggle.IsOn;
         _model.AnchorAtRest = AnchorToggle.IsOn;
         _model.LaptopScreen = LaptopToggle.IsOn;
+        _model.GrowByGaze = GrowGazeToggle.IsOn;
         _model.Fov = (float)FovSlider.Value;
         _model.Ipd = (float)IpdSlider.Value;
         _model.Gap = (float)GapSlider.Value;

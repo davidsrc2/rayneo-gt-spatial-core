@@ -63,6 +63,8 @@ final class AppModel: ObservableObject {
     @Published var anchorAtRest: Bool { didSet { d.set(anchorAtRest, forKey: "anchorAtRest") } }  // panels frozen while the head is still
     @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
+    // Pinned (⌘⌥G): the panel in use follows the mouse only, not where you look (⌘⌥M).
+    @Published var growByGaze: Bool { didSet { d.set(growByGaze, forKey: "growByGaze") } }
     @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
     @Published var brightness: Int { didSet { d.set(brightness, forKey: "brightness") } }  // 1..8, 0 = leave
     // AI 3D in cinema mode: strength = parallax at the nearest depth (panel widths), plane = depth on the panel.
@@ -98,6 +100,7 @@ final class AppModel: ObservableObject {
         // The space at real size, or the glasses' own pinned mode (⌘⌥G): as left last time.
         glassesPinned = d.int(forKey: "glassesMode") == 1
         growFocused = d.object(forKey: "growFocused") as? Bool ?? true
+        growByGaze = d.object(forKey: "growByGaze") as? Bool ?? true
         macScreen = d.object(forKey: "macScreen") as? Bool ?? true
         anchorAtRest = d.bool(forKey: "anchorAtRest")
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
@@ -347,6 +350,7 @@ final class AppModel: ObservableObject {
         o.glassesMode = glassesPinned ? 1 : 0
         o.realSize = !glassesPinned
         o.growFocused = growFocused
+        o.growByGaze = growByGaze
         o.macScreen = macScreen
         o.focusWindows = focusWindows
         o.depth3D = false  // AI 3D only with ⌘⌥T, for the run

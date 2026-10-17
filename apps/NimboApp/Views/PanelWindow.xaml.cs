@@ -239,7 +239,11 @@ public sealed partial class PanelWindow : Window
 
     private void Shortcuts_Click(object sender, RoutedEventArgs e)
     {
-        var flyout = new Flyout { Content = Shortcuts.Sheet(), Placement = FlyoutPlacementMode.Top };
+        var flyout = new Flyout
+        {
+            Content = new ScrollViewer { Content = Shortcuts.Sheet(), MaxHeight = 480, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+            Placement = FlyoutPlacementMode.Top,
+        };
         flyout.ShowAt(ShortcutsButton);
     }
 

@@ -40,6 +40,7 @@ struct Settings {
     float depth_strength = 0.03f;  // "depthStrength": parallax at the nearest depth, in panel widths
     float depth_plane = 0.35f;   // "depthPlane": depth left on the panel's plane, 0 far .. 1 near
     float zoom = 1.0f;           // "zoom": every panel this much larger (shortcuts), as left last time
+    bool grow_by_gaze = true;    // "growByGaze": glasses' pinned mode, the panel looked at takes over (else mouse only)
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"

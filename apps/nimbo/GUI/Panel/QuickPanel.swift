@@ -129,10 +129,11 @@ struct QuickPanel: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .popover(isPresented: $showShortcuts.value, arrowEdge: .bottom) {
-                    ShortcutSheet()
-                        .padding(18)
-                        .frame(width: 560)
-                        .preferredColorScheme(.dark)
+                    ScrollView {
+                        ShortcutSheet().padding(18)
+                    }
+                    .frame(width: 580, height: min(520, (NSScreen.main?.visibleFrame.height ?? 700) - 120))
+                    .preferredColorScheme(.dark)
                 }
                 Button("Más opciones…", action: openMore)
                     .buttonStyle(.plain)
