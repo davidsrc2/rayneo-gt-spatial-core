@@ -59,9 +59,21 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
     }
 
     if (holding_) {
-        const float d = std::fabs(out_.w * q.w + out_.x * q.x + out_.y * q.y + out_.z * q.z);
-        const float err_deg = 2.0f * std::acos(std::fmin(1.0f, d)) * 57.29578f;
-        if (err_deg <= cfg_.enter_deg) {
+        bool inside;
+        if (cfg_.enter_vertical_deg > 0.0f && cfg_.enter_deg > 0.0f) {
+            // In the held frame (X forward, Y left, Z up): about Z is left / right, about Y up /
+            // down, about X a tilt. Small-angle rotation vector of the relative rotation.
+            Quat r = out_.conjugate() * q.normalized();
+            if (r.w < 0.0f) r = {-r.w, -r.x, -r.y, -r.z};
+            const float k = 2.0f * 57.29578f;
+            const float yaw = r.z * k / cfg_.enter_deg;
+            const float pitch = r.y * k / cfg_.enter_vertical_deg, roll = r.x * k / cfg_.enter_vertical_deg;
+            inside = yaw * yaw + pitch * pitch + roll * roll <= 1.0f;
+        } else {
+            const float d = std::fabs(out_.w * q.w + out_.x * q.x + out_.y * q.y + out_.z * q.z);
+            inside = 2.0f * std::acos(std::fmin(1.0f, d)) * 57.29578f <= cfg_.enter_deg;
+        }
+        if (inside) {
             omega_out_ = {};
             return finish();  // frozen: identical to a head-locked monitor
         }

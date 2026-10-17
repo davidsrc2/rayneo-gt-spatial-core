@@ -37,6 +37,11 @@ struct PoseStabilizerConfig {
     // settle_speed_rads) glides to the head at this cutoff instead of catching up at once; a
     // real turn still follows at the follow cutoff. The catch-up of the sway read as a tremor.
     float release_cutoff_hz = 0.0f;
+    // > 0: the dead zone up / down (pitch) and tilting (roll), wider than enter_deg (left /
+    // right): the head bobs vertically far more than it drifts sideways at rest (breathing,
+    // talking, chewing, a step), and each bob past the round zone let go and shook the panels up
+    // and down. An ellipse: a real look up or down still leaves it.
+    float enter_vertical_deg = 0.0f;
 };
 
 // Panels fixed in the room at every moment (no dead zone, nothing frozen). Tuned on a

@@ -1136,6 +1136,29 @@ void test_stabilizer_dead_zone() {
     CHECK(angle_between_deg(out, first) > 1.0f);
 }
 
+// Wider up / down than sideways: a 1.5 deg nod is held, a 1 deg turn is not.
+void test_stabilizer_vertical_zone() {
+    PoseStabilizerConfig c;
+    c.enter_deg = 0.6f;
+    c.enter_vertical_deg = 2.0f;
+    const float dt = kRefDt, rate = 0.5f * 0.0174533f;
+    for (int axis = 1; axis <= 2; ++axis) {  // 1: Y (up / down), 2: Z (left / right)
+        PoseStabilizer s(c);
+        const Vec3 a = axis == 1 ? Vec3{0, 1, 0} : Vec3{0, 0, 1};
+        Quat q, out, first;
+        for (int i = 0; i < 457 * 2; ++i) {  // to 1 deg
+            q = (Quat::from_axis_angle(a, rate * dt) * q).normalized();
+            out = s.update(q, a * rate, dt);
+            if (i == 0) first = out;
+        }
+        if (axis == 1) {
+            CHECK(angle_between_deg(out, first) == 0.0f);
+        } else {
+            CHECK(angle_between_deg(out, first) > 0.1f);
+        }
+    }
+}
+
 void test_prediction_gain() {
     CHECK(prediction_gain(0.0f) == 0.0f && prediction_gain(0.05f) == 0.0f);
     CHECK(near(prediction_gain(0.175f), 0.5f, 1e-5f));
@@ -1306,6 +1329,7 @@ int main() {
     test_world_locked_anchor();
     test_stabilizer_follows_turns();
     test_stabilizer_dead_zone();
+    test_stabilizer_vertical_zone();
     test_prediction_gain();
     test_yaw_only();
     test_panel_poses();
