@@ -105,6 +105,9 @@ struct Options {
     float depth_plane = 0.35f;             // depth left on the panel's plane, 0 far .. 1 near
     float zoom = 1.0f;                     // every panel this much larger (shortcuts), as left last time
     bool grow_by_gaze = true;              // glasses' pinned mode: the panel looked at takes over (else mouse only)
+    int background = 0;                    // around the panels (win::RenderOptions::background)
+    float background_brightness = 0.6f;
+    std::string background_image;          // UTF-8
 
     float panel_arc_deg() const { return arc_deg.value_or(displays > 0 ? 38.0f : 50.0f); }
 };
@@ -168,6 +171,9 @@ Options from_c(const nimbo_options& c) {
     o.depth_plane = std::clamp(c.depth_plane, 0.0f, 1.0f);
     if (c.zoom > 0) o.zoom = std::clamp(c.zoom, 0.5f, 3.0f);
     o.grow_by_gaze = c.grow_by_gaze;
+    o.background = std::clamp(c.background, 0, 5);
+    o.background_brightness = std::clamp(c.background_brightness, 0.0f, 1.0f);
+    o.background_image.assign(c.background_image, strnlen(c.background_image, sizeof(c.background_image)));
     return o;
 }
 
@@ -867,6 +873,9 @@ bool Server::start() {
     zoom_ = opt_.zoom;
     code_mode_ = std::fabs(zoom_ - 1.7f) < 0.01f;
     ro.zoom = zoom_;
+    ro.background = opt_.background;
+    ro.background_brightness = opt_.background_brightness;
+    ro.background_image = opt_.background_image;
     renderer_.set_depth_engine(&depth_);
     renderer_.set_panel_count(panels);
     if (static_cast<int>(opt_.layout.size()) == panels) renderer_.set_grid(opt_.layout);
@@ -2242,6 +2251,12 @@ void Server::apply_pending() {
     ro.k2 = o->k2;
     ro.dim_others = o->dim_others;
     ro.tracking_axes = static_cast<core::TrackingAxes>(o->tracking_axes);
+    ro.background = o->background;
+    ro.background_brightness = o->background_brightness;
+    ro.background_image = o->background_image;
+    opt_.background = o->background;
+    opt_.background_brightness = o->background_brightness;
+    opt_.background_image = o->background_image;
     if (o->glasses_mode >= 0 && o->glasses_mode != opt_.glasses_mode) pose_->set_glasses_mode(o->glasses_mode);
     if (o->brightness > 0 && o->brightness != opt_.brightness) pose_->set_glasses_brightness(o->brightness);
     opt_.glasses_mode = o->glasses_mode;
@@ -2328,6 +2343,9 @@ core::Settings to_core(const nimbo_settings& c) {
     s.depth_plane = c.depth_plane;
     s.zoom = c.zoom > 0 ? c.zoom : 1.0f;
     s.grow_by_gaze = c.grow_by_gaze;
+    s.background = std::clamp(c.background, 0, 5);
+    s.background_brightness = std::clamp(c.background_brightness, 0.0f, 1.0f);
+    s.background_image.assign(c.background_image, strnlen(c.background_image, sizeof(c.background_image)));
     for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
         s.panels.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
     }
@@ -2368,6 +2386,9 @@ nimbo_settings to_c(const core::Settings& s) {
     c.depth_plane = s.depth_plane;
     c.zoom = s.zoom;
     c.grow_by_gaze = s.grow_by_gaze;
+    c.background = s.background;
+    c.background_brightness = s.background_brightness;
+    copy_str(c.background_image, sizeof(c.background_image), s.background_image);
     c.pose_count = static_cast<int>(std::min<size_t>(s.panels.size(), NIMBO_MAX_PANELS));
     for (int i = 0; i < c.pose_count; ++i) {
         c.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;
@@ -2418,6 +2439,7 @@ nimbo_options nimbo_default_options(void) {
     o.depth_plane = 0.35f;
     o.zoom = 1.0f;
     o.grow_by_gaze = true;
+    o.background_brightness = 0.6f;
     return o;
 }
 
@@ -2620,6 +2642,9 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.depth_plane = s.depth_plane;
     o.zoom = s.zoom;
     o.grow_by_gaze = s.grow_by_gaze;
+    o.background = s.background;
+    o.background_brightness = s.background_brightness;
+    copy_str(o.background_image, sizeof(o.background_image), s.background_image);
     o.brightness = s.brightness;
     o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;
     for (int i = 0; i < o.pose_count; ++i) {

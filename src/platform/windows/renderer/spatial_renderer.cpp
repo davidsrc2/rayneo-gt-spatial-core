@@ -1,6 +1,7 @@
 #include "spatial_renderer.h"
 
 #include <d3dcompiler.h>
+#include <wincodec.h>
 
 #include <algorithm>
 #include <chrono>
@@ -40,11 +41,21 @@ struct DepthBlendUniforms {
     float low, high, alpha, lod;
 };
 
+// Mirrors BackgroundUniforms in Shaders.hlsl.
+struct BackgroundUniforms {
+    float right[4], up[4], forward[4];
+    float tan_x, tan_y, time, brightness;
+    int style;
+    float image_aspect;
+    float pad[2];
+};
+
 constexpr float kDepthEdge = 0.05f;  // AI 3D: side margins where the image returns to the panel's plane
 
-bool compile(const char* entry, const char* target, ComPtr<ID3DBlob>* out, std::string* error) {
+bool compile(const char* entry, const char* target, ComPtr<ID3DBlob>* out, std::string* error,
+             const D3D_SHADER_MACRO* defines = nullptr) {
     ComPtr<ID3DBlob> errors;
-    const HRESULT hr = D3DCompile(kRNShaderSourceHlsl, std::strlen(kRNShaderSourceHlsl), "Shaders.hlsl", nullptr,
+    const HRESULT hr = D3DCompile(kRNShaderSourceHlsl, std::strlen(kRNShaderSourceHlsl), "Shaders.hlsl", defines,
                                   nullptr, entry, target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, out->GetAddressOf(),
                                   &errors);
     if (FAILED(hr)) {
@@ -140,6 +151,19 @@ bool SpatialRenderer::init(ID3D11Device* device, std::string* error) {
     ds.ComparisonFunc = D3D11_COMPARISON_NEVER;
     ds.MaxLOD = FLT_MAX;
     device_->CreateSamplerState(&ds, &depth_sampler_);
+    // Background: optional.
+    std::string bg_error;
+    const D3D_SHADER_MACRO bg_defines[] = {{"NIMBO_BACKGROUND", "1"}, {nullptr, nullptr}};
+    if (compile("background_fragment", "ps_4_0", &ps, &bg_error, bg_defines)) {
+        device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &background_ps_);
+        background_cb_ = constant_buffer(device_.Get(), sizeof(BackgroundUniforms));
+        D3D11_SAMPLER_DESC ms = ds;
+        ms.AddressU = D3D11_TEXTURE_ADDRESS_MIRROR;
+        ms.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+        device_->CreateSamplerState(&ms, &mirror_sampler_);
+    } else {
+        OutputDebugStringA(("nimbo: background shader: " + bg_error + "\n").c_str());
+    }
 
     D3D11_RASTERIZER_DESC r{};
     r.FillMode = D3D11_FILL_SOLID;
@@ -433,7 +457,8 @@ bool SpatialRenderer::can_skip_frame(const core::Quat& orientation, const core::
     in.angular_speed_rads = options.static_head ? 0.0f : angular_velocity.norm();
     in.source_generation = generation + overlay_generation_ + depth_generation_ + grow_generation_;
     in.tracking = tracking;
-    in.animating = dimmer_.animating() || depth_pending() || grow_animating();  // depth on its way, a pan / zoom
+    const bool moving_background = background_ps_ && (options.background == 1 || options.background == 2 || options.background == 4);
+    in.animating = dimmer_.animating() || depth_pending() || grow_animating() || moving_background;  // depth on its way, a pan / zoom, rain
     in.forced = forced;
     return skipper_.skip(in);
 }
@@ -908,11 +933,45 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     ctx_->PSSetConstantBuffers(1, 1, panel_cb_.GetAddressOf());
     ctx_->PSSetSamplers(0, 1, sampler_.GetAddressOf());
     const D3D11_VIEWPORT eye_vp{0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
+    // Background: the eye's axes in the room (the view's rotation), the same for both eyes.
+    if (options.background == 5 && options.background_image != loaded_background_) load_background(options.background_image);
+    const bool draw_background = background_ps_ && options.background > 0 && options.background <= 5 &&
+                                 (options.background != 5 || background_srv_);
+    if (draw_background) {
+        const core::Mat4 r = core::render_rotation(head);
+        BackgroundUniforms bu{};
+        for (int k = 0; k < 3; ++k) {
+            bu.right[k] = r.at(k, 0);
+            bu.up[k] = r.at(k, 1);
+            bu.forward[k] = r.at(k, 2);
+        }
+        bu.tan_y = std::tan(options.fov_y_deg * kDegToRad * 0.5f);
+        bu.tan_x = bu.tan_y * options.eye_aspect;
+        bu.time = static_cast<float>(std::fmod(
+            std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(), 3600.0));
+        bu.brightness = std::clamp(options.background_brightness, 0.0f, 1.0f);
+        bu.style = options.background;
+        bu.image_aspect = background_aspect_;
+        ctx_->UpdateSubresource(background_cb_.Get(), 0, nullptr, &bu, 0, 0);
+    }
     for (int eye = 0; eye < eyes; ++eye) {
         ID3D11RenderTargetView* rtv = eye_rtv_[eye].Get();
         ctx_->OMSetRenderTargets(1, &rtv, nullptr);
         ctx_->RSSetViewports(1, &eye_vp);
         ctx_->ClearRenderTargetView(rtv, black);
+        if (draw_background) {
+            ctx_->IASetInputLayout(nullptr);
+            ctx_->VSSetShader(fullscreen_vs_.Get(), nullptr, 0);
+            ctx_->PSSetShader(background_ps_.Get(), nullptr, 0);
+            ctx_->PSSetConstantBuffers(6, 1, background_cb_.GetAddressOf());
+            ID3D11ShaderResourceView* bg = background_srv_ ? background_srv_.Get() : placeholder_.Get();
+            ctx_->PSSetShaderResources(2, 1, &bg);
+            ctx_->PSSetSamplers(2, 1, mirror_sampler_.GetAddressOf());
+            ctx_->Draw(3, 0);
+            ctx_->IASetInputLayout(layout_.Get());
+            ctx_->VSSetShader(screen_vs_.Get(), nullptr, 0);
+            ctx_->PSSetShader(screen_ps_.Get(), nullptr, 0);
+        }
         const float offset = options.side_by_side ? (eye == 0 ? -0.5f : 0.5f) * options.ipd_m : 0.0f;
         SceneUniforms su;
         const float up = options.neck_model ? core::kNeckUpM : 0.0f, fwd = options.neck_model ? core::kNeckForwardM : 0.0f;
@@ -983,6 +1042,54 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     ctx_->PSSetShaderResources(0, 1, &none);
     ctx_->OMSetRenderTargets(0, nullptr, nullptr);
     return horizon_s * 1e3f;
+}
+
+// The picture for background style 5 through WIC (any format Windows decodes), at most 4096 px
+// on the long side, as sRGB. Unreadable: none (and not retried until the path changes).
+void SpatialRenderer::load_background(const std::string& path) {
+    loaded_background_ = path;
+    background_srv_.Reset();
+    if (path.empty()) return;
+    const int n = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    std::wstring wpath(n > 0 ? static_cast<size_t>(n) : 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wpath.data(), n);
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);  // already initialised: harmless
+    ComPtr<IWICImagingFactory> factory;
+    ComPtr<IWICBitmapDecoder> decoder;
+    ComPtr<IWICBitmapFrameDecode> frame;
+    ComPtr<IWICFormatConverter> converter;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) ||
+        FAILED(factory->CreateDecoderFromFilename(wpath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)) ||
+        FAILED(decoder->GetFrame(0, &frame))) {
+        return;
+    }
+    UINT w = 0, h = 0;
+    frame->GetSize(&w, &h);
+    if (w == 0 || h == 0) return;
+    ComPtr<IWICBitmapSource> source = frame;
+    const UINT longest = std::max(w, h);
+    if (longest > 4096) {
+        ComPtr<IWICBitmapScaler> scaler;
+        const UINT sw = std::max(1u, w * 4096 / longest), sh = std::max(1u, h * 4096 / longest);
+        if (SUCCEEDED(factory->CreateBitmapScaler(&scaler)) &&
+            SUCCEEDED(scaler->Initialize(frame.Get(), sw, sh, WICBitmapInterpolationModeFant))) {
+            source = scaler;
+            w = sw;
+            h = sh;
+        }
+    }
+    if (FAILED(factory->CreateFormatConverter(&converter)) ||
+        FAILED(converter->Initialize(source.Get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                                     WICBitmapPaletteTypeCustom))) {
+        return;
+    }
+    std::vector<uint32_t> pixels(static_cast<size_t>(w) * h);
+    if (FAILED(converter->CopyPixels(nullptr, w * 4, static_cast<UINT>(pixels.size() * 4),
+                                     reinterpret_cast<BYTE*>(pixels.data())))) {
+        return;
+    }
+    background_srv_ = image(device_.Get(), static_cast<int>(w), static_cast<int>(h), pixels.data(), DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+    background_aspect_ = static_cast<float>(w) / static_cast<float>(h);
 }
 
 }  // namespace rayneo::win

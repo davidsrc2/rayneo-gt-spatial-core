@@ -58,6 +58,9 @@ struct ServerOptions {
     var gatherWindows = true      // move windows off the glasses display (Accessibility)
     var gazeCursor = true         // cursor jumps to the panel you look at
     var dimOthers: Float = 1      // brightness of the panels you are not looking at (1 = off)
+    var background = 0            // around the panels: 0 none (the room), 1 rain, 2 stars, 3 sunset, 4 aurora, 5 picture
+    var backgroundImage = ""      // style 5: an image file
+    var backgroundBrightness: Float = 0.6
     var trackingAxes = 1          // head rotations that move the panels: 0 both, 1 left/right, 2 up/down
     var glassesPinned = false     // glasses in their own pinned mode: panels fixed in the image, fitted inside it
     var realSize = false          // not pinned: each panel the size of the glasses' own image, the space moves with the head

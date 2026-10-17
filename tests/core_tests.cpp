@@ -1261,6 +1261,9 @@ void test_settings_json() {
     s.depth3d = true;
     s.depth_strength = 0.02f;
     s.depth_plane = 0.5f;
+    s.background = 5;
+    s.background_image = "C:\\Users\\Ana \"x\"\\fondo.jpg";
+    s.background_brightness = 0.4f;
     const std::string json = settings_to_json(s);
     CHECK(json.find("\"layoutCells\"") != std::string::npos && json.find("\"fovY\": 23.5") != std::string::npos);
     const auto back = settings_from_json(json);
@@ -1271,6 +1274,7 @@ void test_settings_json() {
     CHECK(back->panels.size() == 2 && near(back->panels[0].yaw_deg, -10.5f, 1e-5f) &&
           near(back->panels[1].scale, 0.8f, 1e-6f));
     CHECK(settings_from_json("{}")->panels.empty());  // default: the grid
+    CHECK(back->background == 5 && back->background_image == s.background_image && near(back->background_brightness, 0.4f, 1e-6f));
     CHECK(back->glasses_mode == 2 && back->brightness == 5);
     CHECK(near(back->tilt, 0.4f, 1e-6f) && back->anchor_at_rest && !back->mac_screen);
     CHECK(near(settings_from_json("{}")->tilt, 1.0f, 1e-6f) && settings_from_json("{}")->mac_screen);

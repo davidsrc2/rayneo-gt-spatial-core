@@ -41,6 +41,9 @@ struct Settings {
     float depth_plane = 0.35f;   // "depthPlane": depth left on the panel's plane, 0 far .. 1 near
     float zoom = 1.0f;           // "zoom": every panel this much larger (shortcuts), as left last time
     bool grow_by_gaze = true;    // "growByGaze": glasses' pinned mode, the panel looked at takes over (else mouse only)
+    int background = 0;          // "background": around the panels, 0 none, 1 rain, 2 stars, 3 sunset, 4 aurora, 5 picture
+    std::string background_image;  // "backgroundImage": style 5's image file (UTF-8)
+    float background_brightness = 0.6f;  // "backgroundBrightness": 0..1
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"

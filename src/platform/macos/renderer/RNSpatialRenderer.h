@@ -35,6 +35,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float depthStrength;    // parallax between the eyes at the nearest depth, in panel widths (0.03)
 @property(nonatomic) float depthConvergence; // depth (0 far .. 1 near) left on the panel's plane (0.35)
 @property(nonatomic) float depthSmoothing;   // weight of each new depth map against the previous ones (0.35)
+// Around the panels, fixed in the room: 0 none (the room seen through), 1 rain, 2 stars,
+// 3 sunset, 4 aurora, 5 the picture given with setBackgroundImageAtPath:.
+@property(nonatomic) NSInteger backgroundStyle;
+@property(nonatomic) float backgroundBrightness;  // 0..1, 0.6
 @end
 
 @interface RNSpatialRenderer : NSObject
@@ -97,6 +101,10 @@ NS_ASSUME_NONNULL_BEGIN
 // all still fitted in the glasses' image; changing it eases over a third of a second. -1: all
 // the same size. Any thread.
 @property(nonatomic) NSInteger growPanel;
+
+// The picture for background style 5 (any image file ImageIO reads); nil or unreadable: none.
+// Any thread.
+- (BOOL)setBackgroundImageAtPath:(nullable NSString*)path NS_SWIFT_NAME(loadBackgroundImage(path:));
 
 // Panel index the given head orientation (core frame) looks at, or -1.
 - (NSInteger)panelAtGaze:(simd_quatf)orientation;

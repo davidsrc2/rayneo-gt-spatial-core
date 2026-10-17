@@ -22,6 +22,7 @@ internal static class Shortcuts
         ("Ctrl+Alt++  -", "⌘⌥+  ⌘⌥-", "Zoom: acercar / alejar las pantallas"),
         ("Ctrl+Alt+0", "⌘⌥0", "Zoom al 100 %"),
         ("Ctrl+Alt+A", "⌘⌥A", "Ver de lejos todas las pantallas (otra vez: como estabas)"),
+        ("Ctrl+Alt+F", "⌘⌥F", "Fondo alrededor de las pantallas: ninguno, lluvia, estrellas, atardecer, aurora o tu imagen"),
         ("Ctrl+Alt+O", "⌘⌥O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
         ("Ctrl+Alt+P", "⌘⌥P", "Modo cine: la pantalla que miras, delante y grande"),
         ("Ctrl+Alt+T", "⌘⌥T", "Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)"),

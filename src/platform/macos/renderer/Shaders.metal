@@ -142,3 +142,88 @@ fragment float4 distort_fragment(VOut in [[stage_in]],
     if (any(uv < 0.0) || any(uv > 1.0)) return float4(0.0, 0.0, 0.0, 1.0);
     return float4(eye.sample(s, uv).rgb, 1.0);
 }
+
+// Background around the panels (on see-through glasses black is the room itself: "none" draws
+// nothing). Fixed in the room like the panels, at infinity: each pixel's direction in the room
+// picks the colour. Styles: 1 rain drops, 2 stars, 3 sunset, 4 aurora, 5 a picture.
+struct BackgroundUniforms {
+    float3x3 eye_to_world;  // columns: the eye's right, up and forward in the room
+    float tan_x;            // tangent of half the eye's horizontal field of view
+    float tan_y;
+    float time;             // seconds, for the moving styles
+    float brightness;       // 0..1
+    int style;
+    float image_aspect;     // style 5: width / height
+};
+
+static float bg_hash(float2 p) {
+    p = fract(p * float2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+static float bg_hash3(float3 p) {
+    p = fract(p * float3(0.1031, 0.1030, 0.0973));
+    p += dot(p, p.yxz + 33.33);
+    return fract((p.x + p.y) * p.z);
+}
+
+static float bg_noise(float2 p) {
+    const float2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(bg_hash(i), bg_hash(i + float2(1, 0)), u.x), mix(bg_hash(i + float2(0, 1)), bg_hash(i + float2(1, 1)), u.x), u.y);
+}
+
+fragment float4 background_fragment(VOut in [[stage_in]],
+                                    constant BackgroundUniforms& b [[buffer(0)]],
+                                    texture2d<float> picture [[texture(0)]],
+                                    sampler s [[sampler(0)]]) {
+    const float2 ndc = float2(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0);
+    const float3 d = normalize(b.eye_to_world * float3(ndc.x * b.tan_x, ndc.y * b.tan_y, 1.0));
+    const float yaw = atan2(d.x, d.z);             // -pi..pi, 0 straight ahead at the recentre
+    const float pitch = asin(clamp(d.y, -1.0, 1.0));  // -pi/2..pi/2, up positive
+    float3 c = float3(0.0);
+    if (b.style == 1) {  // rain: streaks falling down a dim blue-grey sky
+        c = mix(float3(0.035, 0.045, 0.07), float3(0.09, 0.11, 0.15), saturate(pitch * 0.8 + 0.5));
+        const float columns = 140.0;
+        const float x = (yaw / 3.14159265 + 1.0) * columns;
+        const float col = floor(x);
+        const float speed = 0.35 + 0.4 * bg_hash(float2(col, 1.0));
+        const float phase = bg_hash(float2(col, 7.0));
+        const float y = fract(pitch / 3.14159265 + 0.5 + b.time * speed + phase);  // falls as time goes
+        const float streak = smoothstep(0.0, 0.03, y) * (1.0 - smoothstep(0.03, 0.09, y));
+        const float thin = 1.0 - smoothstep(0.0, 0.18, abs(fract(x) - 0.5));
+        c += float3(0.55, 0.62, 0.75) * streak * thin * (0.4 + 0.6 * bg_hash(float2(col, 3.0)));
+    } else if (b.style == 2) {  // stars: a night sky, slowly twinkling
+        c = mix(float3(0.005, 0.008, 0.02), float3(0.02, 0.03, 0.07), saturate(1.0 - abs(pitch)));
+        for (int layer = 0; layer < 2; ++layer) {
+            const float scale = layer == 0 ? 90.0 : 220.0;
+            const float3 cell = floor(d * scale);
+            const float h = bg_hash3(cell + float(layer) * 17.0);
+            if (h > (layer == 0 ? 0.985 : 0.992)) {
+                const float3 centre = (cell + 0.5) / scale;
+                const float dist = length(d - normalize(centre)) * scale;
+                const float tw = 0.65 + 0.35 * sin(b.time * (1.0 + 3.0 * h) + h * 50.0);
+                c += float3(0.9, 0.92, 1.0) * (1.0 - smoothstep(0.05, 0.45, dist)) * tw * (layer == 0 ? 1.0 : 0.6);
+            }
+        }
+    } else if (b.style == 3) {  // sunset: warm at the horizon, deep blue above, the sun ahead
+        const float t = saturate(pitch / 1.2 + 0.1);
+        c = mix(float3(0.95, 0.45, 0.18), float3(0.10, 0.12, 0.35), pow(t, 0.6));
+        c = mix(c, float3(0.05, 0.04, 0.08), saturate(-pitch * 3.0));  // ground below
+        const float sun = length(float2(yaw, pitch - 0.08));
+        c += float3(1.0, 0.75, 0.4) * (1.0 - smoothstep(0.02, 0.05, sun)) + float3(0.9, 0.4, 0.15) * exp(-sun * 6.0) * 0.5;
+    } else if (b.style == 4) {  // aurora: green curtains drifting over a night sky
+        c = mix(float3(0.005, 0.01, 0.02), float3(0.01, 0.02, 0.05), saturate(pitch + 0.5));
+        const float band = bg_noise(float2(yaw * 3.0 + b.time * 0.05, b.time * 0.08)) * 0.5
+                         + bg_noise(float2(yaw * 7.0 - b.time * 0.03, 3.0)) * 0.5;
+        const float h = pitch - (0.25 + 0.25 * band);
+        const float curtain = exp(-h * h * 40.0) * smoothstep(0.0, 0.3, pitch);
+        const float rays = 0.6 + 0.4 * bg_noise(float2(yaw * 40.0, b.time * 0.3));
+        c += mix(float3(0.1, 0.9, 0.5), float3(0.5, 0.2, 0.8), saturate(h * 4.0 + 0.5)) * curtain * rays * 0.6;
+    } else if (b.style == 5) {  // a picture: 180 deg wide, mirrored beyond (a 2:1 panorama fills all around)
+        const float wide = b.image_aspect >= 1.9 ? 2.0 * 3.14159265 : 3.14159265;
+        const float2 uv = float2(yaw / wide + 0.5, 0.5 - pitch / (wide / max(0.2, b.image_aspect)));
+        c = picture.sample(s, uv).rgb;
+    }
+    return float4(c * b.brightness, 1.0);
+}

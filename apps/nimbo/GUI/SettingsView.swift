@@ -91,6 +91,10 @@ struct SettingsView: View {
                 .font(Theme.body).foregroundStyle(Theme.text)
             }
 
+            Section(title: "Fondo alrededor (⌘⌥F)") {
+                BackgroundSettings(model: model, server: server)
+            }
+
             Section(title: "Cine en 3D con IA") {
                 Text("Con las gafas en modo 3D, mira el vídeo y pulsa ⌘⌥T: modo cine con relieve. ⌘⌥T otra vez lo quita; ⌘⌥P sale del cine (al volver las gafas a 2D sale solo).")
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
@@ -152,6 +156,7 @@ struct ShortcutSheet: View {
         ("⌘⌥0", "Ctrl+Alt+0", "Zoom al 100 %"),
         ("⌘⌥A", "Ctrl+Alt+A", "Ver de lejos todas las pantallas (otra vez: como estabas)"),
         ("⌘⌥P", "Ctrl+Alt+P", "Modo cine: la pantalla que miras, delante y grande"),
+        ("⌘⌥F", "Ctrl+Alt+F", "Fondo alrededor de las pantallas: ninguno, lluvia, estrellas, atardecer, aurora o tu imagen"),
         ("⌘⌥T", "Ctrl+Alt+T", "Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)"),
         ("⌘⌥R", "—", "Grabar lo que ves en las gafas (vídeo en Descargas)"),
         ("⌘⌥↓  ⌘⌥↑", "Ctrl+Alt+↓  ↑", "Brillo de la pantalla de las gafas: bajar / subir (8 niveles)"),
@@ -179,5 +184,52 @@ struct ShortcutSheet: View {
             Text("Funcionan con cualquier app delante mientras Nimbo está en marcha; el panel y las disposiciones, también con Nimbo parado.")
                 .font(.system(size: 12)).foregroundStyle(Theme.secondary)
         }
+    }
+}
+
+// Around the panels: none (the room seen through the glasses), Nimbo's own or a picture. Each
+// change applied at once (bindings that tell the server, not more .onChange: the settings
+// chain is at the type checker's limit).
+@available(macOS 14.0, *)
+struct BackgroundSettings: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var server: ServerController
+
+    private func live<T>(_ key: ReferenceWritableKeyPath<AppModel, T>) -> Binding<T> {
+        Binding(get: { model[keyPath: key] }, set: { model[keyPath: key] = $0; server.settingsChanged() })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("Fondo", selection: live(\.background)) {
+                ForEach(Array(AppModel.backgrounds.enumerated()), id: \.offset) { i, name in
+                    Text(name).tag(i)
+                }
+            }
+            .frame(maxWidth: 360)
+            if model.background == 5 {
+                HStack(spacing: 10) {
+                    Button("Elegir imagen…") { choose() }.buttonStyle(CalmButtonStyle())
+                    Text(model.backgroundImage.isEmpty ? "Ninguna elegida" : (model.backgroundImage as NSString).lastPathComponent)
+                        .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            if model.background > 0 {
+                LabeledSlider(title: "Intensidad", value: live(\.backgroundBrightness), range: 0.1...1, step: 0.05,
+                              caption: String(format: "%.0f %%", model.backgroundBrightness * 100))
+            }
+            Text("Fijo en el espacio como las pantallas. En las gafas, el negro es transparente: con «Ninguno» ves la habitación; con un fondo, la tapas. Una panorámica 2:1 rodea toda la habitación; otra foto ocupa 180° y se refleja detrás.")
+                .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        }
+        .font(Theme.body).foregroundStyle(Theme.text)
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        model.backgroundImage = url.path
+        server.settingsChanged()
     }
 }

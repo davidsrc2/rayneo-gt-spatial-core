@@ -207,6 +207,15 @@ internal sealed unsafe class AppModel
     public float Zoom { get => _s.Zoom > 0 ? _s.Zoom : 1f; set => _s.Zoom = value; }
     // Ctrl+Alt+M / Settings: in the glasses' pinned mode the panel in use follows the mouse only.
     public bool GrowByGaze { get => _s.GrowByGaze != 0; set => _s.GrowByGaze = B(value); }
+    // Ctrl+Alt+F / Settings: around the panels, fixed in the room.
+    public static readonly string[] Backgrounds = { "Ninguno (se ve la habitación)", "Lluvia", "Estrellas", "Atardecer", "Aurora", "Imagen propia" };
+    public int Background { get => Math.Clamp(_s.Background, 0, 5); set => _s.Background = value; }
+    public float BackgroundBrightness { get => _s.BackgroundBrightness > 0 ? _s.BackgroundBrightness : 0.6f; set => _s.BackgroundBrightness = value; }
+    public string BackgroundImage
+    {
+        get { fixed (byte* p = _s.BackgroundImage) return NimboNative.GetField(p, 520); }
+        set { fixed (byte* p = _s.BackgroundImage) NimboNative.SetField(p, 520, value); }
+    }
 
     public void ResetPlacement() => _s.PoseCount = 0;
 

@@ -47,6 +47,11 @@ struct RenderOptions {
     float depth_strength = 0.03f;     // parallax between the eyes at the nearest depth, in panel widths
     float depth_convergence = 0.35f;   // depth (0 far .. 1 near) left on the panel's plane
     float depth_smoothing = 0.35f;     // weight of each new depth map against the previous ones
+    // Around the panels, fixed in the room: 0 none (the room seen through), 1 rain, 2 stars,
+    // 3 sunset, 4 aurora, 5 the picture in background_image (UTF-8 path; loaded when it changes).
+    int background = 0;
+    float background_brightness = 0.6f;
+    std::string background_image;
 };
 
 // Render thread only, except where noted.
@@ -182,6 +187,15 @@ private:
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> raster_;
     Microsoft::WRL::ComPtr<ID3D11BlendState> blend_alpha_, blend_invert_;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> placeholder_;
+    // Background (options.background): its shader is optional (compiled apart: a failure leaves
+    // Nimbo without backgrounds, not without panels).
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> background_ps_;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> background_cb_;
+    Microsoft::WRL::ComPtr<ID3D11SamplerState> mirror_sampler_;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> background_srv_;
+    float background_aspect_ = 1.0f;
+    std::string loaded_background_;
+    void load_background(const std::string& path);
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> overlay_;  // start-up message, null = none
     Microsoft::WRL::ComPtr<ID3D11Buffer> overlay_vertices_, overlay_indices_;
     UINT overlay_index_count_ = 0;

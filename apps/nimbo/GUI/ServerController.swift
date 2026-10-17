@@ -131,7 +131,8 @@ final class ServerController: ObservableObject {
         guard let model, let server, let running = runningOptions else { return }
         let next = model.serverOptions()
         let needsRestart = next.layout != running.layout || next.vdWidth != running.vdWidth ||
-            next.deadZoneDeg != running.deadZoneDeg || next.macScreen != running.macScreen
+            next.deadZoneDeg != running.deadZoneDeg || next.macScreen != running.macScreen ||
+            next.vdLikeMac != running.vdLikeMac
         if needsRestart {
             restart()
         } else {

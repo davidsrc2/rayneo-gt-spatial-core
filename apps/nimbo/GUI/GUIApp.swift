@@ -68,6 +68,14 @@ final class GUIApp: NSObject {
             self.server.settingsChanged()
             self.server.showMessage(self.model.growByGaze ? "Pantalla activa: mirada y ratón" : "Pantalla activa: solo con el ratón")
         }
+        // ⌘⌥F: the next background around the panels (the picture only once one is chosen).
+        hotKeys.register(keyCode: kVK_ANSI_F, modifiers: cmdKey | optionKey) { [weak self] in
+            guard let self else { return }
+            let count = AppModel.backgrounds.count - (self.model.backgroundImage.isEmpty ? 1 : 0)
+            self.model.background = (self.model.background + 1) % count
+            self.server.settingsChanged()
+            self.server.showMessage("Fondo: " + AppModel.backgrounds[self.model.background])
+        }
         let keys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3]
         for (key, preset) in zip(keys, AppModel.layouts) {
             hotKeys.register(keyCode: key, modifiers: cmdKey | optionKey) { [weak self] in

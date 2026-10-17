@@ -158,6 +158,17 @@ void put(std::string& out, const char* key, float v, bool last = false) {
     out += buf;
 }
 
+void put_string(std::string& out, const char* key, const std::string& v) {
+    out += "  \"";
+    out += key;
+    out += "\": \"";
+    for (const char c : v) {
+        if (c == '"' || c == '\\') out += '\\';
+        if (static_cast<unsigned char>(c) >= 0x20) out += c;  // control characters dropped
+    }
+    out += "\",\n";
+}
+
 void put(std::string& out, const char* key, bool v, bool last = false) {
     out += std::string("  \"") + key + "\": " + (v ? "true" : "false") + (last ? "\n" : ",\n");
 }
@@ -202,6 +213,9 @@ std::string settings_to_json(const Settings& s) {
     put(out, "depthPlane", s.depth_plane);
     put(out, "zoom", s.zoom);
     put(out, "growByGaze", s.grow_by_gaze);
+    out += "  \"background\": " + std::to_string(s.background) + ",\n";
+    put_string(out, "backgroundImage", s.background_image);
+    put(out, "backgroundBrightness", s.background_brightness);
     put(out, "k1", s.k1);
     put(out, "k2", s.k2);
     put(out, "onboardingDone", s.onboarding_done, true);
@@ -219,7 +233,8 @@ std::optional<Settings> settings_from_json(std::string_view json) {
                   {"size", &s.size_deg},       {"fovY", &s.fov_y_deg},  {"ipd", &s.ipd_mm},
                   {"deadZone", &s.dead_zone_deg}, {"k1", &s.k1},        {"k2", &s.k2},
                   {"tilt", &s.tilt},           {"depthStrength", &s.depth_strength},
-                  {"depthPlane", &s.depth_plane},      {"zoom", &s.zoom}};
+                  {"depthPlane", &s.depth_plane},      {"zoom", &s.zoom},
+                  {"backgroundBrightness", &s.background_brightness}};
     const struct {
         const char* key;
         bool* value;
@@ -254,6 +269,16 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         } else if (*key == "brightness") {
             if (const auto v = r.number()) {
                 s.brightness = std::max(0, std::min(8, static_cast<int>(*v)));
+                handled = true;
+            }
+        } else if (*key == "background") {
+            if (const auto v = r.number()) {
+                s.background = std::max(0, std::min(5, static_cast<int>(*v)));
+                handled = true;
+            }
+        } else if (*key == "backgroundImage") {
+            if (const auto v = r.string()) {
+                s.background_image = *v;
                 handled = true;
             }
         } else if (*key == "tracking") {

@@ -86,6 +86,10 @@ public sealed partial class SettingsWindow : Window
         TiltSlider.Value = _model.Tilt;
         DepthStrengthSlider.Value = _model.DepthStrength * 100;
         DepthPlaneSlider.Value = _model.DepthPlane;
+        if (BackgroundCombo.Items.Count == 0) foreach (var name in AppModel.Backgrounds) BackgroundCombo.Items.Add(name);
+        BackgroundCombo.SelectedIndex = _model.Background;
+        BackgroundSlider.Value = _model.BackgroundBrightness * 100;
+        ShowBackgroundImage();
         GazeToggle.IsOn = _model.GazeCursor;
         GatherToggle.IsOn = _model.GatherWindows;
         K1Slider.Value = _model.K1;
@@ -114,6 +118,8 @@ public sealed partial class SettingsWindow : Window
         _model.Tilt = (float)TiltSlider.Value;
         _model.DepthStrength = (float)DepthStrengthSlider.Value / 100f;
         _model.DepthPlane = (float)DepthPlaneSlider.Value;
+        if (BackgroundCombo.SelectedIndex >= 0) _model.Background = BackgroundCombo.SelectedIndex;
+        _model.BackgroundBrightness = (float)BackgroundSlider.Value / 100f;
         _model.GazeCursor = GazeToggle.IsOn;
         _model.GatherWindows = GatherToggle.IsOn;
         _model.K1 = (float)K1Slider.Value;
@@ -122,6 +128,34 @@ public sealed partial class SettingsWindow : Window
     }
 
     private void Changed(object sender, RoutedEventArgs e) => Save();
+
+    private void BackgroundChanged(object sender, SelectionChangedEventArgs e)
+    {
+        Save();
+        ShowBackgroundImage();
+    }
+
+    private void ShowBackgroundImage()
+    {
+        bool picture = BackgroundCombo.SelectedIndex == 5;
+        BackgroundImagePanel.Visibility = picture ? Visibility.Visible : Visibility.Collapsed;
+        BackgroundSlider.Visibility = BackgroundCombo.SelectedIndex > 0 ? Visibility.Visible : Visibility.Collapsed;
+        string path = _model.BackgroundImage;
+        BackgroundImageText.Text = string.IsNullOrEmpty(path) ? "Ninguna elegida" : System.IO.Path.GetFileName(path);
+    }
+
+    private async void ChooseBackground_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        foreach (var ext in new[] { ".jpg", ".jpeg", ".png", ".bmp", ".heic", ".webp", ".tif", ".tiff" }) picker.FileTypeFilter.Add(ext);
+        var file = await picker.PickSingleFileAsync();
+        if (file == null) return;
+        _model.BackgroundImage = file.Path;
+        _model.Save();
+        _server.SettingsChanged();
+        ShowBackgroundImage();
+    }
 
     private void SliderChanged(object sender, RangeBaseValueChangedEventArgs e) => Save();
 

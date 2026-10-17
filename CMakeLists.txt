@@ -320,7 +320,7 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
     PUBLIC  ${RAYNEO_WIN_DIR} ${RAYNEO_WIN_DIR}/renderer
     PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
   target_include_directories(rayneo_windows PRIVATE ${onnxruntime_dml_SOURCE_DIR}/build/native/include)
-  target_link_libraries(rayneo_windows PUBLIC rayneo::core d3d11 dxgi d3dcompiler dwmapi shell32 ole32 urlmon windowsapp)
+  target_link_libraries(rayneo_windows PUBLIC rayneo::core d3d11 dxgi d3dcompiler dwmapi shell32 ole32 urlmon windowscodecs windowsapp)
   # C++/WinRT (Windows.Graphics.Capture) headers are large.
   set_source_files_properties(${RAYNEO_WIN_DIR}/window_capture.cpp PROPERTIES COMPILE_OPTIONS "/bigobj;/std:c++20")  # C++/WinRT: C++20 coroutines (the experimental ones are gone)
   rayneo_warnings(rayneo_windows)

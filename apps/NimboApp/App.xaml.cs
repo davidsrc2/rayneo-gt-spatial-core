@@ -113,6 +113,15 @@ public partial class App : Application
             _server.ShowMessage(_model.GrowByGaze ? "Pantalla activa: mirada y ratón" : "Pantalla activa: solo con el ratón");
             _panel.Refresh();
         });
+        // Ctrl+Alt+F: the next background around the panels (the picture only once one is chosen).
+        _hotKeys.Register('F', () =>
+        {
+            int count = AppModel.Backgrounds.Length - (string.IsNullOrEmpty(_model.BackgroundImage) ? 1 : 0);
+            _model.Background = (_model.Background + 1) % count;
+            _model.Save();
+            _server.SettingsChanged();
+            _server.ShowMessage("Fondo: " + AppModel.Backgrounds[_model.Background]);
+        });
         // Ctrl+Alt+G: the glasses' own pinned mode or back to the space at real size.
         _hotKeys.Register('G', () =>
         {

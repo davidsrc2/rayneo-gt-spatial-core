@@ -93,6 +93,19 @@
             </StackPanel>
 
             <StackPanel Spacing="8">
+                <TextBlock Text="Fondo alrededor (Ctrl+Alt+F)" FontSize="13" Opacity="0.7" />
+                <ComboBox x:Name="BackgroundCombo" Header="Fondo" MinWidth="280" SelectionChanged="BackgroundChanged" />
+                <StackPanel x:Name="BackgroundImagePanel" Orientation="Horizontal" Spacing="10">
+                    <Button Content="Elegir imagen…" Click="ChooseBackground_Click" />
+                    <TextBlock x:Name="BackgroundImageText" VerticalAlignment="Center" FontSize="12" Opacity="0.6" />
+                </StackPanel>
+                <Slider x:Name="BackgroundSlider" Header="Intensidad (%)" Minimum="10" Maximum="100" StepFrequency="5"
+                        ValueChanged="SliderChanged" />
+                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
+                           Text="Fijo en el espacio como las pantallas. En las gafas el negro es transparente: con «Ninguno» ves la habitación; con un fondo, la tapas. Una panorámica 2:1 rodea toda la habitación; otra foto ocupa 180° y se refleja detrás." />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
                 <TextBlock Text="Cine en 3D con IA" FontSize="13" Opacity="0.7" />
                 <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
                            Text="Con las gafas en modo 3D, mira el vídeo y pulsa Ctrl+Alt+T: modo cine con relieve. Ctrl+Alt+T otra vez lo quita; Ctrl+Alt+P sale del cine (al volver las gafas a 2D sale solo)." />

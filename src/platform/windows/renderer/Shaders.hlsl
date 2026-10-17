@@ -164,3 +164,93 @@ float4 depth_blend_fragment(VOut i) : SV_Target {
 float4 downscale_fragment(VOut i) : SV_Target {
     return source.SampleLevel(depth_samp, i.uv, downscale_lod);
 }
+
+// Compiled only for the background (NIMBO_BACKGROUND defined): a mistake here never takes the
+// panels' shaders down with it.
+#ifdef NIMBO_BACKGROUND
+// Background around the panels, as in Shaders.metal (styles 1 rain, 2 stars, 3 sunset, 4 aurora,
+// 5 a picture); fixed in the room, at infinity.
+cbuffer BackgroundUniforms : register(b6) {
+    float4 bg_right;    // the eye's axes in the room (xyz)
+    float4 bg_up;
+    float4 bg_forward;
+    float bg_tan_x;
+    float bg_tan_y;
+    float bg_time;
+    float bg_brightness;
+    int bg_style;
+    float bg_image_aspect;
+    float2 bg_pad;
+};
+Texture2D bg_picture : register(t2);
+SamplerState bg_samp : register(s2);  // mirrored beyond the picture's edges
+
+float bg_hash(float2 p) {
+    p = frac(p * float2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return frac(p.x * p.y);
+}
+
+float bg_hash3(float3 p) {
+    p = frac(p * float3(0.1031, 0.1030, 0.0973));
+    p += dot(p, p.yxz + 33.33);
+    return frac((p.x + p.y) * p.z);
+}
+
+float bg_noise(float2 p) {
+    float2 i = floor(p), f = frac(p), u = f * f * (3.0 - 2.0 * f);
+    return lerp(lerp(bg_hash(i), bg_hash(i + float2(1, 0)), u.x), lerp(bg_hash(i + float2(0, 1)), bg_hash(i + float2(1, 1)), u.x), u.y);
+}
+
+float4 background_fragment(VOut i) : SV_Target {
+    float2 ndc = float2(i.uv.x * 2.0 - 1.0, 1.0 - i.uv.y * 2.0);
+    float3 d = normalize(bg_right.xyz * (ndc.x * bg_tan_x) + bg_up.xyz * (ndc.y * bg_tan_y) + bg_forward.xyz);
+    float yaw = atan2(d.x, d.z);             // -pi..pi, 0 straight ahead at the recentre
+    float pitch = asin(clamp(d.y, -1.0, 1.0));  // -pi/2..pi/2, up positive
+    float3 c = (float3)0;
+    if (bg_style == 1) {  // rain: streaks falling down a dim blue-grey sky
+        c = lerp(float3(0.035, 0.045, 0.07), float3(0.09, 0.11, 0.15), saturate(pitch * 0.8 + 0.5));
+        float columns = 140.0;
+        float x = (yaw / 3.14159265 + 1.0) * columns;
+        float col = floor(x);
+        float speed = 0.35 + 0.4 * bg_hash(float2(col, 1.0));
+        float phase = bg_hash(float2(col, 7.0));
+        float y = frac(pitch / 3.14159265 + 0.5 + bg_time * speed + phase);  // falls as time goes
+        float streak = smoothstep(0.0, 0.03, y) * (1.0 - smoothstep(0.03, 0.09, y));
+        float thin = 1.0 - smoothstep(0.0, 0.18, abs(frac(x) - 0.5));
+        c += float3(0.55, 0.62, 0.75) * streak * thin * (0.4 + 0.6 * bg_hash(float2(col, 3.0)));
+    } else if (bg_style == 2) {  // stars: a night sky, slowly twinkling
+        c = lerp(float3(0.005, 0.008, 0.02), float3(0.02, 0.03, 0.07), saturate(1.0 - abs(pitch)));
+        for (int layer = 0; layer < 2; ++layer) {
+            float scale = layer == 0 ? 90.0 : 220.0;
+            float3 cell = floor(d * scale);
+            float h = bg_hash3(cell + float(layer) * 17.0);
+            if (h > (layer == 0 ? 0.985 : 0.992)) {
+                float3 centre = (cell + 0.5) / scale;
+                float dist = length(d - normalize(centre)) * scale;
+                float tw = 0.65 + 0.35 * sin(bg_time * (1.0 + 3.0 * h) + h * 50.0);
+                c += float3(0.9, 0.92, 1.0) * (1.0 - smoothstep(0.05, 0.45, dist)) * tw * (layer == 0 ? 1.0 : 0.6);
+            }
+        }
+    } else if (bg_style == 3) {  // sunset: warm at the horizon, deep blue above, the sun ahead
+        float t = saturate(pitch / 1.2 + 0.1);
+        c = lerp(float3(0.95, 0.45, 0.18), float3(0.10, 0.12, 0.35), pow(t, 0.6));
+        c = lerp(c, float3(0.05, 0.04, 0.08), saturate(-pitch * 3.0));  // ground below
+        float sun = length(float2(yaw, pitch - 0.08));
+        c += float3(1.0, 0.75, 0.4) * (1.0 - smoothstep(0.02, 0.05, sun)) + float3(0.9, 0.4, 0.15) * exp(-sun * 6.0) * 0.5;
+    } else if (bg_style == 4) {  // aurora: green curtains drifting over a night sky
+        c = lerp(float3(0.005, 0.01, 0.02), float3(0.01, 0.02, 0.05), saturate(pitch + 0.5));
+        float band = bg_noise(float2(yaw * 3.0 + bg_time * 0.05, bg_time * 0.08)) * 0.5
+                         + bg_noise(float2(yaw * 7.0 - bg_time * 0.03, 3.0)) * 0.5;
+        float h = pitch - (0.25 + 0.25 * band);
+        float curtain = exp(-h * h * 40.0) * smoothstep(0.0, 0.3, pitch);
+        float rays = 0.6 + 0.4 * bg_noise(float2(yaw * 40.0, bg_time * 0.3));
+        c += lerp(float3(0.1, 0.9, 0.5), float3(0.5, 0.2, 0.8), saturate(h * 4.0 + 0.5)) * curtain * rays * 0.6;
+    } else if (bg_style == 5) {  // a picture: 180 deg wide, mirrored beyond (a 2:1 panorama fills all around)
+        float wide = bg_image_aspect >= 1.9 ? 2.0 * 3.14159265 : 3.14159265;
+        float2 uv = float2(yaw / wide + 0.5, 0.5 - pitch / (wide / max(0.2, bg_image_aspect)));
+        c = bg_picture.Sample(bg_samp, uv).rgb;
+    }
+    return float4(c * bg_brightness, 1.0);
+}
+#endif  // NIMBO_BACKGROUND

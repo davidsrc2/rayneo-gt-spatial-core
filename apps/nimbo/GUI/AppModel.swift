@@ -55,6 +55,11 @@ final class AppModel: ObservableObject {
     @Published var deadZone: Double { didSet { d.set(deadZone, forKey: "deadZone") } }
     @Published var gazeCursor: Bool { didSet { d.set(gazeCursor, forKey: "gazeCursor") } }
     @Published var dimOthers: Bool { didSet { d.set(dimOthers, forKey: "dimOthers") } }
+    // Around the panels (⌘⌥F cycles): none, Nimbo's own (rain, stars, sunset, aurora) or a picture.
+    static let backgrounds = ["Ninguno (se ve la habitación)", "Lluvia", "Estrellas", "Atardecer", "Aurora", "Imagen propia"]
+    @Published var background: Int { didSet { d.set(background, forKey: "background") } }
+    @Published var backgroundImage: String { didSet { d.set(backgroundImage, forKey: "backgroundImage") } }
+    @Published var backgroundBrightness: Double { didSet { d.set(backgroundBrightness, forKey: "backgroundBrightness") } }
     @Published var gatherWindows: Bool { didSet { d.set(gatherWindows, forKey: "gatherWindows") } }
     @Published var tracking: Int { didSet { d.set(tracking, forKey: "tracking") } }  // 0 both, 1 left/right, 2 up/down
     // How the panels are seen: true = one panel large in the glasses' pinned image, false = the
@@ -98,6 +103,9 @@ final class AppModel: ObservableObject {
         deadZone = d.object(forKey: "deadZone") as? Double ?? 1.0
         gazeCursor = d.object(forKey: "gazeCursor") as? Bool ?? true
         dimOthers = d.object(forKey: "dimOthers") as? Bool ?? false  // optical see-through: dimmed reads as cut off
+        background = d.int(forKey: "background") ?? 0
+        backgroundImage = d.object(forKey: "backgroundImage") as? String ?? ""
+        backgroundBrightness = d.double(forKey: "backgroundBrightness") ?? 0.6
         gatherWindows = d.object(forKey: "gatherWindows") as? Bool ?? true
         tracking = d.object(forKey: "tracking") as? Int ?? ((d.object(forKey: "yawOnly") as? Bool ?? true) ? 1 : 0)
         // The space at real size, or the glasses' own pinned mode (⌘⌥G): as left last time.
@@ -346,6 +354,9 @@ final class AppModel: ObservableObject {
         o.deadZoneDeg = glassesPinned ? Float(deadZone) : (anchorAtRest ? -2 : -1)
         o.gazeCursor = gazeCursor
         o.dimOthers = dimOthers ? 0.55 : 1  // linear light: ~80 % perceived brightness
+        o.background = background
+        o.backgroundImage = backgroundImage
+        o.backgroundBrightness = Float(backgroundBrightness)
         o.gatherWindows = gatherWindows
         o.trackingAxes = tracking
         o.glassesPinned = glassesPinned

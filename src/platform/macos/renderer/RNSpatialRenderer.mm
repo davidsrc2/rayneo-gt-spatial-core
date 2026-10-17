@@ -2,6 +2,8 @@
 
 #include <os/lock.h>
 #import <CoreText/CoreText.h>
+#import <ImageIO/ImageIO.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include <algorithm>
 #include <cmath>
@@ -38,6 +40,17 @@ struct StereoUniforms {
     float edge;
     float pad[3];
     simd_float4 rect;  // where the video is, 0..1: x0, y0, x1, y1
+};
+
+// Mirrors BackgroundUniforms in Shaders.metal (float3x3: three 16-byte columns).
+struct BackgroundUniforms {
+    simd_float3x3 eye_to_world;
+    float tan_x;
+    float tan_y;
+    float time;
+    float brightness;
+    int style;
+    float image_aspect;
 };
 
 struct DepthBlendUniforms {
@@ -122,6 +135,8 @@ struct Panel {
         _focusPanel = -1;
         _cinema = NO;
         _zoom = 1.0f;
+        _backgroundStyle = 0;
+        _backgroundBrightness = 0.6f;
         _depthStrength = 0.03f;
         _depthConvergence = 0.35f;
         _depthSmoothing = 0.35f;
@@ -141,6 +156,9 @@ static float panel_arc(RNRenderOptions* o) {
     id<MTLRenderPipelineState> _distortPipeline;
     id<MTLRenderPipelineState> _stereoPipeline;       // AI 3D panel
     id<MTLRenderPipelineState> _depthBlendPipeline;   // AI 3D temporal smoothing (R16Float)
+    id<MTLRenderPipelineState> _backgroundPipeline;   // around the panels
+    id<MTLSamplerState> _mirrorSampler;               // background picture, mirrored beyond its edges
+    id<MTLTexture> _backgroundImage;                  // guarded by _sourceLock
     id<MTLSamplerState> _depthSampler;
     id<MTLSamplerState> _sampler;
     CVMetalTextureCacheRef _textureCache;
@@ -231,6 +249,11 @@ static float panel_arc(RNRenderOptions* o) {
     if (_stereoPipeline == nil) return nil;
 
     d.vertexFunction = [lib newFunctionWithName:@"fullscreen_vertex"];
+    d.fragmentFunction = [lib newFunctionWithName:@"background_fragment"];
+    _backgroundPipeline = [device newRenderPipelineStateWithDescriptor:d error:error];
+    if (_backgroundPipeline == nil) return nil;
+
+    d.vertexFunction = [lib newFunctionWithName:@"fullscreen_vertex"];
     d.fragmentFunction = [lib newFunctionWithName:@"depth_blend_fragment"];
     d.colorAttachments[0].pixelFormat = MTLPixelFormatR16Float;
     _depthBlendPipeline = [device newRenderPipelineStateWithDescriptor:d error:error];
@@ -244,6 +267,9 @@ static float panel_arc(RNRenderOptions* o) {
     s.mipFilter = MTLSamplerMipFilterLinear;  // trilinear + anisotropic: crisp, stable text
     s.maxAnisotropy = 16;
     _sampler = [device newSamplerStateWithDescriptor:s];
+    s.sAddressMode = MTLSamplerAddressModeMirrorRepeat;
+    s.tAddressMode = MTLSamplerAddressModeMirrorClampToEdge;
+    _mirrorSampler = [device newSamplerStateWithDescriptor:s];
     // Depth: plain bilinear, edges clamped (beyond the frame is as deep as its border).
     MTLSamplerDescriptor* ds = [MTLSamplerDescriptor new];
     ds.minFilter = MTLSamplerMinMagFilterLinear;
@@ -546,6 +572,41 @@ static float panel_arc(RNRenderOptions* o) {
     return core::arc_at_distance(seen, 2.0f, d) / kDegToRad;  // undo the distance scaling the render applies
 }
 
+- (BOOL)setBackgroundImageAtPath:(NSString*)path {
+    id<MTLTexture> texture = nil;
+    if (path.length > 0) {
+        CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], nullptr);
+        // At most 4096 px on the long side (a panorama for the whole room does not need more).
+        NSDictionary* opts = @{(id)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
+                               (id)kCGImageSourceThumbnailMaxPixelSize: @4096,
+                               (id)kCGImageSourceCreateThumbnailWithTransform: @YES};
+        CGImageRef image = src ? CGImageSourceCreateThumbnailAtIndex(src, 0, (__bridge CFDictionaryRef)opts) : nullptr;
+        if (src) CFRelease(src);
+        if (image) {
+            const size_t w = CGImageGetWidth(image), h = CGImageGetHeight(image);
+            std::vector<uint8_t> pixels(w * h * 4);
+            CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+            CGContextRef ctx = CGBitmapContextCreate(pixels.data(), w, h, 8, w * 4, cs,
+                                                     kCGImageAlphaNoneSkipLast | kCGBitmapByteOrder32Big);
+            CGColorSpaceRelease(cs);
+            if (ctx) {
+                CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), image);
+                CGContextRelease(ctx);
+                MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB
+                                                                                             width:w height:h mipmapped:NO];
+                d.usage = MTLTextureUsageShaderRead;
+                texture = [_device newTextureWithDescriptor:d];
+                [texture replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:pixels.data() bytesPerRow:w * 4];
+            }
+            CGImageRelease(image);
+        }
+    }
+    os_unfair_lock_lock(&_sourceLock);
+    _backgroundImage = texture;
+    os_unfair_lock_unlock(&_sourceLock);
+    return texture != nil || path.length == 0;
+}
+
 - (NSInteger)panelAtGaze:(simd_quatf)orientation {
     RNRenderOptions* o = _options;
     if (o.focusPanel >= 0 && static_cast<NSUInteger>(o.focusPanel) < self.panelCount) return o.focusPanel;
@@ -733,7 +794,8 @@ static float effective_curvature(RNRenderOptions* o) {
     in.angular_speed_rads = _options.staticHead ? 0.0f : simd_length(angularVelocity);
     in.source_generation = generation;
     in.tracking = tracking;
-    in.animating = _dimmer.animating() || [self growAnimating];
+    const NSInteger bg = _options.backgroundStyle;
+    in.animating = _dimmer.animating() || [self growAnimating] || bg == 1 || bg == 2 || bg == 4;  // moving backgrounds
     in.forced = forced;
     return _skipper.skip(in);
 }
@@ -873,6 +935,25 @@ static float effective_curvature(RNRenderOptions* o) {
                                               options:MTLResourceStorageModeShared];
         _overlayIndexCount = m.indices.size();
     }
+    // Background: the eye's axes in the room (the view's rotation), the same for both eyes (at
+    // infinity). Static head (glasses' pinned mode): fixed in their image.
+    const NSInteger bgStyle = o.backgroundStyle;
+    os_unfair_lock_lock(&_sourceLock);
+    id<MTLTexture> bgImage = _backgroundImage;
+    os_unfair_lock_unlock(&_sourceLock);
+    BackgroundUniforms bgu{};
+    {
+        const core::Mat4 r = core::render_rotation(head);
+        bgu.eye_to_world = simd_matrix(simd_make_float3(r.at(0, 0), r.at(1, 0), r.at(2, 0)),
+                                       simd_make_float3(r.at(0, 1), r.at(1, 1), r.at(2, 1)),
+                                       simd_make_float3(r.at(0, 2), r.at(1, 2), r.at(2, 2)));
+        bgu.tan_y = std::tan(o.fovYDegrees * kDegToRad * 0.5f);
+        bgu.tan_x = bgu.tan_y * o.eyeAspect;
+        bgu.time = static_cast<float>(std::fmod(CACurrentMediaTime(), 3600.0));
+        bgu.brightness = std::clamp(o.backgroundBrightness, 0.0f, 1.0f);
+        bgu.style = static_cast<int>(bgStyle);
+        bgu.image_aspect = bgImage != nil ? static_cast<float>(bgImage.width) / std::max<NSUInteger>(1, bgImage.height) : 1.0f;
+    }
     for (int eye = 0; eye < eyes; ++eye) {
         MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
         pass.colorAttachments[0].texture = _eyeTextures[eye];
@@ -883,6 +964,13 @@ static float effective_curvature(RNRenderOptions* o) {
         const float offset = o.sideBySide ? (eye == 0 ? -0.5f : 0.5f) * o.ipdMeters : 0.0f;
         const float up = o.neckModel ? core::kNeckUpM : 0.0f, fwd = o.neckModel ? core::kNeckForwardM : 0.0f;
         SceneUniforms u{to_simd(proj * core::view_matrix(head, offset, up, fwd))};
+        if (bgStyle > 0 && bgStyle <= 5 && (bgStyle != 5 || bgImage != nil)) {
+            [enc setRenderPipelineState:_backgroundPipeline];
+            [enc setFragmentBytes:&bgu length:sizeof(bgu) atIndex:0];
+            [enc setFragmentTexture:bgImage != nil ? bgImage : _placeholder atIndex:0];
+            [enc setFragmentSamplerState:_mirrorSampler atIndex:0];
+            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        }
         [enc setRenderPipelineState:_screenPipeline];
         [enc setCullMode:MTLCullModeNone];
         [enc setVertexBytes:&u length:sizeof(u) atIndex:1];

@@ -378,6 +378,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k1 = options.k1
         ro.k2 = options.k2
         ro.dimOthers = options.dimOthers
+        applyBackground(options, to: ro)
         ro.trackingAxes = options.trackingAxes
         ro.depthStrength = options.depthStrength
         ro.depthConvergence = options.depthConvergence
@@ -828,6 +829,21 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // MARK: live settings
 
     // Applies what the renderer can change without rebuilding monitors or captures.
+    // The background around the panels; the picture loaded again only when it changes.
+    private var loadedBackgroundImage: String?
+
+    private func applyBackground(_ o: ServerOptions, to ro: RNRenderOptions) {
+        if o.background == 5, o.backgroundImage != loadedBackgroundImage {
+            loadedBackgroundImage = o.backgroundImage
+            if !renderer.loadBackgroundImage(path: o.backgroundImage) {
+                log("background: could not read \(o.backgroundImage)")
+            }
+        }
+        ro.backgroundStyle = o.background
+        ro.backgroundBrightness = o.backgroundBrightness
+        requestRedraw()
+    }
+
     func applyLive(_ o: ServerOptions) {
         guard let ro = renderer?.options else { return }
         ro.distanceMeters = o.distanceM
@@ -841,6 +857,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k1 = o.k1
         ro.k2 = o.k2
         ro.dimOthers = o.dimOthers
+        applyBackground(o, to: ro)
         ro.trackingAxes = o.trackingAxes
         ro.depthStrength = o.depthStrength
         ro.depthConvergence = o.depthConvergence
@@ -859,6 +876,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.k2 = o.k2
         options.gazeCursor = o.gazeCursor
         options.dimOthers = o.dimOthers
+        options.background = o.background
+        options.backgroundImage = o.backgroundImage
+        options.backgroundBrightness = o.backgroundBrightness
         options.trackingAxes = o.trackingAxes
         options.panelPoses = o.panelPoses
         if let imu = pose as? ImuPoseSource {
