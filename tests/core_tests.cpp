@@ -995,10 +995,13 @@ void test_stabilizer_world_locked() {
     CHECK(rest < 0.04f && rest < world_lock_error_deg(plain, false));
     CHECK(moving < 0.16f && moving < 0.5f * world_lock_error_deg(plain, true));
     // Knocks on the frame: not amplified by the prediction (it tripled them).
-    auto no_tap_rejection = locked;
+    auto no_damping = locked;
+    no_damping.reversal_decay_s = 0.0f;
+    auto no_tap_rejection = no_damping;
     no_tap_rejection.tap_accel_rads2 = 0.0f;
     const float knocked = world_lock_error_deg(locked, false, true);
-    CHECK(knocked < 0.06f && knocked < 0.5f * world_lock_error_deg(no_tap_rejection, false, true));
+    CHECK(knocked < 0.06f && world_lock_error_deg(no_damping, false, true) < 0.5f * world_lock_error_deg(no_tap_rejection, false, true));
+    CHECK(knocked <= world_lock_error_deg(no_damping, false, true));
 }
 
 // Anchor at rest (world-locked with a 0.3 deg hold): still head with tremor, breathing and
@@ -1157,6 +1160,43 @@ void test_stabilizer_vertical_zone() {
             CHECK(angle_between_deg(out, first) > 0.1f);
         }
     }
+}
+
+// Tremor damping: with the head nearly still and trembling, the panels' frame-to-frame
+// unevenness (second difference of the error, per frame) falls by over half; turning, the
+// world-lock error stays about the same.
+float world_lock_jitter_deg(const PoseStabilizerConfig& c) {
+    const float dt = kRefDt, d2r = 0.0174533f, pi = 3.14159265f, latency = 0.020f;
+    const auto head = [&](float t) {
+        const float yaw = 0.15f * d2r * std::sin(2 * pi * 8 * t), wy = 0.15f * d2r * 2 * pi * 8 * std::cos(2 * pi * 8 * t);
+        return std::pair<Quat, Vec3>{Quat::from_axis_angle({0, 0, 1}, yaw), Vec3{0, 0, wy}};
+    };
+    PoseStabilizer s(c);
+    double sum = 0;
+    int n = 0;
+    float e1 = 0, e2 = 0;
+    for (int i = 0; i < static_cast<int>(10 / dt); ++i) {
+        const float t = static_cast<float>(i) * dt;
+        const auto [q, w] = head(t);
+        const Quat out = s.update(q, w, dt);
+        if (i % 4 != 0 || t < 2) continue;
+        const Vec3 om = s.omega();
+        const Quat shown = predict_orientation(out, om, latency * prediction_gain(om.norm(), kPredictStartRads, kPredictFullRads));
+        const Quat er = head(t + latency).first.conjugate() * shown;
+        const float e = 2.0f * er.z * 57.29578f * (er.w < 0 ? -1.0f : 1.0f);
+        if (n++ >= 2) sum += std::pow(e - 2 * e1 + e2, 2.0f);
+        e2 = e1;
+        e1 = e;
+    }
+    return static_cast<float>(std::sqrt(sum / (n - 2)));
+}
+
+void test_stabilizer_tremor_damping() {
+    const auto locked = world_locked_stabilizer();
+    auto plain = locked;
+    plain.reversal_decay_s = 0.0f;
+    CHECK(world_lock_jitter_deg(locked) < 0.5f * world_lock_jitter_deg(plain));
+    CHECK(world_lock_error_deg(locked, true) < 1.2f * world_lock_error_deg(plain, true));
 }
 
 void test_prediction_gain() {
@@ -1330,6 +1370,7 @@ int main() {
     test_stabilizer_follows_turns();
     test_stabilizer_dead_zone();
     test_stabilizer_vertical_zone();
+    test_stabilizer_tremor_damping();
     test_prediction_gain();
     test_yaw_only();
     test_panel_poses();

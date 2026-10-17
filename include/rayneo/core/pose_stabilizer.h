@@ -42,6 +42,17 @@ struct PoseStabilizerConfig {
     // talking, chewing, a step), and each bob past the round zone let go and shook the panels up
     // and down. An ellipse: a real look up or down still leaves it.
     float enter_vertical_deg = 0.0f;
+    // > 0: tremor damping per axis. A head turning on purpose keeps its direction; tremor and
+    // the jolts of a moving head reverse it again and again. Each reversal of an axis's angular
+    // velocity (beyond reversal_threshold_rads) within reversal_window_s of the previous one
+    // raises that axis's damping (decaying over reversal_decay_s); while damped the axis is
+    // smoothed down to reversal_min_cutoff_hz and not predicted (predicting a tremor 30 ms
+    // ahead doubled it). A steady turn has no reversals: followed as before.
+    float reversal_decay_s = 0.0f;
+    float reversal_window_s = 0.3f;
+    float reversal_threshold_rads = 0.02f;
+    float reversal_min_cutoff_hz = 1.0f;
+    float reversal_speed_rads = 0.0f;  // > 0: damping fades out as the axis turns faster than this
 };
 
 // Panels fixed in the room at every moment (no dead zone, nothing frozen). Tuned on a
@@ -58,6 +69,11 @@ inline PoseStabilizerConfig world_locked_stabilizer() {
     c.predict_cutoff_hz = 15.0f;
     c.compensate_lag = true;
     c.tap_accel_rads2 = 60.0f;
+    // Tremor damping fading out above ~11 deg/s. Simulated (tremor 0.15 deg at 8-9 Hz, head
+    // nearly still): frame-to-frame unevenness 0.148 -> 0.033 deg; looking around, the error
+    // 0.138 -> 0.152 deg rms and unevenness 0.054 -> 0.051.
+    c.reversal_decay_s = 0.25f;
+    c.reversal_speed_rads = 0.2f;
     return c;
 }
 
@@ -77,8 +93,11 @@ public:
     // See predict_cutoff_hz; the slow one right after a knock (tap_accel_rads2).
     Vec3 omega() const {
         if (cfg_.predict_cutoff_hz <= 0.0f || (holding_ && cfg_.enter_deg > 0.0f)) return omega_out_;  // anchored: nothing to predict
-        return tap_left_s_ > 0.0f ? omega_slow_ : omega_fast_;
+        const Vec3 w = tap_left_s_ > 0.0f ? omega_slow_ : omega_fast_;
+        return {w.x * (1.0f - effective_damp(0)), w.y * (1.0f - effective_damp(1)), w.z * (1.0f - effective_damp(2))};  // a trembling axis: not predicted
     }
+    // Tremor damping of each axis (x, y, z of omega), 0..1.
+    Vec3 damping() const { return {damp_[0], damp_[1], damp_[2]}; }
     float speed() const { return speed_; }            // |low-passed omega|, rad/s
 
 private:
@@ -93,6 +112,12 @@ private:
     Quat finish() const;  // out_, advanced by the filter's delay when compensating lag
     float speed_ = 0.0f;
     float slow_time_ = 0.0f;
+    // Tremor damping (reversal_decay_s).
+    float damp_[3] = {0, 0, 0};
+    int sign_[3] = {0, 0, 0};
+    float since_flip_[3] = {1e3f, 1e3f, 1e3f};
+    void update_damping(const Vec3& omega, float dt);
+    float effective_damp(int k) const;
 };
 
 // How much of the presentation-time prediction to apply at a given angular speed: none

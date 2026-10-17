@@ -44,6 +44,11 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
         omega_out_ = {};
         speed_ = omega.norm();
         slow_time_ = 0.0f;
+        for (int k = 0; k < 3; ++k) {
+            damp_[k] = 0.0f;
+            sign_[k] = 0;
+            since_flip_[k] = 1e3f;
+        }
         return out_;
     }
     // Speed of the low-passed vector: tremor is zero-mean and cancels, a real turn persists.
@@ -57,6 +62,8 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
             tap_left_s_ = cfg_.tap_hold_s;
         }
     }
+
+    update_damping(cfg_.predict_cutoff_hz > 0.0f ? omega_fast_ : omega_slow_, dt);
 
     if (holding_) {
         bool inside;
@@ -85,7 +92,23 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
     if (cfg_.release_cutoff_hz > 0.0f && cfg_.enter_deg > 0.0f && speed_ < cfg_.settle_speed_rads) {
         cutoff = cfg_.release_cutoff_hz;
     }
-    out_ = slerp(out_, q, alpha(cutoff, dt));
+    if (cfg_.reversal_decay_s > 0.0f) {
+        // Per axis (the frame of omega: q = rotation * out): a trembling axis eased in at a
+        // lower cutoff, the others as before. Converges like the slerp: nothing drifts.
+        Quat r = q.normalized() * out_.conjugate();
+        if (r.w < 0.0f) r = {-r.w, -r.x, -r.y, -r.z};
+        const float e[3] = {2.0f * r.x, 2.0f * r.y, 2.0f * r.z};  // small-angle rotation vector
+        Vec3 step;
+        float* s[3] = {&step.x, &step.y, &step.z};
+        for (int k = 0; k < 3; ++k) {
+            const float c = cutoff + (cfg_.reversal_min_cutoff_hz - cutoff) * effective_damp(k);
+            *s[k] = e[k] * alpha(std::fmax(cfg_.reversal_min_cutoff_hz, c), dt);
+        }
+        const float a = step.norm();
+        if (a > 1e-9f) out_ = (Quat::from_axis_angle(step, a) * out_).normalized();
+    } else {
+        out_ = slerp(out_, q, alpha(cutoff, dt));
+    }
     omega_out_ = omega_slow_;
     slow_time_ = speed_ < cfg_.settle_speed_rads ? slow_time_ + dt : 0.0f;
     if (slow_time_ >= cfg_.settle_s) {
@@ -93,6 +116,31 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
         omega_out_ = {};
     }
     return finish();
+}
+
+float PoseStabilizer::effective_damp(int k) const {
+    // Only while the axis moves slowly: a turn under way carrying tremor is followed (damping
+    // it dragged the panels behind the turn).
+    const float w[3] = {omega_slow_.x, omega_slow_.y, omega_slow_.z};
+    const float v0 = cfg_.reversal_speed_rads;
+    return v0 > 0.0f ? damp_[k] * std::fmax(0.0f, 1.0f - std::fabs(w[k]) / v0) : damp_[k];
+}
+
+void PoseStabilizer::update_damping(const Vec3& omega, float dt) {
+    if (cfg_.reversal_decay_s <= 0.0f) return;
+    const float w[3] = {omega.x, omega.y, omega.z};
+    const float decay = std::exp(-dt / cfg_.reversal_decay_s);
+    for (int k = 0; k < 3; ++k) {
+        since_flip_[k] += dt;
+        damp_[k] *= decay;
+        if (std::fabs(w[k]) < cfg_.reversal_threshold_rads) continue;
+        const int sign = w[k] > 0.0f ? 1 : -1;
+        if (sign_[k] != 0 && sign != sign_[k]) {
+            if (since_flip_[k] < cfg_.reversal_window_s) damp_[k] = std::fmin(1.0f, damp_[k] + 0.4f);
+            since_flip_[k] = 0.0f;
+        }
+        sign_[k] = sign;
+    }
 }
 
 Quat PoseStabilizer::finish() const {
