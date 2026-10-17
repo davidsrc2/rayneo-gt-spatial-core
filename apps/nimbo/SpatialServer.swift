@@ -903,6 +903,35 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if renderer.growPanel >= base { renderer.growPanel = -1 }
         renderer.panelCount = UInt(base + resolved.count)
         applyFloatingPoses(resolved.map { $0.pose ?? PanelPos(yaw: 0, pitch: 0) })
+        // A window's monitor came or went: macOS reconfigured the displays, and a display capture
+        // can stop or keep an old picture after that (a panel showing something that is not the
+        // Mac's screen any more, the cursor never on it). The monitors' captures start afresh
+        // once the monitors that left are gone (released when this returns).
+        let monitorsChanged = !fresh.isEmpty || oldDisplays.contains { old in
+            old.map { o in !displays.contains { $0 === o } } ?? false
+        }
+        if monitorsChanged {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                await self?.restartMonitorCaptures("a floating window's monitor came or went")
+            }
+        }
+    }
+
+    // The monitors' captures stopped and started again (after a display reconfiguration).
+    @MainActor
+    private func restartMonitorCaptures(_ why: String) async {
+        guard !stopped, let window else { return }
+        let old = captures
+        captures = []
+        for c in old { await c.stop() }
+        let screen = glassesID.flatMap { id in NSScreen.screens.first { Displays.id(of: $0) == id } } ?? window.screen
+        do {
+            try await startCaptures(glasses: screen)
+            log("capture: restarted (\(why))")
+        } catch {
+            log("capture: could not restart: \(error.localizedDescription)")
+        }
     }
 
     // Moving or resizing floating windows (editor), live; their monitors follow once the
@@ -1792,7 +1821,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         stats = LatencyStats()
         statsLock.unlock()
         let capFrames = (captures + floatingCaptures).reduce(UInt64(0)) { $0 &+ $1.frames }
-        let capFps = capFrames &- lastCaptureFrames
+        let capFps = capFrames >= lastCaptureFrames ? capFrames - lastCaptureFrames : 0  // captures removed: no wrap
         lastCaptureFrames = capFrames
         guard s.frames + s.idle > 0 else {
             log("render: no frames")
