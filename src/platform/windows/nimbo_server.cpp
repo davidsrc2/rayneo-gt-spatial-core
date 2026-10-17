@@ -254,6 +254,15 @@ public:
         rayneo_config cfg = rayneo_default_config();
         if (dead_zone_deg != 0) cfg.dead_zone_deg = dead_zone_deg;  // < 0: world-locked (see rayneo_config)
         engine_ = rayneo_engine_create(&cfg);
+        // The gyro bias per sensor temperature, kept between runs.
+        wchar_t base[MAX_PATH];
+        if (const DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH); len > 0 && len < MAX_PATH) {
+            const std::wstring path = std::wstring(base) + L"\\Nimbo\\rayneo_biasmap.json";
+            const int n = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+            std::string utf8(n > 0 ? static_cast<size_t>(n) : 1, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, utf8.data(), n, nullptr, nullptr);
+            rayneo_engine_set_bias_map_path(engine_, utf8.c_str());
+        }
     }
     ~ImuPose() override {
         rayneo_engine_stop(engine_);
@@ -887,6 +896,7 @@ bool Server::start() {
     const bool normal_mode = opt_.real_size && !opt_.glasses_pinned;
     if (normal_mode) ro.fov_y_deg = load_optical_fov();
     ro.fixed_prediction_ms = normal_mode ? kPredictionMs : 0.0f;
+    ro.supersample = normal_mode ? 2 : 1;  // eyes drawn twice as large, mipmapped down
     ro.k1 = opt_.k1;
     ro.k2 = opt_.k2;
     ro.dim_others = opt_.dim_others;
@@ -2281,6 +2291,7 @@ void Server::apply_pending() {
         ro.fov_y_deg = load_fov().value_or(o->fov_y_deg);
     }
     ro.fixed_prediction_ms = normal_mode ? kPredictionMs : 0.0f;
+    ro.supersample = normal_mode ? 2 : 1;
     ro.ipd_m = o->ipd_mm / 1000.0f;
     ro.side_by_side = o->side_by_side.value_or(auto_side_by_side());
     ro.k1 = o->k1;

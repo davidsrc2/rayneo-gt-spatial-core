@@ -14,6 +14,8 @@
 #include "rayneo/core/madgwick.h"
 #include "rayneo/core/panel_dimmer.h"
 #include "rayneo/core/pose_stabilizer.h"
+#include "rayneo/core/vqf.h"
+#include "rayneo/core/bias_map.h"
 #include "rayneo/core/presets.h"
 #include "rayneo/core/settings.h"
 #include "rayneo/core/render_math.h"
@@ -1228,6 +1230,42 @@ void test_stationary_lock() {
     CHECK(s.holding() && s.locked_seconds() > 0.2f && angle_between_deg(out, q) < 1e-3f);
 }
 
+// Vqf6D: a sensor at rest with a gyro bias detects rest and learns the bias; a 90 deg turn
+// about the vertical integrates to 90 deg of heading; tilted, the inclination settles level.
+void test_vqf() {
+    const float dt = kRefDt, d2r = 0.0174533f;
+    Vqf6D f;
+    f.initialize_from_accel({0, 0, 9.81f});
+    f.set_bias({0, 0, 0});
+    const Vec3 bias_degs{0.4f, -0.3f, 0.2f};
+    for (int i = 0; i < 457 * 20; ++i) f.update(bias_degs * d2r, {0, 0, 9.81f}, dt);
+    CHECK(f.rest());
+    CHECK((f.bias_degs() - bias_degs).norm() < 0.03f);
+    const Quat before = f.quaternion();
+    for (int i = 0; i < 457; ++i) f.update(Vec3{0, 0, 90 * d2r} + bias_degs * d2r, {0, 0, 9.81f}, dt);  // 1 s at 90 deg/s
+    CHECK(std::fabs(angle_between_deg(f.quaternion(), before) - 90.0f) < 1.0f);
+    // Level: a sensor pitched 10 deg reads gravity tilted; the estimate follows within seconds.
+    Vqf6D g;
+    g.initialize_from_accel({0, 0, 9.81f});
+    const Quat tilt = Quat::from_axis_angle({0, 1, 0}, 10 * d2r);
+    const Vec3 a = tilt.conjugate().rotate({0, 0, 9.81f});
+    for (int i = 0; i < 457 * 20; ++i) g.update({0, 0, 0}, a, dt);
+    const Vec3 up = g.quaternion().conjugate().rotate({0, 0, 1});
+    CHECK(std::fabs(std::acos(std::fmin(1.0f, up.x * a.x / 9.81f + up.y * a.y / 9.81f + up.z * a.z / 9.81f))) < 0.5f * d2r);
+}
+
+void test_bias_map() {
+    BiasMap m;
+    CHECK(m.empty() && !m.lookup(25.0f));
+    for (int i = 0; i < 457 * 3; ++i) m.learn(24.0f, {0.2f, 0, 0}, kRefDt);
+    for (int i = 0; i < 457 * 3; ++i) m.learn(26.0f, {0.4f, 0, 0}, kRefDt);
+    const auto mid = m.lookup(25.0f);
+    CHECK(mid && near(mid->x, 0.3f, 0.01f));
+    CHECK(!m.lookup(35.0f));  // too far from anything learned
+    const auto back = BiasMap::from_json(m.to_json());
+    CHECK(back && back->lookup(25.0f) && near(back->lookup(25.0f)->x, 0.3f, 0.01f));
+}
+
 void test_prediction_gain() {
     CHECK(prediction_gain(0.0f) == 0.0f && prediction_gain(0.05f) == 0.0f);
     CHECK(near(prediction_gain(0.175f), 0.5f, 1e-5f));
@@ -1405,6 +1443,8 @@ int main() {
     test_stabilizer_vertical_zone();
     test_stabilizer_tremor_damping();
     test_stationary_lock();
+    test_vqf();
+    test_bias_map();
     test_prediction_gain();
     test_yaw_only();
     test_panel_poses();

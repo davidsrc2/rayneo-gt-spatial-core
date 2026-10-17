@@ -115,6 +115,12 @@ Quat track_axes(const Quat& q, TrackingAxes axes) {
     return q;
 }
 
+Vec3 without_roll(const Quat& head, const Vec3& omega_rads) {
+    Vec3 w = head.conjugate().rotate(omega_rads);  // in head axes: X forward (roll), Y left, Z up
+    w.x = 0.0f;
+    return head.rotate(w);
+}
+
 Quat predict_orientation(const Quat& q, const Vec3& omega_rads, float dt_s) {
     const float angle = omega_rads.norm() * dt_s;
     if (angle < 1e-9f) return q;

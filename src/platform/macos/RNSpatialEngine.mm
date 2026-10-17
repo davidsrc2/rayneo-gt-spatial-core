@@ -42,6 +42,11 @@
         rayneo_config cfg = rayneo_default_config();
         if (deadZone != 0.0f) cfg.dead_zone_deg = deadZone;  // < 0: off
         _engine = rayneo_engine_create(&cfg);
+        // The gyro bias per sensor temperature, kept between runs.
+        NSString* caches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+        if (caches != nil) {
+            rayneo_engine_set_bias_map_path(_engine, [caches stringByAppendingPathComponent:@"Nimbo/rayneo_biasmap.json"].UTF8String);
+        }
     }
     return self;
 }

@@ -846,12 +846,13 @@ void SpatialRenderer::depth_frame(Panel& p) {
     depth_capture(p);
 }
 
-void SpatialRenderer::ensure_eye_textures(int width, int height) {
-    if (eye_tex_[0] && eye_w_ == width && eye_h_ == height) return;
+void SpatialRenderer::ensure_eye_textures(int width, int height, bool mips) {
+    if (eye_tex_[0] && eye_w_ == width && eye_h_ == height && eye_mips_ == mips) return;
     D3D11_TEXTURE2D_DESC d{};
     d.Width = static_cast<UINT>(width);
     d.Height = static_cast<UINT>(height);
-    d.MipLevels = 1;
+    d.MipLevels = mips ? 0 : 1;  // supersampled: the full chain, generated each frame
+    d.MiscFlags = mips ? D3D11_RESOURCE_MISC_GENERATE_MIPS : 0;
     d.ArraySize = 1;
     d.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
     d.SampleDesc.Count = 1;
@@ -867,6 +868,7 @@ void SpatialRenderer::ensure_eye_textures(int width, int height) {
     }
     eye_w_ = width;
     eye_h_ = height;
+    eye_mips_ = mips;
 }
 
 float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int height, const core::Quat& orientation,
@@ -881,8 +883,12 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     horizon_s *= core::prediction_gain(angular_velocity.norm(), core::kPredictStartRads, core::kPredictFullRads);
     // Space at real size: a fixed motion-to-photon time along the gyro's instantaneous angular
     // velocity (zero while the stationary lock holds), no speed ramp.
-    if (options.fixed_prediction_ms > 0.0f && !options.static_head) horizon_s = options.fixed_prediction_ms * 1e-3f;
-    core::Quat head = core::predict_orientation(orientation, angular_velocity, horizon_s);
+    core::Vec3 wp = angular_velocity;
+    if (options.fixed_prediction_ms > 0.0f && !options.static_head) {
+        horizon_s = options.fixed_prediction_ms * 1e-3f;
+        wp = core::without_roll(orientation, angular_velocity);  // PredXY: turning and nodding
+    }
+    core::Quat head = core::predict_orientation(orientation, wp, horizon_s);
     head = core::track_axes(head, options.tracking_axes);
     if (options.static_head) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
         head = core::Quat{};
@@ -929,7 +935,9 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     dimmer_.update(static_cast<size_t>(count_), gaze, dim, dt);
     for (int i = 0; i < count_; ++i) panels_[i].brightness = dimmer_.brightness(static_cast<size_t>(i));
 
-    ensure_eye_textures(width, height);
+    // Supersampling (space at real size): the eyes drawn larger, mipmapped down in the last pass.
+    const int ss = options.static_head ? 1 : std::clamp(options.supersample, 1, 2);
+    ensure_eye_textures(width * ss, height * ss, ss > 1);
     const int eyes = options.side_by_side ? 2 : 1;
     const core::Mat4 proj = core::perspective_lh(options.fov_y_deg * kDegToRad, options.eye_aspect, 0.05f, 100.0f);
     const float black[4] = {0, 0, 0, 1};  // black = see-through
@@ -945,7 +953,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     ctx_->PSSetShader(panel_ps, nullptr, 0);
     ctx_->PSSetConstantBuffers(1, 1, panel_cb_.GetAddressOf());
     ctx_->PSSetSamplers(0, 1, sampler_.GetAddressOf());
-    const D3D11_VIEWPORT eye_vp{0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
+    const D3D11_VIEWPORT eye_vp{0, 0, static_cast<float>(width * ss), static_cast<float>(height * ss), 0, 1};
     // Background: the eye's axes in the room (the view's rotation), the same for both eyes.
     if (options.background == 5 && options.background_image != loaded_background_) load_background(options.background_image);
     const bool draw_background = background_ps_ && options.background > 0 && options.background <= 5 &&
@@ -1037,6 +1045,10 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         }
     }
 
+    if (ss > 1) {
+        ctx_->OMSetRenderTargets(0, nullptr, nullptr);  // unbound before their mips are made
+        for (int eye = 0; eye < eyes; ++eye) ctx_->GenerateMips(eye_srv_[eye].Get());
+    }
     ctx_->OMSetRenderTargets(1, &target, nullptr);
     ctx_->ClearRenderTargetView(target, black);
     const DistortUniforms du{options.k1, options.k2, options.eye_aspect, 0};

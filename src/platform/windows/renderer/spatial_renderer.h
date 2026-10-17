@@ -35,6 +35,7 @@ struct RenderOptions {
     float k2 = 0.0f;
     float max_prediction_ms = 50.0f;
     float fixed_prediction_ms = 0.0f;  // > 0: always this far ahead (space at real size), not the measured horizon
+    int supersample = 1;               // > 1: eyes drawn this much larger, mipmapped down (space at real size)
     float dim_others = 1.0f;     // brightness of the panels you are not looking at, 1 = off
     core::TrackingAxes tracking_axes = core::TrackingAxes::Both;  // head rotations that move the panels
     bool static_head = false;    // glasses in their own pinned mode: they anchor the image, not us
@@ -167,7 +168,7 @@ private:
     bool depth_pending() const;
     bool ensure_depth_slot(DepthSlot& s, int width, int height, int small_w, int small_h);
     void blend_depth(const DepthOutput& out);
-    void ensure_eye_textures(int width, int height);
+    void ensure_eye_textures(int width, int height, bool mips);
     float vertical_arc(float aspect) const;
     void fit_in_glasses_image(std::vector<core::PanelPlacement>& out) const;
     void fill_glasses_image(std::vector<core::PanelPlacement>& out, int panel) const;
@@ -206,6 +207,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> eye_rtv_[2];
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> eye_srv_[2];
     int eye_w_ = 0, eye_h_ = 0;
+    bool eye_mips_ = false;
 
     Panel panels_[kMaxPanels];
     int count_ = 1;

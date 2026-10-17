@@ -34,6 +34,8 @@ enum NormalMode {
     // so the panels move exactly as fast as the room when the head turns.
     static let opticalVFovDeg: Float = 23.0
     static let opticalVFovRange: ClosedRange<Float> = 22.2...23.8
+    // The eye images drawn this many times larger and mipmapped down: crisper text, no shimmer.
+    static let supersample = 2
 }
 
 struct ServerOptions {
@@ -88,6 +90,7 @@ struct ServerOptions {
     var lateLatch = false         // read the pose just before the frame's deadline; on in the space at real
                                   // size (the margin grew to 12 ms before: drawables were short, fixed since)
     var predictionMs: Float = 0   // > 0: the pose predicted this far ahead (space at real size: kPredictionMs)
+    var supersample = 1           // space at real size: NormalMode.supersample
     var depthGPU = true           // AI 3D: the GPU helps when the Neural Engine falls behind (60 fps video)
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>

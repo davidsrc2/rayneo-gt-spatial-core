@@ -25,6 +25,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float k2;
 @property(nonatomic) float maxPredictionMs;  // extrapolation clamp, 50
 @property(nonatomic) float fixedPredictionMs; // > 0: always this far ahead (space at real size), not the measured horizon
+// > 1: the eye images drawn this many times larger and mipmapped down into the glasses'
+// image (supersampling: sharper text, no shimmer). 1 = off.
+@property(nonatomic) NSUInteger supersample;
 @property(nonatomic) float dimOthers;        // brightness of the panels you are not looking at, 1 = off
 @property(nonatomic) NSInteger trackingAxes; // core::TrackingAxes: 0 both, 1 left/right only, 2 up/down only
 @property(nonatomic) BOOL staticHead;        // glasses in their own pinned mode: they anchor the image, not us
@@ -113,6 +116,9 @@ NS_ASSUME_NONNULL_BEGIN
 // A brightness fade is in progress: the next frame differs even with a still head and
 // unchanged sources. Render thread only.
 @property(nonatomic, readonly) BOOL animating;
+
+// GPU time of the last finished frame, ms (any thread).
+@property(atomic, readonly) double lastGPUMs;
 
 // True when the frame about to be drawn equals the one on screen (head still, no new
 // capture, no fade, not forced): skip it. Otherwise remembers it as drawn. Render thread only.

@@ -2,6 +2,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -46,9 +49,35 @@ struct rayneo_engine {
 
     std::string error;
     bool hal_ready = false;
+    std::string bias_map_path;  // set before start
 };
 
 namespace {
+
+void save_bias_map(rayneo_engine* e) {
+    if (e->bias_map_path.empty() || !e->pipeline || !e->pipeline->bias_map().dirty()) return;
+    const auto path = std::filesystem::u8path(e->bias_map_path);
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    auto tmp = path;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) return;
+        f << e->pipeline->bias_map().to_json();
+    }
+    std::filesystem::rename(tmp, path, ec);
+    if (!ec) e->pipeline->bias_map().clear_dirty();
+}
+
+void load_bias_map(rayneo_engine* e) {
+    if (e->bias_map_path.empty() || !e->pipeline) return;
+    std::ifstream f(std::filesystem::u8path(e->bias_map_path), std::ios::binary);
+    if (!f) return;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    if (auto map = rayneo::core::BiasMap::from_json(ss.str())) e->pipeline->set_bias_map(*map);
+}
 
 void fusion_loop(rayneo_engine* e) {
 #if defined(__APPLE__)
@@ -61,6 +90,7 @@ void fusion_loop(rayneo_engine* e) {
 #endif
     RawReport rr;
     uint64_t seq = 0;
+    uint64_t seq_since_save = 0;
     while (e->running.load(std::memory_order_acquire)) {
         bool drained = false;
         while (e->reader->pop(rr)) {
@@ -74,6 +104,10 @@ void fusion_loop(rayneo_engine* e) {
             }
             if (e->recenter.exchange(false)) e->pipeline->recenter(true);
             const auto pose = e->pipeline->process_report(rr.data, rr.length);
+            if (++seq_since_save >= 457 * 30) {  // ~30 s of samples: the temperature map, if it changed
+                seq_since_save = 0;
+                save_bias_map(e);
+            }
             if (!pose) {
                 std::lock_guard<std::mutex> lock(e->pose_mutex);
                 ++e->other_reports;
@@ -130,9 +164,12 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
             // Stationary lock: frozen while the head holds still, 1:1 the moment it moves
             // (replaces the adaptive follow filter, the elliptical anchor and its glide, tremor
             // damping, knock rejection and lag compensation of earlier builds).
+            // Orientation from Vqf6D (gyro heading, gentle gravity tilt correction, gyro bias by
+            // Kalman at rest from the temperature map); its rest detection is the lock ("bias gate").
             e->cfg.stabilizer = rayneo::core::stationary_lock_stabilizer();
+            e->cfg.stabilizer.lock_on_rest = true;
+            e->cfg.use_vqf = true;
             e->cfg.body_frame_relative = true;  // exact on both axes whatever the posture at the recenter
-            e->cfg.madgwick_beta = rayneo::core::kWorldLockedMadgwickBeta;  // gravity corrects pitch / roll gently (0.01)
         }
     }
     return e;
@@ -162,6 +199,7 @@ rayneo_status rayneo_engine_start(rayneo_engine* e) {
     }
     e->reader = std::make_unique<ImuStreamReader>();
     e->pipeline = std::make_unique<ImuPipeline>(e->cfg);
+    load_bias_map(e);
     {
         std::lock_guard<std::mutex> lock(e->calib_mutex);
         e->pipeline->set_sensor_to_head(e->sensor_to_head);
@@ -181,6 +219,7 @@ void rayneo_engine_stop(rayneo_engine* e) {
     if (e == nullptr) return;
     e->running.store(false, std::memory_order_release);
     if (e->fusion_thread.joinable()) e->fusion_thread.join();
+    save_bias_map(e);
     if (e->reader) e->reader->stop();
 }
 
@@ -229,6 +268,10 @@ void rayneo_engine_set_sensor_to_head(rayneo_engine* e, float qw, float qx, floa
     std::lock_guard<std::mutex> lock(e->calib_mutex);
     e->sensor_to_head = rayneo::core::Quat{qw, qx, qy, qz}.normalized();
     e->calib_pending = true;
+}
+
+void rayneo_engine_set_bias_map_path(rayneo_engine* e, const char* path) {
+    if (e != nullptr) e->bias_map_path = path != nullptr ? path : "";
 }
 
 const char* rayneo_engine_last_error(rayneo_engine* e) {

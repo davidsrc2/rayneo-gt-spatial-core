@@ -78,6 +78,10 @@ void rayneo_engine_set_glasses_brightness(rayneo_engine* e, int level);
  * the next sample; implies a recenter. Identity by default. */
 void rayneo_engine_set_sensor_to_head(rayneo_engine* e, float qw, float qx, float qy, float qz);
 
+/* Where the gyro bias learned per sensor temperature is kept (UTF-8 path, JSON; the space at
+ * real size). Loaded at start, saved every 30 s while it changes and at stop. Before start. */
+void rayneo_engine_set_bias_map_path(rayneo_engine* e, const char* path);
+
 /* Last error message, valid until the next call on this engine. */
 const char* rayneo_engine_last_error(rayneo_engine* e);
 

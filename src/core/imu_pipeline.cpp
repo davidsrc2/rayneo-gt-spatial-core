@@ -20,10 +20,11 @@ Quat heading_of(const Vec3& forward) {
 }  // namespace
 
 ImuPipeline::ImuPipeline(ImuPipelineConfig cfg)
-    : cfg_(cfg), filter_(cfg.madgwick_beta), bias_(cfg.bias), stabilizer_(cfg.stabilizer) {}
+    : cfg_(cfg), filter_(cfg.madgwick_beta), bias_(cfg.bias), stabilizer_(cfg.stabilizer), vqf_(cfg.vqf) {}
 
 void ImuPipeline::reset() {
     filter_.reset();
+    vqf_.reset();
     bias_.reset();
     have_prev_tick_ = false;
     attitude_init_ = false;
@@ -64,9 +65,24 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     prev_tick_ = s.tick_100us;
     have_prev_tick_ = true;
 
-    const Vec3 gyro_corr_degs = bias_.update(s.gyro_degs, s.accel_mps2, dt);
+    Vec3 gyro_corr_degs = bias_.update(s.gyro_degs, s.accel_mps2, dt);
 
-    if (bias_.tracking()) {
+    if (cfg_.use_vqf && bias_.tracking()) {
+        if (!attitude_init_) {
+            vqf_.initialize_from_accel(s.accel_mps2);
+            // Cold start: the bias learned at this temperature on earlier runs, else the startup
+            // calibration's.
+            const auto mapped = bias_map_.lookup(s.temp_c);
+            vqf_.set_bias(mapped ? *mapped : bias_.bias());
+            attitude_init_ = true;
+            attitude_s_ = 0.0f;
+        } else if (dt > 0.0f && dt < cfg_.bias.gap_reset_s) {
+            vqf_.update(s.gyro_degs * kDegToRad, s.accel_mps2, dt);
+            if (vqf_.rest()) bias_map_.learn(s.temp_c, vqf_.bias_degs(), dt);
+        }
+        gyro_corr_degs = s.gyro_degs - vqf_.bias_degs();
+        stabilizer_.set_rest(vqf_.rest());
+    } else if (bias_.tracking()) {
         if (!attitude_init_) {
             filter_.initialize_from_accel(s.accel_mps2);
             attitude_init_ = true;
@@ -88,9 +104,9 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     }
 
     Pose p;
-    p.absolute = filter_.quaternion();
+    p.absolute = cfg_.use_vqf ? vqf_.quaternion() : filter_.quaternion();
     p.tracking = bias_.tracking();
-    p.gyro_bias_degs = bias_.bias();
+    p.gyro_bias_degs = cfg_.use_vqf && attitude_init_ ? vqf_.bias_degs() : bias_.bias();
     p.gyro_corrected_degs = gyro_corr_degs;
     p.accel_mps2 = s.accel_mps2;
     p.tick_100us = s.tick_100us;
@@ -128,7 +144,9 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
         p.angular_velocity_rads = stabilizer_.omega();
         // Stationary lock: a head held still for 150 ms refines the gyro bias in the background
         // (no yaw drift: the magnetometer is off and yaw is the gyro alone).
-        if (cfg_.stabilizer.stationary_lock && stabilizer_.locked_seconds() >= 0.15f) bias_.adapt_locked(s.gyro_degs, dt);
+        if (!cfg_.use_vqf && cfg_.stabilizer.stationary_lock && stabilizer_.locked_seconds() >= 0.15f) {
+            bias_.adapt_locked(s.gyro_degs, dt);
+        }
     }
     if (glide_t_ < 1.0f && p.tracking) {
         glide_t_ = std::min(1.0f, glide_t_ + dt / cfg_.recenter_glide_s);

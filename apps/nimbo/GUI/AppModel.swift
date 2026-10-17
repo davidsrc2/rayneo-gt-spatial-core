@@ -350,6 +350,7 @@ final class AppModel: ObservableObject {
         o.fovYDeg = glassesPinned ? Float(fov) : Float(opticalVFov)
         o.lateLatch = !glassesPinned
         o.predictionMs = glassesPinned ? 0 : NormalMode.predictionMs
+        o.supersample = glassesPinned ? 1 : NormalMode.supersample
         o.fovFromCLI = true
         o.ipdMM = Float(ipd)
         o.sideBySide = nil  // one image per eye exactly when the glasses are in their 3D mode

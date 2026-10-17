@@ -379,6 +379,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k2 = options.k2
         ro.dimOthers = options.dimOthers
         ro.fixedPredictionMs = options.predictionMs
+        ro.supersample = UInt(max(1, options.supersample))
         applyBackground(options, to: ro)
         ro.trackingAxes = options.trackingAxes
         ro.depthStrength = options.depthStrength
@@ -858,6 +859,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k1 = o.k1
         ro.k2 = o.k2
         ro.fixedPredictionMs = o.predictionMs
+        ro.supersample = UInt(max(1, o.supersample))
         options.lateLatch = o.lateLatch
         options.predictionMs = o.predictionMs
         ro.dimOthers = o.dimOthers
@@ -2191,7 +2193,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
                    s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, latchMs,
                    (s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) : "")
-                   + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "") as NSString))
+                   + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "")
+                   + String(format: " | gpu %.1f ms", renderer.lastGPUMs) as NSString))
         adaptFrameLatency(s)
         if depthPanel >= 0 {
             let d = depth3D.takeStats()

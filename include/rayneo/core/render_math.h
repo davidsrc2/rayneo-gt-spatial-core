@@ -50,6 +50,11 @@ Mat4 perspective_lh(float fovy_rad, float aspect, float near_z, float far_z);
 // omega is in the same frame as q's rotation axes (rad/s).
 Quat predict_orientation(const Quat& q, const Vec3& omega_rads, float dt_s);
 
+// The angular velocity (frame of q's rotation axes) without its part about the head's own
+// forward axis (roll): the prediction then extrapolates turning and nodding only (PredXY),
+// the noisiest and least useful axis left out.
+Vec3 without_roll(const Quat& head, const Vec3& omega_rads);
+
 // The head's turn about the vertical axis only (the heading of its forward axis): panels
 // follow looking left and right, while nodding and tilting leave them where they are, so
 // vertical head motion can never shake them.

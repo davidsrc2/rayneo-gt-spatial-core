@@ -138,7 +138,8 @@ Quat PoseStabilizer::update_lock(const Quat& q, const Vec3& omega, float dt) {
     const float off_deg = 2.0f * std::asin(std::fmin(1.0f, std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z))) * 57.29578f;
     switch (lock_) {
     case Lock::Locked:
-        if (speed_ > cfg_.unlock_rads || off_deg > cfg_.unlock_deg) {
+        if (cfg_.lock_on_rest ? (!rest_hint_ || off_deg > cfg_.lock_max_deg)
+                              : (speed_ > cfg_.unlock_rads || off_deg > cfg_.unlock_deg)) {
             lock_ = Lock::Unlocking;
             ramp_t_ = 0.0f;
             locked_s_ = 0.0f;
@@ -164,7 +165,7 @@ Quat PoseStabilizer::update_lock(const Quat& q, const Vec3& omega, float dt) {
     // Tracking: the head itself; back to LOCKED after relock_s under relock_rads.
     lock_omega_ = omega;
     calm_s_ = speed_ < cfg_.relock_rads ? calm_s_ + dt : 0.0f;
-    if (calm_s_ >= cfg_.relock_s) {
+    if (cfg_.lock_on_rest ? rest_hint_ : calm_s_ >= cfg_.relock_s) {
         lock_ = Lock::Locked;
         anchor_ = q;
         locked_s_ = 0.0f;

@@ -4,15 +4,22 @@
 #include <cstdint>
 #include <optional>
 
+#include "rayneo/core/bias_map.h"
 #include "rayneo/core/gyro_bias_estimator.h"
 #include "rayneo/core/madgwick.h"
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/types.h"
+#include "rayneo/core/vqf.h"
 
 namespace rayneo::core {
 
 struct ImuPipelineConfig {
     float madgwick_beta = 0.033f;
+    // The space at real size: orientation from Vqf6D instead of Madgwick, its gyro bias (Kalman
+    // at rest, started from the temperature map when it knows the temperature), its rest
+    // detection locking the stabilizer (lock_on_rest) and teaching the map.
+    bool use_vqf = false;
+    VqfConfig vqf;
     bool use_magnetometer = false;  // Off: desk/laptop interference spins yaw.
     bool stabilize = true;          // PoseStabilizer on `relative` and its angular velocity
     PoseStabilizerConfig stabilizer;
@@ -75,12 +82,17 @@ public:
     void reset();
 
     const GyroBiasEstimator& bias_estimator() const { return bias_; }
+    // The gyro bias per temperature (use_vqf), loaded and saved by the caller.
+    void set_bias_map(const BiasMap& map) { bias_map_ = map; }
+    BiasMap& bias_map() { return bias_map_; }
 
 private:
     ImuPipelineConfig cfg_;
     MadgwickFilter filter_;
     GyroBiasEstimator bias_;
     PoseStabilizer stabilizer_;
+    Vqf6D vqf_;
+    BiasMap bias_map_;
 
     bool have_prev_tick_ = false;
     uint32_t prev_tick_ = 0;

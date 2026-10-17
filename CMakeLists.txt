@@ -58,6 +58,8 @@ endfunction()
 add_library(rayneo_core STATIC
   src/core/gt_protocol.cpp
   src/core/madgwick.cpp
+  src/core/vqf.cpp
+  src/core/bias_map.cpp
   src/core/gyro_bias_estimator.cpp
   src/core/imu_pipeline.cpp
   src/core/tick_monitor.cpp

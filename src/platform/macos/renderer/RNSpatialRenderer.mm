@@ -129,6 +129,7 @@ struct Panel {
         _k2 = 0.0f;
         _maxPredictionMs = 50.0f;
         _fixedPredictionMs = 0.0f;
+        _supersample = 1;
         _dimOthers = 1.0f;
         _trackingAxes = 0;
         _staticHead = NO;
@@ -809,15 +810,15 @@ static float effective_curvature(RNRenderOptions* o) {
     _skipper.invalidate();
 }
 
-- (void)ensureEyeTextures:(MTLPixelFormat)format width:(NSUInteger)w height:(NSUInteger)h {
+- (void)ensureEyeTextures:(MTLPixelFormat)format width:(NSUInteger)w height:(NSUInteger)h mipmapped:(BOOL)mips {
     if (_eyeTextures[0] != nil && _eyeTextures[0].width == w && _eyeTextures[0].height == h &&
-        _eyeTextures[0].pixelFormat == format) {
+        _eyeTextures[0].pixelFormat == format && (_eyeTextures[0].mipmapLevelCount > 1) == mips) {
         return;
     }
     MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
                                                                                  width:w
                                                                                 height:h
-                                                                             mipmapped:NO];
+                                                                             mipmapped:mips];
     d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
     d.storageMode = MTLStorageModePrivate;
     for (auto& t : _eyeTextures) t = [_device newTextureWithDescriptor:d];
@@ -841,8 +842,12 @@ static float effective_curvature(RNRenderOptions* o) {
     horizon_s *= core::prediction_gain(w.norm(), core::kPredictStartRads, core::kPredictFullRads);
     // Space at real size: a fixed motion-to-photon time along the gyro's instantaneous angular
     // velocity (zero while the stationary lock holds), no speed ramp.
-    if (o.fixedPredictionMs > 0.0f && !o.staticHead) horizon_s = o.fixedPredictionMs * 1e-3f;
-    core::Quat head = core::predict_orientation(from_simd(orientation), w, horizon_s);
+    core::Vec3 wp = w;
+    if (o.fixedPredictionMs > 0.0f && !o.staticHead) {
+        horizon_s = o.fixedPredictionMs * 1e-3f;
+        wp = core::without_roll(from_simd(orientation), w);  // PredXY: turning and nodding
+    }
+    core::Quat head = core::predict_orientation(from_simd(orientation), wp, horizon_s);
     head = core::track_axes(head, static_cast<core::TrackingAxes>(o.trackingAxes));
     if (o.staticHead) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
         head = core::Quat{};
@@ -887,7 +892,9 @@ static float effective_curvature(RNRenderOptions* o) {
     [self updateBrightness:count head:head aspect:aspects[0] placements:placements nowNs:targetHostNs];
 
     id<MTLTexture> target = drawable.texture;
-    [self ensureEyeTextures:target.pixelFormat width:target.width height:target.height];
+    // Supersampling (space at real size): the eyes drawn larger, mipmapped down in the last pass.
+    const NSUInteger ss = o.staticHead ? 1 : std::clamp<NSUInteger>(o.supersample, 1, 2);
+    [self ensureEyeTextures:target.pixelFormat width:target.width * ss height:target.height * ss mipmapped:ss > 1];
 
     id<MTLCommandBuffer> cb = [_queue commandBuffer];
 
@@ -1028,6 +1035,11 @@ static float effective_curvature(RNRenderOptions* o) {
         [enc endEncoding];
     }
 
+    if (ss > 1) {  // supersampled: the mip chain the last pass reads at the glasses' size
+        id<MTLBlitCommandEncoder> mips = [cb blitCommandEncoder];
+        for (int eye = 0; eye < eyes; ++eye) [mips generateMipmapsForTexture:_eyeTextures[eye]];
+        [mips endEncoding];
+    }
     MTLRenderPassDescriptor* out = [MTLRenderPassDescriptor renderPassDescriptor];
     out.colorAttachments[0].texture = target;
     out.colorAttachments[0].loadAction = MTLLoadActionClear;
@@ -1058,6 +1070,11 @@ static float effective_curvature(RNRenderOptions* o) {
           for (CVMetalTextureRef t : held) CFRelease(t);  // IOSurfaces live until the GPU is done
         }];
     }
+    __weak RNSpatialRenderer* weakSelf = self;
+    [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+      RNSpatialRenderer* strong = weakSelf;
+      if (strong != nil && done.GPUEndTime > done.GPUStartTime) strong->_lastGPUMs = (done.GPUEndTime - done.GPUStartTime) * 1e3;
+    }];
     [cb commit];
     return horizon_s * 1e3f;
 }

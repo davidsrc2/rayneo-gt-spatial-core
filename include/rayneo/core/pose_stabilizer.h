@@ -71,6 +71,11 @@ struct PoseStabilizerConfig {
     float unlock_ramp_s = 0.040f;
     float relock_rads = 0.012f;
     float relock_s = 0.150f;
+    // Locked and unlocked by an outside rest detector instead (set_rest: the orientation
+    // filter's "bias gate"), the speed thresholds unused; locked, a drift past lock_max_deg
+    // from the anchor still unlocks (a very slow turn reads as rest).
+    bool lock_on_rest = false;
+    float lock_max_deg = 1.0f;
 };
 
 // The space at real size: the stationary lock (see PoseStabilizerConfig::stationary_lock).
@@ -119,6 +124,8 @@ public:
     bool holding() const { return holding_; }
     // Stationary lock: how long the current LOCKED phase has lasted (0 when not locked).
     float locked_seconds() const { return locked_s_; }
+    // lock_on_rest: whether the head rests now (before update).
+    void set_rest(bool rest) { rest_hint_ = rest; }
     // See predict_cutoff_hz; the slow one right after a knock (tap_accel_rads2).
     Vec3 omega() const {
         if (cfg_.stationary_lock) return lock_omega_;
@@ -152,6 +159,7 @@ private:
     Lock lock_ = Lock::Locked;
     Quat anchor_;
     float ramp_t_ = 0.0f, calm_s_ = 0.0f, locked_s_ = 0.0f;
+    bool rest_hint_ = false;
     Vec3 lock_omega_;
     Quat update_lock(const Quat& q, const Vec3& omega, float dt);
     float effective_damp(int k) const;
