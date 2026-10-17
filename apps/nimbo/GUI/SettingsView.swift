@@ -67,7 +67,7 @@ struct SettingsView: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Anclar las pantallas con la cabeza quieta", isOn: $model.anchorAtRest)
-                    Text("Con la cabeza quieta, las pantallas no se mueven nada, ni un píxel. Al moverla más de 1° de lado o 2° arriba o abajo vuelven a seguir el espacio con suavidad. Prueba: si notas que se pegan a la cabeza al empezar a moverla, desactívalo.")
+                    Text("En el espacio a tamaño real el anclaje va siempre incluido: con la cabeza quieta las pantallas se congelan; al moverla (más de 0,15° o de 1,4°/s) pasan en 40 ms a seguir el espacio 1:1, y 150 ms después de parar se congelan de nuevo.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
@@ -111,8 +111,15 @@ struct SettingsView: View {
 
             DisclosureGroup(isExpanded: $advancedBox.value) {
                 VStack(alignment: .leading, spacing: 14) {
-                    LabeledSlider(title: "Campo de visión", value: $model.fov, range: 15...35, step: 0.5,
-                                  caption: String(format: "%.1f°", model.fov))
+                    if model.glassesPinned {
+                        LabeledSlider(title: "Campo de visión", value: $model.fov, range: 15...35, step: 0.5,
+                                      caption: String(format: "%.1f°", model.fov))
+                    } else {  // the space at real size: the optics', fine-tuned within their range
+                        LabeledSlider(title: "Campo de visión óptico",
+                                      value: Binding(get: { model.opticalVFov }, set: { model.opticalVFov = $0; server.settingsChanged() }),
+                                      range: Double(NormalMode.opticalVFovRange.lowerBound)...Double(NormalMode.opticalVFovRange.upperBound),
+                                      step: 0.1, caption: String(format: "%.1f°", model.opticalVFov))
+                    }
                     LabeledSlider(title: "Distancia entre ojos", value: $model.ipd, range: 54...72, step: 1,
                                   caption: String(format: "%.0f mm", model.ipd))
                     if model.glassesPinned {  // space at real size: never frozen, always fixed in the room

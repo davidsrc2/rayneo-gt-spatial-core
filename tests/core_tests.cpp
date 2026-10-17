@@ -1199,6 +1199,35 @@ void test_stabilizer_tremor_damping() {
     CHECK(world_lock_error_deg(locked, true) < 1.2f * world_lock_error_deg(plain, true));
 }
 
+// Stationary lock: a still head trembling stays frozen exactly; a turn is followed 1:1 within
+// the 40 ms ramp, with its angular velocity to predict; still again for 150 ms: locked anew.
+void test_stationary_lock() {
+    PoseStabilizer s(stationary_lock_stabilizer());
+    const float dt = kRefDt, d2r = 0.0174533f, pi = 3.14159265f;
+    Quat first, out;
+    float moved = 0.0f;
+    for (int i = 0; i < 457 * 2; ++i) {  // tremor 0.04 deg at 8 Hz
+        const float t = static_cast<float>(i) * dt;
+        const float a = 0.04f * d2r * std::sin(2 * pi * 8 * t), w = 0.04f * d2r * 2 * pi * 8 * std::cos(2 * pi * 8 * t);
+        out = s.update(Quat::from_axis_angle({0, 0, 1}, a), {0, 0, w}, dt);
+        if (i == 0) first = out;
+        moved = std::fmax(moved, angle_between_deg(out, first));
+        CHECK(s.omega().norm() == 0.0f);
+    }
+    CHECK(moved == 0.0f && s.holding());
+    float lag = 0.0f;
+    Quat q;
+    for (int i = 0; i < 457; ++i) {  // a 30 deg/s turn
+        const float t = static_cast<float>(i) * dt;
+        q = Quat::from_axis_angle({0, 0, 1}, t * 30 * d2r);
+        out = s.update(q, {0, 0, 30 * d2r}, dt);
+        if (t > 0.3f) lag = std::fmax(lag, angle_between_deg(out, q));
+    }
+    CHECK(lag < 1e-3f && !s.holding() && s.omega().norm() > 0.4f);
+    for (int i = 0; i < 457; ++i) out = s.update(q, {0, 0, 0}, dt);  // still for 1 s (the 1.5 Hz speed settles in ~0.4 s, then 150 ms)
+    CHECK(s.holding() && s.locked_seconds() > 0.2f && angle_between_deg(out, q) < 1e-3f);
+}
+
 void test_prediction_gain() {
     CHECK(prediction_gain(0.0f) == 0.0f && prediction_gain(0.05f) == 0.0f);
     CHECK(near(prediction_gain(0.175f), 0.5f, 1e-5f));
@@ -1375,6 +1404,7 @@ int main() {
     test_stabilizer_dead_zone();
     test_stabilizer_vertical_zone();
     test_stabilizer_tremor_damping();
+    test_stationary_lock();
     test_prediction_gain();
     test_yaw_only();
     test_panel_poses();

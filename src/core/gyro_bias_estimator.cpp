@@ -218,4 +218,11 @@ Vec3 GyroBiasEstimator::update(const Vec3& g, const Vec3& a, float dt) {
     return g;
 }
 
+void GyroBiasEstimator::adapt_locked(const Vec3& gyro_degs, float dt) {
+    if (state_ != State::Tracking || dt <= 0.0f || dt >= cfg_.gap_reset_s) return;
+    const Vec3 residual = gyro_degs - bias_;
+    if (residual.norm() > cfg_.worn_residual_max_degs) return;
+    bias_ = clamp_norm(bias_ + residual * (dt / (cfg_.locked_tau_s + dt)), cfg_.bias_clamp_degs);
+}
+
 }  // namespace rayneo::core

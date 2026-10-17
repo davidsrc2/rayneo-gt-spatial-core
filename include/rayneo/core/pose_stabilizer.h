@@ -53,7 +53,34 @@ struct PoseStabilizerConfig {
     float reversal_threshold_rads = 0.02f;
     float reversal_min_cutoff_hz = 1.0f;
     float reversal_speed_rads = 0.0f;  // > 0: damping fades out as the axis turns faster than this
+
+    // Stationary lock (the space at real size): replaces everything above. Two phases:
+    //  LOCKED: the output is the anchor, frozen, while the head's speed stays under
+    //    unlock_rads and its angle from the anchor under unlock_deg (the band above
+    //    0.018 rad/s and 0.12 deg is the hysteresis: still locked). Nothing to predict.
+    //  UNLOCKING: a smoothstep over unlock_ramp_s from the anchor to the head itself; then
+    //    TRACKING: the head 1:1, no filtering, its instantaneous angular velocity for the
+    //    prediction.
+    //  Back to LOCKED once the speed stays under relock_rads for relock_s (anchor = the head).
+    // Speeds are those of the gyro low-passed at speed_cutoff_hz (1.5 Hz): raw, the tremor
+    // alone (~2 deg/s at 8 Hz) crossed unlock_rads all the time, and at 3 Hz it hovered at
+    // relock_rads and the panels never locked again; a real turn still unlocks within ms.
+    bool stationary_lock = false;
+    float unlock_rads = 0.025f;
+    float unlock_deg = 0.15f;
+    float unlock_ramp_s = 0.040f;
+    float relock_rads = 0.012f;
+    float relock_s = 0.150f;
 };
+
+// The space at real size: the stationary lock (see PoseStabilizerConfig::stationary_lock).
+inline PoseStabilizerConfig stationary_lock_stabilizer() {
+    PoseStabilizerConfig c;
+    c.stationary_lock = true;
+    c.enter_deg = 0.0f;
+    c.speed_cutoff_hz = 1.5f;
+    return c;
+}
 
 // Panels fixed in the room at every moment (no dead zone, nothing frozen). Tuned on a
 // simulated chain (head looking around with tremor, sensor noise, 30 ms to the glasses;
@@ -90,8 +117,11 @@ public:
     Quat update(const Quat& q, const Vec3& omega, float dt);
 
     bool holding() const { return holding_; }
+    // Stationary lock: how long the current LOCKED phase has lasted (0 when not locked).
+    float locked_seconds() const { return locked_s_; }
     // See predict_cutoff_hz; the slow one right after a knock (tap_accel_rads2).
     Vec3 omega() const {
+        if (cfg_.stationary_lock) return lock_omega_;
         if (cfg_.predict_cutoff_hz <= 0.0f || (holding_ && cfg_.enter_deg > 0.0f)) return omega_out_;  // anchored: nothing to predict
         const Vec3 w = tap_left_s_ > 0.0f ? omega_slow_ : omega_fast_;
         return {w.x * (1.0f - effective_damp(0)), w.y * (1.0f - effective_damp(1)), w.z * (1.0f - effective_damp(2))};  // a trembling axis: not predicted
@@ -117,6 +147,13 @@ private:
     int sign_[3] = {0, 0, 0};
     float since_flip_[3] = {1e3f, 1e3f, 1e3f};
     void update_damping(const Vec3& omega, float dt);
+    // Stationary lock.
+    enum class Lock { Locked, Unlocking, Tracking };
+    Lock lock_ = Lock::Locked;
+    Quat anchor_;
+    float ramp_t_ = 0.0f, calm_s_ = 0.0f, locked_s_ = 0.0f;
+    Vec3 lock_omega_;
+    Quat update_lock(const Quat& q, const Vec3& omega, float dt);
     float effective_damp(int k) const;
 };
 

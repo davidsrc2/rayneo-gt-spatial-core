@@ -126,6 +126,9 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     if (cfg_.stabilize && p.tracking) {
         p.relative = stabilizer_.update(p.relative, p.angular_velocity_rads, dt);
         p.angular_velocity_rads = stabilizer_.omega();
+        // Stationary lock: a head held still for 150 ms refines the gyro bias in the background
+        // (no yaw drift: the magnetometer is off and yaw is the gyro alone).
+        if (cfg_.stabilizer.stationary_lock && stabilizer_.locked_seconds() >= 0.15f) bias_.adapt_locked(s.gyro_degs, dt);
     }
     if (glide_t_ < 1.0f && p.tracking) {
         glide_t_ = std::min(1.0f, glide_t_ + dt / cfg_.recenter_glide_s);

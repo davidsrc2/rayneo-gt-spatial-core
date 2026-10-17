@@ -378,6 +378,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.k1 = options.k1
         ro.k2 = options.k2
         ro.dimOthers = options.dimOthers
+        ro.fixedPredictionMs = options.predictionMs
         applyBackground(options, to: ro)
         ro.trackingAxes = options.trackingAxes
         ro.depthStrength = options.depthStrength
@@ -856,6 +857,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.sideBySide = o.sideBySide ?? autoSideBySide
         ro.k1 = o.k1
         ro.k2 = o.k2
+        ro.fixedPredictionMs = o.predictionMs
+        options.lateLatch = o.lateLatch
+        options.predictionMs = o.predictionMs
         ro.dimOthers = o.dimOthers
         applyBackground(o, to: ro)
         ro.trackingAxes = o.trackingAxes
@@ -1491,8 +1495,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     func adjustFov(_ delta: Float) {
         let ro = renderer.options
-        ro.fovYDegrees = max(10, min(45, ro.fovYDegrees + delta))
-        SettingsFile.shared.set(Double(ro.fovYDegrees), forKey: "fovY")
+        if options.realSize && !options.glassesPinned {  // the optics' field of view, within its range
+            let r = NormalMode.opticalVFovRange
+            ro.fovYDegrees = min(r.upperBound, max(r.lowerBound, ro.fovYDegrees + delta * 0.2))
+            SettingsFile.shared.set(Double(ro.fovYDegrees), forKey: "opticalVFov")
+        } else {
+            ro.fovYDegrees = max(10, min(45, ro.fovYDegrees + delta))
+            SettingsFile.shared.set(Double(ro.fovYDegrees), forKey: "fovY")
+        }
         options.fovYDeg = ro.fovYDegrees
         onFovChanged?(ro.fovYDegrees)
         requestRedraw()

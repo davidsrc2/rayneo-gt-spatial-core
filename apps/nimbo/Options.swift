@@ -25,6 +25,17 @@ struct FloatingWindow: Codable, Hashable {
     var windowTitle = ""
 }
 
+// The space at real size (the normal mode), tunable within their ranges.
+enum NormalMode {
+    // Motion to photon: the pose is extrapolated this far ahead with the gyro's angular velocity.
+    static let predictionMs: Float = 16
+    static let predictionRange: ClosedRange<Float> = 14...20
+    // The RayNeo GT's optics (~46 deg diagonal): the vertical field of view of the projection,
+    // so the panels move exactly as fast as the room when the head turns.
+    static let opticalVFovDeg: Float = 23.0
+    static let opticalVFovRange: ClosedRange<Float> = 22.2...23.8
+}
+
 struct ServerOptions {
     var sideBySide: Bool? = nil   // nil: side by side when the glasses are in their 3D mode (3840x1080), mono in --windowed
     var ipdMM: Float = 63
@@ -74,8 +85,9 @@ struct ServerOptions {
     var depthStrength: Float = 0.03    // parallax between the eyes at the nearest depth, in panel widths
     var depthConvergence: Float = 0.35  // depth left on the panel's plane: farther recedes, nearer stands out
     var zoom: Float = 1           // every panel this much larger (⌘⌥+ / -): remembered between runs
-    var lateLatch = false         // read the pose just before the frame's deadline (on the glasses its margin
-                                  // always grew to the 12 ms maximum: no gain, so off unless asked)
+    var lateLatch = false         // read the pose just before the frame's deadline; on in the space at real
+                                  // size (the margin grew to 12 ms before: drawables were short, fixed since)
+    var predictionMs: Float = 0   // > 0: the pose predicted this far ahead (space at real size: kPredictionMs)
     var depthGPU = true           // AI 3D: the GPU helps when the Neural Engine falls behind (60 fps video)
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
@@ -194,6 +206,9 @@ struct ServerOptions {
             case "--depth-ane-only": o.depthGPU = false
             case "--no-late-latch": o.lateLatch = false
             case "--late-latch": o.lateLatch = true
+            case "--prediction-ms":
+                guard let v = float() else { return nil }
+                o.predictionMs = min(NormalMode.predictionRange.upperBound, max(NormalMode.predictionRange.lowerBound, v))
             case "--dead-zone": guard let v = float() else { return nil }; o.deadZoneDeg = v
             case "--vd-size":
                 let parts = value()?.split(separator: "x").compactMap { Int($0) } ?? []

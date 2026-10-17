@@ -49,7 +49,9 @@ final class AppModel: ObservableObject {
     }
 
     // Advanced
-    @Published var fov: Double { didSet { d.set(fov, forKey: "fovY") } }
+    @Published var fov: Double { didSet { d.set(fov, forKey: "fovY") } }  // the glasses' pinned mode
+    // The space at real size: the optics' vertical field of view (NormalMode.opticalVFovDeg).
+    @Published var opticalVFov: Double { didSet { d.set(opticalVFov, forKey: "opticalVFov") } }
     @Published var ipd: Double { didSet { d.set(ipd, forKey: "ipd") } }
     @Published var stereo: Bool { didSet { d.set(stereo, forKey: "stereo") } }
     @Published var deadZone: Double { didSet { d.set(deadZone, forKey: "deadZone") } }
@@ -98,6 +100,8 @@ final class AppModel: ObservableObject {
         size = d.object(forKey: "size") as? Double ?? 38
         autoStart = d.bool(forKey: "autoStart")
         fov = d.object(forKey: "fovY") != nil ? Double(d.float(forKey: "fovY")) : 24.5
+        let r = NormalMode.opticalVFovRange
+        opticalVFov = Double(min(r.upperBound, max(r.lowerBound, Float(d.double(forKey: "opticalVFov") ?? Double(NormalMode.opticalVFovDeg)))))
         ipd = d.object(forKey: "ipd") as? Double ?? 63
         stereo = d.bool(forKey: "stereo")
         deadZone = d.object(forKey: "deadZone") as? Double ?? 1.0
@@ -342,7 +346,10 @@ final class AppModel: ObservableObject {
         o.curvature = Float(curvature)
         o.tilt = Float(tilt)
         o.arcDeg = Float(size)
-        o.fovYDeg = Float(fov)
+        // The space at real size: the optics' field of view, late latching and a fixed prediction.
+        o.fovYDeg = glassesPinned ? Float(fov) : Float(opticalVFov)
+        o.lateLatch = !glassesPinned
+        o.predictionMs = glassesPinned ? 0 : NormalMode.predictionMs
         o.fovFromCLI = true
         o.ipdMM = Float(ipd)
         o.sideBySide = nil  // one image per eye exactly when the glasses are in their 3D mode

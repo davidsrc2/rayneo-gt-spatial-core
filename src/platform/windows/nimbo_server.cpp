@@ -338,6 +338,25 @@ void save_fov(float fov) {
     RegSetKeyValueW(HKEY_CURRENT_USER, L"Software\\Nimbo", L"FovY100", REG_DWORD, &v, sizeof(v));
 }
 
+// The space at real size (the normal mode), tunable within their ranges (as on macOS).
+constexpr float kPredictionMs = 16.0f;    // motion to photon along the gyro's angular velocity (14..20)
+constexpr float kOpticalVFovDeg = 23.0f;  // the RayNeo GT's optics (~46 deg diagonal): panels move as fast as the room
+constexpr float kOpticalVFovMin = 22.2f, kOpticalVFovMax = 23.8f;
+
+float load_optical_fov() {
+    DWORD v = 0, size = sizeof(v);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Nimbo", L"OpticalVFov100", RRF_RT_REG_DWORD, nullptr, &v, &size) !=
+        ERROR_SUCCESS) {
+        return kOpticalVFovDeg;
+    }
+    return std::clamp(static_cast<float>(v) / 100.0f, kOpticalVFovMin, kOpticalVFovMax);
+}
+
+void save_optical_fov(float fov) {
+    const DWORD v = static_cast<DWORD>(std::lround(fov * 100.0f));
+    RegSetKeyValueW(HKEY_CURRENT_USER, L"Software\\Nimbo", L"OpticalVFov100", REG_DWORD, &v, sizeof(v));
+}
+
 // ---------------------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------------------
@@ -864,6 +883,10 @@ bool Server::start() {
     if (!opt_.fov_from_cli) {
         if (const auto saved = load_fov()) ro.fov_y_deg = *saved;
     }
+    // The space at real size: the optics' field of view and a fixed prediction.
+    const bool normal_mode = opt_.real_size && !opt_.glasses_pinned;
+    if (normal_mode) ro.fov_y_deg = load_optical_fov();
+    ro.fixed_prediction_ms = normal_mode ? kPredictionMs : 0.0f;
     ro.k1 = opt_.k1;
     ro.k2 = opt_.k2;
     ro.dim_others = opt_.dim_others;
@@ -2057,8 +2080,13 @@ void Server::follow_gaze(uint64_t now) {
 
 void Server::adjust_fov(float delta) {
     auto& ro = renderer_.options;
-    ro.fov_y_deg = std::fmax(10.0f, std::fmin(45.0f, ro.fov_y_deg + delta));
-    save_fov(ro.fov_y_deg);
+    if (opt_.real_size && !opt_.glasses_pinned) {  // the optics' field of view, within its range
+        ro.fov_y_deg = std::clamp(ro.fov_y_deg + delta * 0.2f, kOpticalVFovMin, kOpticalVFovMax);
+        save_optical_fov(ro.fov_y_deg);
+    } else {
+        ro.fov_y_deg = std::fmax(10.0f, std::fmin(45.0f, ro.fov_y_deg + delta));
+        save_fov(ro.fov_y_deg);
+    }
     redraw_ = true;
     {
         std::lock_guard<std::mutex> lock(shared_mutex_);
@@ -2244,7 +2272,15 @@ void Server::apply_pending() {
             renderer_.set_floating(poses);
         }
     }
-    if (o->fov_from_cli) ro.fov_y_deg = o->fov_y_deg;
+    const bool normal_mode = o->real_size && !o->glasses_pinned;
+    if (normal_mode) {
+        ro.fov_y_deg = load_optical_fov();
+    } else if (o->fov_from_cli) {
+        ro.fov_y_deg = o->fov_y_deg;
+    } else if (opt_.real_size && !opt_.glasses_pinned) {  // leaving the space at real size: the pinned mode's own
+        ro.fov_y_deg = load_fov().value_or(o->fov_y_deg);
+    }
+    ro.fixed_prediction_ms = normal_mode ? kPredictionMs : 0.0f;
     ro.ipd_m = o->ipd_mm / 1000.0f;
     ro.side_by_side = o->side_by_side.value_or(auto_side_by_side());
     ro.k1 = o->k1;

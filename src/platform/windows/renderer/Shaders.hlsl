@@ -165,6 +165,41 @@ float4 downscale_fragment(VOut i) : SV_Target {
     return source.SampleLevel(depth_samp, i.uv, downscale_lod);
 }
 
+// The space at real size: bicubic Catmull-Rom (4x4 texels, 9 bilinear fetches) on the mipmap
+// level the pixel needs, as in Shaders.metal. ps_5_0, compiled only with NIMBO_SHARP (a mistake
+// here leaves the plain shader in use).
+#ifdef NIMBO_SHARP
+float4 screen_sharp_fragment(VOut i) : SV_Target {
+    uint w0s, h0s, levels;
+    source.GetDimensions(0, w0s, h0s, levels);
+    float top = (float)levels - 1.0;
+    float lv = min(top, floor(max(0.0, source.CalculateLevelOfDetail(samp, i.uv) - 0.5) + 0.5));
+    uint ws, hs, unused;
+    source.GetDimensions((uint)lv, ws, hs, unused);
+    float2 size = float2(ws, hs);
+    float2 p = i.uv * size;
+    float2 t1 = floor(p - 0.5) + 0.5;
+    float2 f = p - t1;
+    float2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+    float2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+    float2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+    float2 w3 = f * f * (-0.5 + 0.5 * f);
+    float2 w12 = w1 + w2;
+    float2 c0 = (t1 - 1.0) / size, c3 = (t1 + 2.0) / size, c12 = (t1 + w2 / w12) / size;
+    float3 r = (float3)0;
+    r += source.SampleLevel(samp, float2(c0.x, c0.y), lv).rgb * w0.x * w0.y;
+    r += source.SampleLevel(samp, float2(c12.x, c0.y), lv).rgb * w12.x * w0.y;
+    r += source.SampleLevel(samp, float2(c3.x, c0.y), lv).rgb * w3.x * w0.y;
+    r += source.SampleLevel(samp, float2(c0.x, c12.y), lv).rgb * w0.x * w12.y;
+    r += source.SampleLevel(samp, float2(c12.x, c12.y), lv).rgb * w12.x * w12.y;
+    r += source.SampleLevel(samp, float2(c3.x, c12.y), lv).rgb * w3.x * w12.y;
+    r += source.SampleLevel(samp, float2(c0.x, c3.y), lv).rgb * w0.x * w3.y;
+    r += source.SampleLevel(samp, float2(c12.x, c3.y), lv).rgb * w12.x * w3.y;
+    r += source.SampleLevel(samp, float2(c3.x, c3.y), lv).rgb * w3.x * w3.y;
+    return float4(max(r, 0.0) * brightness, 1.0);
+}
+#endif  // NIMBO_SHARP
+
 // Compiled only for the background (NIMBO_BACKGROUND defined): a mistake here never takes the
 // panels' shaders down with it.
 #ifdef NIMBO_BACKGROUND

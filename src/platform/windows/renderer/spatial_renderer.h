@@ -34,6 +34,7 @@ struct RenderOptions {
     float k1 = 0.0f;             // barrel pre-distortion, 0 = off
     float k2 = 0.0f;
     float max_prediction_ms = 50.0f;
+    float fixed_prediction_ms = 0.0f;  // > 0: always this far ahead (space at real size), not the measured horizon
     float dim_others = 1.0f;     // brightness of the panels you are not looking at, 1 = off
     core::TrackingAxes tracking_axes = core::TrackingAxes::Both;  // head rotations that move the panels
     bool static_head = false;    // glasses in their own pinned mode: they anchor the image, not us
@@ -189,6 +190,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> placeholder_;
     // Background (options.background): its shader is optional (compiled apart: a failure leaves
     // Nimbo without backgrounds, not without panels).
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> sharp_ps_;  // the space at real size: Catmull-Rom (optional, ps_5_0)
     Microsoft::WRL::ComPtr<ID3D11PixelShader> background_ps_;
     Microsoft::WRL::ComPtr<ID3D11Buffer> background_cb_;
     Microsoft::WRL::ComPtr<ID3D11SamplerState> mirror_sampler_;

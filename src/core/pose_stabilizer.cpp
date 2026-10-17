@@ -49,11 +49,17 @@ Quat PoseStabilizer::update(const Quat& q, const Vec3& omega, float dt) {
             sign_[k] = 0;
             since_flip_[k] = 1e3f;
         }
+        lock_ = Lock::Locked;
+        anchor_ = out_;
+        if (cfg_.stationary_lock) omega_slow_ = {};  // one sample is no speed: start locked
+        ramp_t_ = calm_s_ = locked_s_ = 0.0f;
+        lock_omega_ = {};
         return out_;
     }
     // Speed of the low-passed vector: tremor is zero-mean and cancels, a real turn persists.
     omega_slow_ = omega_slow_ + (omega - omega_slow_) * alpha(cfg_.speed_cutoff_hz, dt);
     speed_ = omega_slow_.norm();
+    if (cfg_.stationary_lock) return update_lock(q.normalized(), omega, dt);
     if (cfg_.predict_cutoff_hz > 0.0f) {
         const Vec3 before = omega_fast_;
         omega_fast_ = omega_fast_ + (omega - omega_fast_) * alpha(cfg_.predict_cutoff_hz, dt);
@@ -124,6 +130,48 @@ float PoseStabilizer::effective_damp(int k) const {
     const float w[3] = {omega_slow_.x, omega_slow_.y, omega_slow_.z};
     const float v0 = cfg_.reversal_speed_rads;
     return v0 > 0.0f ? damp_[k] * std::fmax(0.0f, 1.0f - std::fabs(w[k]) / v0) : damp_[k];
+}
+
+Quat PoseStabilizer::update_lock(const Quat& q, const Vec3& omega, float dt) {
+    // From the vector part: acos of a dot product near 1 is too coarse in float under ~0.02 deg.
+    Quat r = anchor_.conjugate() * q;
+    const float off_deg = 2.0f * std::asin(std::fmin(1.0f, std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z))) * 57.29578f;
+    switch (lock_) {
+    case Lock::Locked:
+        if (speed_ > cfg_.unlock_rads || off_deg > cfg_.unlock_deg) {
+            lock_ = Lock::Unlocking;
+            ramp_t_ = 0.0f;
+            locked_s_ = 0.0f;
+            break;
+        }
+        locked_s_ += dt;
+        holding_ = true;
+        lock_omega_ = {};
+        return anchor_;  // frozen: not a sub-pixel of movement
+    case Lock::Unlocking:
+    case Lock::Tracking:
+        break;
+    }
+    holding_ = false;
+    if (lock_ == Lock::Unlocking) {
+        ramp_t_ = std::fmin(1.0f, ramp_t_ + dt / std::fmax(1e-3f, cfg_.unlock_ramp_s));
+        const float k = ramp_t_ * ramp_t_ * (3.0f - 2.0f * ramp_t_);  // smoothstep
+        if (ramp_t_ >= 1.0f) lock_ = Lock::Tracking;
+        lock_omega_ = omega * k;
+        calm_s_ = 0.0f;
+        return slerp(anchor_, q, k);
+    }
+    // Tracking: the head itself; back to LOCKED after relock_s under relock_rads.
+    lock_omega_ = omega;
+    calm_s_ = speed_ < cfg_.relock_rads ? calm_s_ + dt : 0.0f;
+    if (calm_s_ >= cfg_.relock_s) {
+        lock_ = Lock::Locked;
+        anchor_ = q;
+        locked_s_ = 0.0f;
+        lock_omega_ = {};
+        holding_ = true;
+    }
+    return q;
 }
 
 void PoseStabilizer::update_damping(const Vec3& omega, float dt) {

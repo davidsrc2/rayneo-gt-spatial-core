@@ -151,6 +151,14 @@ bool SpatialRenderer::init(ID3D11Device* device, std::string* error) {
     ds.ComparisonFunc = D3D11_COMPARISON_NEVER;
     ds.MaxLOD = FLT_MAX;
     device_->CreateSamplerState(&ds, &depth_sampler_);
+    // The space at real size: bicubic panels (optional: without them, the plain shader).
+    std::string sharp_error;
+    const D3D_SHADER_MACRO sharp_defines[] = {{"NIMBO_SHARP", "1"}, {nullptr, nullptr}};
+    if (compile("screen_sharp_fragment", "ps_5_0", &ps, &sharp_error, sharp_defines)) {
+        device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &sharp_ps_);
+    } else {
+        OutputDebugStringA(("nimbo: sharp shader: " + sharp_error + "\n").c_str());
+    }
     // Background: optional.
     std::string bg_error;
     const D3D_SHADER_MACRO bg_defines[] = {{"NIMBO_BACKGROUND", "1"}, {nullptr, nullptr}};
@@ -871,6 +879,9 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     // Extrapolating while the head holds still would only amplify noise: ramp the prediction
     // in with angular speed.
     horizon_s *= core::prediction_gain(angular_velocity.norm(), core::kPredictStartRads, core::kPredictFullRads);
+    // Space at real size: a fixed motion-to-photon time along the gyro's instantaneous angular
+    // velocity (zero while the stationary lock holds), no speed ramp.
+    if (options.fixed_prediction_ms > 0.0f && !options.static_head) horizon_s = options.fixed_prediction_ms * 1e-3f;
     core::Quat head = core::predict_orientation(orientation, angular_velocity, horizon_s);
     head = core::track_axes(head, options.tracking_axes);
     if (options.static_head) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
@@ -929,7 +940,9 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     ctx_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ctx_->VSSetShader(screen_vs_.Get(), nullptr, 0);
     ctx_->VSSetConstantBuffers(0, 1, scene_cb_.GetAddressOf());
-    ctx_->PSSetShader(screen_ps_.Get(), nullptr, 0);
+    // The space at real size: bicubic panels; the glasses' pinned mode as before.
+    ID3D11PixelShader* panel_ps = !options.static_head && sharp_ps_ ? sharp_ps_.Get() : screen_ps_.Get();
+    ctx_->PSSetShader(panel_ps, nullptr, 0);
     ctx_->PSSetConstantBuffers(1, 1, panel_cb_.GetAddressOf());
     ctx_->PSSetSamplers(0, 1, sampler_.GetAddressOf());
     const D3D11_VIEWPORT eye_vp{0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
@@ -959,6 +972,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         ctx_->OMSetRenderTargets(1, &rtv, nullptr);
         ctx_->RSSetViewports(1, &eye_vp);
         ctx_->ClearRenderTargetView(rtv, black);
+        ctx_->PSSetShader(panel_ps, nullptr, 0);  // the previous eye ended with the overlay's
         if (draw_background) {
             ctx_->IASetInputLayout(nullptr);
             ctx_->VSSetShader(fullscreen_vs_.Get(), nullptr, 0);
@@ -970,7 +984,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
             ctx_->Draw(3, 0);
             ctx_->IASetInputLayout(layout_.Get());
             ctx_->VSSetShader(screen_vs_.Get(), nullptr, 0);
-            ctx_->PSSetShader(screen_ps_.Get(), nullptr, 0);
+            ctx_->PSSetShader(panel_ps, nullptr, 0);
         }
         const float offset = options.side_by_side ? (eye == 0 ? -0.5f : 0.5f) * options.ipd_m : 0.0f;
         SceneUniforms su;
@@ -1004,10 +1018,11 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
             if (deep) {
                 ID3D11ShaderResourceView* none = nullptr;
                 ctx_->PSSetShaderResources(1, 1, &none);
-                ctx_->PSSetShader(screen_ps_.Get(), nullptr, 0);
+                ctx_->PSSetShader(panel_ps, nullptr, 0);
             }
         }
         if (overlay_ && overlay_vertices_) {
+            ctx_->PSSetShader(screen_ps_.Get(), nullptr, 0);
             // Head-locked: straight ahead whatever the pose.
             SceneUniforms ou;
             std::memcpy(ou.view_projection, (proj * core::view_matrix(core::Quat{}, offset)).m, sizeof(ou.view_projection));

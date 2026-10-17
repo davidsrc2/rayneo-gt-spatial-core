@@ -126,20 +126,13 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
         e->cfg.madgwick_beta = cfg->madgwick_beta;
         e->cfg.use_magnetometer = cfg->use_magnetometer;
         if (cfg->dead_zone_deg > 0.0f) e->cfg.stabilizer.enter_deg = cfg->dead_zone_deg;
-        if (cfg->dead_zone_deg < 0.0f) {  // never frozen: always world-locked
-            e->cfg.stabilizer = rayneo::core::world_locked_stabilizer();
+        if (cfg->dead_zone_deg < 0.0f) {  // the space at real size: fixed in the room
+            // Stationary lock: frozen while the head holds still, 1:1 the moment it moves
+            // (replaces the adaptive follow filter, the elliptical anchor and its glide, tremor
+            // damping, knock rejection and lag compensation of earlier builds).
+            e->cfg.stabilizer = rayneo::core::stationary_lock_stabilizer();
             e->cfg.body_frame_relative = true;  // exact on both axes whatever the posture at the recenter
-            e->cfg.madgwick_beta = rayneo::core::kWorldLockedMadgwickBeta;  // breathing no longer rocks the panels
-            if (cfg->dead_zone_deg < -1.0f) {  // anchor at rest
-                e->cfg.stabilizer.enter_deg = -1.0f - cfg->dead_zone_deg;
-                // Sway that slips out of the anchor glides back instead of catching up at once:
-                // simulated at rest (breathing, pulse, tremor), 0.009 -> 0.0007 deg/frame and
-                // frozen 89 -> 99 % of the time; a 30 deg/s turn lags the same (the zone).
-                e->cfg.stabilizer.release_cutoff_hz = 0.4f;
-                // Up / down 2 deg (1 sideways): vertical bobbing at rest (breathing, talking, a nod) stays
-                // in the anchor; looking up or down at another panel is far more.
-                e->cfg.stabilizer.enter_vertical_deg = 2.0f;
-            }
+            e->cfg.madgwick_beta = rayneo::core::kWorldLockedMadgwickBeta;  // gravity corrects pitch / roll gently (0.01)
         }
     }
     return e;

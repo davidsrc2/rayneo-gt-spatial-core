@@ -128,6 +128,7 @@ struct Panel {
         _k1 = 0.0f;
         _k2 = 0.0f;
         _maxPredictionMs = 50.0f;
+        _fixedPredictionMs = 0.0f;
         _dimOthers = 1.0f;
         _trackingAxes = 0;
         _staticHead = NO;
@@ -153,6 +154,7 @@ static float panel_arc(RNRenderOptions* o) {
 @implementation RNSpatialRenderer {
     id<MTLCommandQueue> _queue;
     id<MTLRenderPipelineState> _screenPipeline;
+    id<MTLRenderPipelineState> _sharpPipeline;        // the space at real size: Catmull-Rom
     id<MTLRenderPipelineState> _distortPipeline;
     id<MTLRenderPipelineState> _stereoPipeline;       // AI 3D panel
     id<MTLRenderPipelineState> _depthBlendPipeline;   // AI 3D temporal smoothing (R16Float)
@@ -237,6 +239,9 @@ static float panel_arc(RNRenderOptions* o) {
     d.colorAttachments[0].pixelFormat = pixelFormat;
     _screenPipeline = [device newRenderPipelineStateWithDescriptor:d error:error];
     if (_screenPipeline == nil) return nil;
+    d.fragmentFunction = [lib newFunctionWithName:@"screen_sharp_fragment"];
+    _sharpPipeline = [device newRenderPipelineStateWithDescriptor:d error:error];
+    if (_sharpPipeline == nil) return nil;
 
     d.vertexFunction = [lib newFunctionWithName:@"fullscreen_vertex"];
     d.fragmentFunction = [lib newFunctionWithName:@"distort_fragment"];
@@ -834,6 +839,9 @@ static float effective_curvature(RNRenderOptions* o) {
     // in with angular speed.
     const core::Vec3 w{angularVelocity.x, angularVelocity.y, angularVelocity.z};
     horizon_s *= core::prediction_gain(w.norm(), core::kPredictStartRads, core::kPredictFullRads);
+    // Space at real size: a fixed motion-to-photon time along the gyro's instantaneous angular
+    // velocity (zero while the stationary lock holds), no speed ramp.
+    if (o.fixedPredictionMs > 0.0f && !o.staticHead) horizon_s = o.fixedPredictionMs * 1e-3f;
     core::Quat head = core::predict_orientation(from_simd(orientation), w, horizon_s);
     head = core::track_axes(head, static_cast<core::TrackingAxes>(o.trackingAxes));
     if (o.staticHead) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
@@ -971,7 +979,9 @@ static float effective_curvature(RNRenderOptions* o) {
             [enc setFragmentSamplerState:_mirrorSampler atIndex:0];
             [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
         }
-        [enc setRenderPipelineState:_screenPipeline];
+        // The space at real size: bicubic panels; the glasses' pinned mode as before.
+        id<MTLRenderPipelineState> panelPipeline = o.staticHead ? _screenPipeline : _sharpPipeline;
+        [enc setRenderPipelineState:panelPipeline];
         [enc setCullMode:MTLCullModeNone];
         [enc setVertexBytes:&u length:sizeof(u) atIndex:1];
         [enc setFragmentSamplerState:_sampler atIndex:0];
@@ -998,9 +1008,10 @@ static float effective_curvature(RNRenderOptions* o) {
                              indexType:MTLIndexTypeUInt16
                            indexBuffer:p.indices
                      indexBufferOffset:0];
-            if (deep) [enc setRenderPipelineState:_screenPipeline];
+            if (deep) [enc setRenderPipelineState:panelPipeline];
         }
         if (overlay != nil) {
+            [enc setRenderPipelineState:_screenPipeline];
             // Head-locked: straight ahead whatever the pose, slightly below the centre.
             SceneUniforms ou{to_simd(proj * core::view_matrix(core::Quat{}, offset))};
             const float one = 1.0f;

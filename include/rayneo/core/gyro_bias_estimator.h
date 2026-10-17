@@ -61,6 +61,11 @@ struct GyroBiasConfig {
     float escape_stability_degs = 0.15f;  // candidate EMA must stay this close to its anchor
     float verify_s = 30.0f;
     float rollback_persist_s = 2.0f;
+
+    // Stationary lock (adapt_locked): while the panels are locked (head still > 150 ms) the
+    // gyro reads its bias plus tremor; chased with this slow EMA, residuals up to
+    // worn_residual_max_degs (a slow deliberate turn unlocks first).
+    float locked_tau_s = 20.0f;
 };
 
 class GyroBiasEstimator {
@@ -78,6 +83,8 @@ public:
     bool tracking() const { return state_ == State::Tracking; }
     bool still() const { return still_; }
     const Vec3& bias() const { return bias_; }
+    // The stationary lock holds (head still): the raw gyro (deg/s) refines the bias.
+    void adapt_locked(const Vec3& gyro_degs, float dt);
 
     // True when tracking started from the worn fallback (bias less certain until the next
     // rest on a desk refines it through routine adaptation).

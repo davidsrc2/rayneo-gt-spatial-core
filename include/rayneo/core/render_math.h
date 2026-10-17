@@ -38,9 +38,10 @@ Mat4 render_rotation(const Quat& head_rel);
 // see-through glasses the panels seemed to follow the head a little (> 1 deg in a 30 deg turn).
 Mat4 view_matrix(const Quat& head_rel, float eye_offset_m, float neck_up_m = 0.0f, float neck_forward_m = 0.0f);
 
-// Typical eye position from the neck's pivot (render frame: up, forward), metres.
-inline constexpr float kNeckUpM = 0.075f;
-inline constexpr float kNeckForwardM = 0.08f;
+// Eye position from the neck's pivot (render frame: up, forward), metres: the pivot 8 cm below
+// and 7 cm behind the point between the eyes.
+inline constexpr float kNeckUpM = 0.08f;
+inline constexpr float kNeckForwardM = 0.07f;
 
 // Left-handed perspective with Metal/D3D clip depth [0, 1].
 Mat4 perspective_lh(float fovy_rad, float aspect, float near_z, float far_z);
