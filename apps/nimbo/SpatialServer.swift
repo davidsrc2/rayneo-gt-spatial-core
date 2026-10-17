@@ -455,18 +455,43 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // New virtual monitors start with macOS's default wallpaper (or none): give them yours,
     // from the Mac's own screen (else the first screen that has one).
+    // Right after a monitor is created macOS does not take a wallpaper for it yet (the log said
+    // "on 0 monitor(s)": black, or half drawn). Retried for a few seconds until every monitor
+    // has it, filling the screen (no bars), and the reason logged when it does not take.
     private func copyWallpaper(to ids: [CGDirectDisplayID], from source: CGDirectDisplayID?) {
-        let ws = NSWorkspace.shared
-        let mine = Set(ids)
-        let from = NSScreen.screens.first { source != nil && Displays.id(of: $0) == source }
-            ?? NSScreen.screens.first { !mine.contains(Displays.id(of: $0)) && Displays.glassesScreen() != $0 }
-        guard let from, let url = ws.desktopImageURL(for: from) else { return }
-        let options = ws.desktopImageOptions(for: from) ?? [:]
-        var done = 0
-        for screen in NSScreen.screens where mine.contains(Displays.id(of: screen)) {
-            if (try? ws.setDesktopImageURL(url, for: screen, options: options)) != nil { done += 1 }
+        Task { @MainActor [weak self] in
+            var left = Set(ids)
+            for attempt in 0..<6 {
+                guard let self, !self.stopped, !left.isEmpty else { return }
+                let ws = NSWorkspace.shared
+                let from = NSScreen.screens.first { source != nil && Displays.id(of: $0) == source }
+                    ?? NSScreen.screens.first { !ids.contains(Displays.id(of: $0)) && Displays.glassesScreen() != $0 }
+                guard let from, let url = ws.desktopImageURL(for: from) else {
+                    self.log("wallpaper: none to copy")
+                    return
+                }
+                var options = ws.desktopImageOptions(for: from) ?? [:]
+                options[.imageScaling] = NSImageScaling.scaleProportionallyUpOrDown.rawValue
+                options[.allowClipping] = true  // fill the screen, cropping the overflow: no bars
+                var lastError: String?
+                for screen in NSScreen.screens where left.contains(Displays.id(of: screen)) {
+                    do {
+                        try ws.setDesktopImageURL(url, for: screen, options: options)
+                        if ws.desktopImageURL(for: screen) == url { left.remove(Displays.id(of: screen)) }
+                    } catch {
+                        lastError = error.localizedDescription
+                    }
+                }
+                if left.isEmpty {
+                    self.log("wallpaper: \(url.lastPathComponent) on \(ids.count) monitor(s)" + (attempt > 0 ? " (try \(attempt + 1))" : ""))
+                    return
+                }
+                if attempt == 5 {
+                    self.log("wallpaper: not set on \(left.count) monitor(s)" + (lastError.map { ": \($0)" } ?? ""))
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
         }
-        log("wallpaper: \(url.lastPathComponent) on \(done) monitor(s)")
     }
 
     private var macScreenID: CGDirectDisplayID?   // the Mac's own screen as panel 1
@@ -1069,7 +1094,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // (the others lie just beyond the image's edges: look there), or the one you take the mouse
     // to, at once. Floating windows only when allowed.
     private func updateGrow() {
-        guard options.glassesPinned, options.growFocused, focusMode == 0, renderer.panelCount > 1,
+        guard options.glassesPinned, options.growFocused, focusMode == 0, !overview, renderer.panelCount > 1,
               let p = pose.latest(), p.tracking else {
             growCandidate = -2
             return
@@ -1406,10 +1431,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private(set) var zoom: Float = 1
     private var codeMode = false
 
-    func setZoom(_ z: Float, message: String? = nil) {
-        zoom = max(0.5, min(3, z))
+    func setZoom(_ z: Float, message: String? = nil, save: Bool = true) {
+        zoom = max(0.2, min(3, z))
         renderer?.options.zoom = zoom
-        SettingsFile.shared.set(Double(zoom), forKey: "zoom")  // as left, next time too
+        if save { SettingsFile.shared.set(Double(zoom), forKey: "zoom") }  // as left, next time too
         renderer?.invalidateSkippedFrame()
         requestRedraw()
         log(String(format: "zoom: %.0f %%", zoom * 100))
@@ -1421,11 +1446,43 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         var z = zoom * (direction > 0 ? 1.15 : 1 / 1.15)
         if abs(z - 1) < 0.07 { z = 1 }
         codeMode = false
+        overview = false
         setZoom(z)
+    }
+
+    // ⌘⌥A: every panel at once, seen from afar (the glasses' pinned mode: all fitted in their
+    // image; the space at real size: zoomed out until they fit). Again: back as it was.
+    private var overview = false
+    private var zoomBeforeOverview: Float = 1
+    private var growBeforeOverview = -1
+
+    func toggleOverview() {
+        guard let renderer else { return }
+        overview.toggle()
+        if overview {
+            if options.glassesPinned {
+                growBeforeOverview = renderer.growPanel
+                renderer.growPanel = -1
+                flash("Vista de todas las pantallas")
+            } else {
+                zoomBeforeOverview = zoom
+                setZoom(renderer.overviewZoom(), message: "Vista de todas las pantallas", save: false)
+            }
+        } else {
+            if options.glassesPinned {
+                renderer.growPanel = growBeforeOverview
+                flash("Vuelta a la pantalla en uso")
+            } else {
+                setZoom(zoomBeforeOverview, message: "Vuelta al zoom de antes", save: false)
+            }
+        }
+        log("overview: \(overview ? "on" : "off")")
+        requestRedraw()
     }
 
     // ⌘⌥K: the panels much closer (170 %, larger than the glasses' image if need be) or back.
     func toggleCodeMode() {
+        overview = false
         codeMode.toggle()
         setZoom(codeMode ? 1.7 : 1, message: codeMode ? "Modo código activado" : "Modo código desactivado")
     }
@@ -1505,6 +1562,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         reg(kVK_ANSI_R, "R") { [weak self] in self?.toggleRecording() }
         reg(kVK_ANSI_T, "T") { [weak self] in self?.toggleDepth3D() }
         reg(kVK_ANSI_K, "K") { [weak self] in self?.toggleCodeMode() }
+        reg(kVK_ANSI_A, "A") { [weak self] in self?.toggleOverview() }
         // Zoom: every panel larger / smaller, the arrangement with them (closer / farther).
         for key in plusKeys { reg(key, "+") { [weak self] in self?.zoomStep(1) } }
         for key in minusKeys { reg(key, "-") { [weak self] in self?.zoomStep(-1) } }

@@ -83,6 +83,9 @@ NS_ASSUME_NONNULL_BEGIN
 // lines separated by "\n"; nil hides it. Any thread.
 - (void)setOverlayText:(nullable NSString*)text;
 
+// The zoom (<= 1) at which every panel fits in the glasses' image at once (an overview).
+- (float)overviewZoom;
+
 // Panel arc (deg) that fits `count` panels (columns) in the horizontal FOV of the options.
 - (float)fitArcDegreesForPanels:(NSUInteger)count;
 

@@ -150,6 +150,7 @@ struct ShortcutSheet: View {
         ("⌘⌥K", "Ctrl+Alt+K", "Modo código: las pantallas mucho más cerca, zoom 170 % (otra vez: como estaban)"),
         ("⌘⌥+  ⌘⌥-", "Ctrl+Alt++  -", "Zoom: acercar / alejar las pantallas"),
         ("⌘⌥0", "Ctrl+Alt+0", "Zoom al 100 %"),
+        ("⌘⌥A", "Ctrl+Alt+A", "Ver de lejos todas las pantallas (otra vez: como estabas)"),
         ("⌘⌥P", "Ctrl+Alt+P", "Modo cine: la pantalla que miras, delante y grande"),
         ("⌘⌥T", "Ctrl+Alt+T", "Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)"),
         ("⌘⌥R", "—", "Grabar lo que ves en las gafas (vídeo en Descargas)"),

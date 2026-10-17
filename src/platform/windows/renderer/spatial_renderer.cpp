@@ -183,7 +183,8 @@ void SpatialRenderer::set_source(int panel, FrameSource* source) {
 
 // The panel arc as seen at the current distance (closer looks bigger, like a real monitor).
 float SpatialRenderer::panel_arc() const {
-    return core::arc_at_distance(options.arc_deg * kDegToRad, options.distance_m) * std::clamp(options.zoom, 0.3f, 4.0f);
+    const float zoom = zoom_override_ > 0.0f ? zoom_override_ : options.zoom;
+    return core::arc_at_distance(options.arc_deg * kDegToRad, options.distance_m) * std::clamp(zoom, 0.2f, 4.0f);
 }
 
 float SpatialRenderer::vertical_arc(float aspect) const {
@@ -242,6 +243,24 @@ uint64_t renderer_now_ns() {
                                      .count());
 }
 }  // namespace
+
+float SpatialRenderer::overview_zoom() const {
+    zoom_override_ = 1.0f;  // placements at zoom 1
+    const auto pls = placements(panels_[0].aspect);
+    const float arc = panel_arc();
+    zoom_override_ = 0.0f;
+    float half_w = 0, half_h = 0;
+    for (size_t i = 0; i < pls.size() && i < static_cast<size_t>(kMaxPanels); ++i) {
+        const float w = arc * pls[i].scale, h = core::panel_vertical_arc(w, panels_[i].aspect, true);
+        // Both sides of straight ahead: the zoom scales about it.
+        half_w = std::max(half_w, std::fabs(pls[i].yaw_rad) + w / 2);
+        half_h = std::max(half_h, std::fabs(pls[i].pitch_rad) + h / 2);
+    }
+    if (half_w <= 0 || half_h <= 0) return 1.0f;
+    const float fw = core::horizontal_fov(options.fov_y_deg * kDegToRad, options.eye_aspect);
+    const float fh = options.fov_y_deg * kDegToRad;
+    return std::clamp(0.92f * std::min(fw / (2 * half_w), fh / (2 * half_h)), 0.2f, 1.0f);
+}
 
 void SpatialRenderer::set_grow_panel(int panel) {
     if (panel == grow_panel_) return;

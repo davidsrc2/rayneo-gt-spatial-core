@@ -92,6 +92,8 @@ public:
     // Glasses in their pinned mode: this panel fills their image and the others lie just beyond
     // its edges; changing it pans and zooms there in half a second. -1: all fitted in the image.
     void set_grow_panel(int panel);
+    // The zoom (<= 1) at which every panel fits in the glasses' image at once (an overview).
+    float overview_zoom() const;
     int grow_panel() const { return grow_panel_; }
 
     // True when the frame about to be drawn equals the one on screen: skip it.
@@ -198,6 +200,7 @@ private:
     core::FrameSkipper skipper_;
     uint64_t last_frame_ns_ = 0;
 
+    mutable float zoom_override_ = 0.0f;     // > 0: panel_arc() uses this zoom (overview_zoom measures at 1)
     int grow_panel_ = -1, grow_from_ = -1;  // glasses' pinned mode: highlighted panel, the one before
     uint64_t grow_start_ns_ = 0;             // start of the pan / zoom between them (steady clock)
     uint64_t grow_generation_ = 0;           // bumps on every change: draw it

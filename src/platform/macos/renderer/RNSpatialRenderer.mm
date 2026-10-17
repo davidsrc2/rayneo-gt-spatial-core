@@ -132,7 +132,7 @@ struct Panel {
 
 // The panel arc as seen at the current distance (Distancia acerca y aleja de verdad).
 static float panel_arc(RNRenderOptions* o) {
-    return core::arc_at_distance(o.arcDegrees * kDegToRad, o.distanceMeters) * std::clamp(o.zoom, 0.3f, 4.0f);
+    return core::arc_at_distance(o.arcDegrees * kDegToRad, o.distanceMeters) * std::clamp(o.zoom, 0.2f, 4.0f);
 }
 
 @implementation RNSpatialRenderer {
@@ -502,6 +502,33 @@ static float panel_arc(RNRenderOptions* o) {
     }
     const float arc = panel_arc(o);
     return core::grid_layout(cells, arc, core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
+}
+
+- (float)overviewZoom {
+    RNRenderOptions* o = _options;
+    os_unfair_lock_lock(&_sourceLock);
+    const NSUInteger count = _panelCount;
+    float aspects[kMaxPanels];
+    for (NSUInteger i = 0; i < kMaxPanels; ++i) aspects[i] = _panels[i].aspect;
+    os_unfair_lock_unlock(&_sourceLock);
+    const float saved = o.zoom;
+    o.zoom = 1.0f;
+    const auto pls = [self placements:count aspect:aspects[0]];
+    const float arc = panel_arc(o);
+    o.zoom = saved;
+    float y0 = 1e9f, y1 = -1e9f, p0 = 1e9f, p1 = -1e9f;
+    for (size_t i = 0; i < pls.size() && i < kMaxPanels; ++i) {
+        const float w = arc * pls[i].scale, h = core::panel_vertical_arc(w, aspects[i], true);
+        // Both sides of straight ahead: the zoom scales about it.
+        y0 = std::min(y0, pls[i].yaw_rad - w / 2);
+        y1 = std::max(y1, pls[i].yaw_rad + w / 2);
+        p0 = std::min(p0, pls[i].pitch_rad - h / 2);
+        p1 = std::max(p1, pls[i].pitch_rad + h / 2);
+    }
+    if (y1 <= y0 || p1 <= p0) return 1.0f;
+    const float fw = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect), fh = o.fovYDegrees * kDegToRad;
+    const float half_w = std::max(std::fabs(y0), std::fabs(y1)), half_h = std::max(std::fabs(p0), std::fabs(p1));
+    return std::clamp(0.92f * std::min(fw / (2 * half_w), fh / (2 * half_h)), 0.2f, 1.0f);
 }
 
 - (float)fitArcDegreesForPanels:(NSUInteger)count {

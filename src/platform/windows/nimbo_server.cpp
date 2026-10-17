@@ -340,7 +340,7 @@ constexpr UINT_PTR kRepinTimer = 1;  // recentre in the glasses' pinned mode: ba
 
 enum HotKey {
     kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema, kDepth3D,
-    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad
+    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview
 };
 
 
@@ -407,6 +407,11 @@ private:
     // The glasses in their 3D mode are a double-width display (3840x1080, one image per eye).
     bool auto_side_by_side() const { return !opt_.windowed && height_ > 0 && width_ > 3 * height_; }
     uint64_t glasses_lost_ns_ = 0;  // their display went away at (0: present)
+    // Wallpaper copy to the new monitors, retried while they do not take it yet.
+    RECT wallpaper_from_{};
+    std::vector<RECT> wallpaper_to_;
+    int wallpaper_tries_ = 0;
+    uint64_t wallpaper_next_ns_ = 0;
     bool setup_virtual_displays();
     const win::OutputInfo* find_output(const std::wstring& gdi_name) const;
     void refresh_rects();
@@ -426,8 +431,14 @@ private:
     void toggle_depth3d();
     // Zoom (Ctrl+Alt++ / -, 0; code mode Ctrl+Alt+K = 170 %): every panel larger and the
     // arrangement with it, like walking up to the screens. For the run.
-    void set_zoom(float z, const std::wstring& message = {});
+    void set_zoom(float z, const std::wstring& message = {}, bool save = true);
     void zoom_step(int direction);
+    // Ctrl+Alt+A: every panel at once, seen from afar (pinned: all fitted in the glasses' image;
+    // real size: zoomed out until they fit). Again: back as it was.
+    void toggle_overview();
+    bool overview_ = false;
+    float zoom_before_overview_ = 1.0f;
+    int grow_before_overview_ = -1;
     float zoom_ = 1.0f;
     bool code_mode_ = false;
     win::DepthEngine depth_;
@@ -923,6 +934,7 @@ bool Server::start() {
                              {kZoomIn, VK_OEM_PLUS, "Ctrl+Alt++"}, {kZoomOut, VK_OEM_MINUS, "Ctrl+Alt+-"},
                              {kZoomInPad, VK_ADD, "Ctrl+Alt+Num+"}, {kZoomOutPad, VK_SUBTRACT, "Ctrl+Alt+Num-"},
                              {kZoomReset, '0', "Ctrl+Alt+0"}, {kCodeMode, 'K', "Ctrl+Alt+K"},
+                             {kOverview, 'A', "Ctrl+Alt+A"},
                              {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"},
                              {kDepth3D, 'T', "Ctrl+Alt+T"}};
     if (opt_.sim) {
@@ -1163,6 +1175,12 @@ void Server::periodic() {
     next_stats_ns_ += 1000000000ull;
     if (next_stats_ns_ < now) next_stats_ns_ = now + 1000000000ull;
     if (glasses_lost_ns_ != 0) handle_display_change();  // waiting for the glasses' display to come back
+    if (wallpaper_tries_ > 0 && now >= wallpaper_next_ns_) {
+        const int done = win::copy_wallpaper(wallpaper_from_, wallpaper_to_);
+        wallpaper_tries_ = done >= static_cast<int>(wallpaper_to_.size()) ? 0 : wallpaper_tries_ - 1;
+        wallpaper_next_ns_ = now + 2000000000ull;
+        logln("wallpaper: copied to %d of %zu monitor(s) (again)", done, wallpaper_to_.size());
+    }
     if (flash_until_ns_ != 0 && now >= flash_until_ns_ && !overlay_shown_) {
         renderer_.set_overlay_text(L"");
         flash_until_ns_ = 0;
@@ -1403,7 +1421,7 @@ void Server::toggle_focus(bool cinema) {
 
 // On: cinema on the panel looked at, in depth (glasses in 3D). Off: flat, still in cinema.
 void Server::update_grow(uint64_t now) {
-    if (!opt_.glasses_pinned || focus_mode_ != 0 || renderer_.panel_count() < 2) {
+    if (!opt_.glasses_pinned || focus_mode_ != 0 || overview_ || renderer_.panel_count() < 2) {
         if (!opt_.glasses_pinned && renderer_.grow_panel() != -1) renderer_.set_grow_panel(-1);
         grow_candidate_ = -2;
         return;
@@ -1465,13 +1483,13 @@ void Server::toggle_depth3d() {
     update_depth3d();
 }
 
-void Server::set_zoom(float z, const std::wstring& message) {
-    zoom_ = std::clamp(z, 0.5f, 3.0f);
+void Server::set_zoom(float z, const std::wstring& message, bool save) {
+    zoom_ = std::clamp(z, 0.2f, 3.0f);
     renderer_.options.zoom = zoom_;
     renderer_.invalidate_skipped_frame();
     redraw_ = true;
     logln("zoom: %.0f %%", zoom_ * 100.0f);
-    {
+    if (save) {
         std::lock_guard<std::mutex> lock(shared_mutex_);
         status_.zoom = zoom_;  // the app saves it: the same zoom next time
     }
@@ -1482,7 +1500,29 @@ void Server::zoom_step(int direction) {
     float z = zoom_ * (direction > 0 ? 1.15f : 1.0f / 1.15f);
     if (std::fabs(z - 1.0f) < 0.07f) z = 1.0f;  // lands on 100 % on the way
     code_mode_ = false;
+    overview_ = false;
     set_zoom(z);
+}
+
+void Server::toggle_overview() {
+    overview_ = !overview_;
+    if (overview_) {
+        if (opt_.glasses_pinned) {
+            grow_before_overview_ = renderer_.grow_panel();
+            renderer_.set_grow_panel(-1);
+            flash(L"Vista de todas las pantallas");
+        } else {
+            zoom_before_overview_ = zoom_;
+            set_zoom(renderer_.overview_zoom(), L"Vista de todas las pantallas", false);
+        }
+    } else if (opt_.glasses_pinned) {
+        renderer_.set_grow_panel(grow_before_overview_);
+        flash(L"Vuelta a la pantalla en uso");
+    } else {
+        set_zoom(zoom_before_overview_, L"Vuelta al zoom de antes", false);
+    }
+    logln("overview: %s", overview_ ? "on" : "off");
+    redraw_ = true;
 }
 
 void Server::flash(const std::wstring& line, double seconds) {
@@ -1858,7 +1898,15 @@ bool Server::setup_virtual_displays() {
         if (own == nullptr && o.primary && !o.glasses && !win::is_virtual_panel(o)) own = &o;
     }
     if (own != nullptr && !fresh.empty()) {
-        logln("wallpaper: copied to %d monitor(s)", win::copy_wallpaper(own->desktop, fresh));
+        const int done = win::copy_wallpaper(own->desktop, fresh);
+        logln("wallpaper: copied to %d of %zu monitor(s)", done, fresh.size());
+        // Monitors just attached may not take it yet (black, half drawn): again in a moment.
+        if (done < static_cast<int>(fresh.size())) {
+            wallpaper_from_ = own->desktop;
+            wallpaper_to_ = fresh;
+            wallpaper_tries_ = 3;
+            wallpaper_next_ns_ = steady_ns() + 2000000000ull;
+        }
     }
     return true;
 }
@@ -2035,7 +2083,9 @@ void Server::on_hotkey(int id) {
     case kZoomOut:
     case kZoomOutPad: zoom_step(-1); break;
     case kZoomReset: set_zoom(1.0f, L"Zoom 100 %"); break;
+    case kOverview: toggle_overview(); break;
     case kCodeMode:
+        overview_ = false;
         code_mode_ = !code_mode_;
         set_zoom(code_mode_ ? 1.7f : 1.0f, code_mode_ ? L"Modo código activado" : L"Modo código desactivado");
         break;
