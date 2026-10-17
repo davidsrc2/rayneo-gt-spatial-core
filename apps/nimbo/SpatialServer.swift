@@ -35,6 +35,10 @@ struct LatencyStats {
     // the panels wobble in the room (deg rms).
     var stillN = 0
     var stillSq = 0.0
+    // With the head moving (> 1 deg/s): frame-to-frame change of the drawn pose's step (its
+    // second difference, deg). A smooth turn steps evenly; vibration is the unevenness.
+    var movingN = 0
+    var movingSq = 0.0
 
     mutating func add(poseAge: Double, photon: Double, prediction: Double) {
         frames += 1
@@ -133,6 +137,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // head pose is predicted for that real moment, or the panels lag and jerk while turning.
     private var presentLateMs = 0.0  // guarded by statsLock
     private var lastDrawn: simd_quatf?  // render thread
+    private var lastPredicted: simd_quatf?, lastStep: simd_float3?  // render thread: moving jitter
     private let drawLock = NSLock()     // one frame at a time: display link or fallback loop
     private var linkFrames: UInt64 = 0  // guarded by statsLock: display link callbacks so far
     // Late latching (guarded by statsLock): the display link wakes ~3 frames before the frame
@@ -1806,7 +1811,26 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             step = 2 * asin(min(1, Double(simd_length(r.imag)))) * 180 / .pi
         }
         lastDrawn = p.orientation
+        // The pose as drawn (the renderer's prediction redone: same formula, its horizon).
+        let w = p.angularVelocity, speed = simd_length(w)
+        var drawn = p.orientation
+        if speed > 1e-6 && prediction > 0 {
+            drawn = simd_normalize(simd_mul(simd_quatf(angle: speed * prediction / 1000, axis: w / speed), drawn))
+        }
+        var jitter: Double?
+        if let last = lastPredicted {
+            var r = simd_mul(simd_inverse(last), drawn)
+            if r.real < 0 { r = simd_quatf(vector: -r.vector) }
+            let stepVec = 2 * r.imag * 180 / .pi  // deg, small-angle rotation vector
+            if !still, let previous = lastStep { jitter = Double(simd_length(stepVec - previous)) }
+            lastStep = stepVec
+        }
+        lastPredicted = drawn
         statsLock.lock()
+        if let jitter, jitter < 2 {
+            stats.movingN += 1
+            stats.movingSq += jitter * jitter
+        }
         stats.add(poseAge: poseAge, photon: photon, prediction: Double(prediction))
         stats.tracking = p.tracking
         if still && step < 1 {
@@ -1927,7 +1951,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d | latch %.1f ms%@",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
                    s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, latchMs,
-                   s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) as NSString : "" as NSString))
+                   (s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) : "")
+                   + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "") as NSString))
         adaptFrameLatency(s)
         if depthPanel >= 0 {
             let d = depth3D.takeStats()
