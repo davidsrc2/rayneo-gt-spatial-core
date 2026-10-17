@@ -95,7 +95,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var growCandidateSince = Date()
     private var growCursorDisplay: CGDirectDisplayID = 0
     // Floating windows' captures, by window, with the size each was started at.
-    private var floatingSizes: [(capture: ScreenCapture, windowID: CGWindowID, size: CGSize)] = []
+    // `current` is `original` unless the window left the screen (a video put full screen) and its
+    // app's largest window on screen is shown instead.
+    private var floatingSizes: [(capture: ScreenCapture, original: CGWindowID, current: CGWindowID, pid: pid_t, size: CGSize)] = []
     private var physicalDisplay: CGDirectDisplayID?  // glasses surface when it is not a panel
     private var glassesID: CGDirectDisplayID?        // render target (nil in --windowed)
     private var lastPoseNs: UInt64 = 0
@@ -452,6 +454,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // Keeps the render window on the glasses display whatever macOS does with the layout.
     private func screensChanged() {
+        placeWallpaperWindows()
         guard let id = glassesID else { return }
         guard let s = NSScreen.screens.first(where: { Displays.id(of: $0) == id }) else {
             glassesLost()
@@ -517,6 +520,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                     options[.imageScaling] = NSImageScaling.scaleProportionallyUpOrDown.rawValue
                     options[.allowClipping] = true  // fill the screen, cropping the overflow: no bars
                     picture = (url, options)
+                    self.showWallpaperWindows(url, on: ids)
                 }
                 guard let (url, options) = picture else { continue }
                 var lastError: String?
@@ -537,6 +541,47 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
+        }
+    }
+
+    // macOS assigns the wallpaper to a new virtual monitor (desktopImageURL reads it back) but
+    // often never draws it there: the monitor stayed black, with a system picture too. Nimbo
+    // draws it itself in a window at the desktop's level (behind the Finder's icons and every
+    // window, on every Space), filling the monitor.
+    private var wallpaperWindows: [CGDirectDisplayID: NSWindow] = [:]
+
+    private func showWallpaperWindows(_ url: URL, on ids: [CGDirectDisplayID]) {
+        guard let image = NSImage(contentsOf: url) else { return }
+        for id in ids {
+            let w = wallpaperWindows[id] ?? {
+                let w = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+                w.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)))
+                w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+                w.ignoresMouseEvents = true
+                w.isReleasedWhenClosed = false
+                w.backgroundColor = .black
+                let v = NSView()
+                v.wantsLayer = true
+                v.layer?.contentsGravity = .resizeAspectFill  // fills, cropping the overflow: no bars
+                v.layer?.masksToBounds = true
+                w.contentView = v
+                return w
+            }()
+            w.contentView?.layer?.contents = image
+            wallpaperWindows[id] = w
+        }
+        placeWallpaperWindows()
+    }
+
+    // Over its monitor wherever macOS moved it; hidden while the monitor is gone.
+    private func placeWallpaperWindows() {
+        for (id, w) in wallpaperWindows {
+            guard let screen = NSScreen.screens.first(where: { Displays.id(of: $0) == id }) else {
+                w.orderOut(nil)
+                continue
+            }
+            if w.frame != screen.frame { w.setFrame(screen.frame, display: true) }
+            w.orderBack(nil)
         }
     }
 
@@ -990,8 +1035,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 // The window itself, not its part of its monitor: macOS drops other windows on a
                 // new monitor (the Terminal in front showed instead of the Safari picked).
                 let (pw, ph) = try await cap.start(windowID: CGWindowID(w.windowID), fps: 60)
-                if let frame = WindowGatherer.frame(windowID: CGWindowID(w.windowID)) {
-                    floatingSizes.append((cap, CGWindowID(w.windowID), frame.size))
+                if let info = Self.windowInfo(CGWindowID(w.windowID)) {
+                    floatingSizes.append((cap, CGWindowID(w.windowID), CGWindowID(w.windowID), info.pid, info.frame.size))
                 }
                 floatingCaptures.append(cap)
                 log("window: panel \(Int(panel) + 1) <- \(w.title) \(pw)x\(ph)" + (displays[i].map { " on monitor \($0.displayID)" } ?? ""))
@@ -1080,15 +1125,55 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
     }
 
-    // Once a second: a floating window resized, its capture follows (else scaled into the old size).
+    // Once a second: a floating window resized, its capture follows (else scaled into the old
+    // size). A window that left the screen (a video in it put full screen: macOS shows another
+    // window, or the same one in a Space of its own) gives way to its app's largest window on
+    // screen, in the same panel; back to it once it returns.
     private func refreshFloatingSizes() {
         for (i, f) in floatingSizes.enumerated() {
-            guard let frame = WindowGatherer.frame(windowID: f.windowID),
+            let original = Self.windowInfo(f.original)
+            var target = f.current
+            if original?.onScreen == true {
+                target = f.original
+            } else if let replacement = Self.largestWindow(of: f.pid, excluding: f.original) {
+                target = replacement
+            }
+            if target != f.current {
+                floatingSizes[i].current = target
+                let cap = f.capture
+                let back = target == f.original
+                log("window: " + (back ? "back to its own window \(target)" : "window \(f.original) left the screen (full screen?); the panel shows its app's window \(target)"))
+                Task { await cap.retarget(windowID: target) }
+                floatingSizes[i].size = Self.windowInfo(target)?.frame.size ?? f.size
+                continue
+            }
+            guard let frame = Self.windowInfo(f.current)?.frame,
                   abs(frame.width - f.size.width) >= 2 || abs(frame.height - f.size.height) >= 2 else { continue }
+            log("window: \(f.current) now \(Int(frame.width))x\(Int(frame.height)) at \(Int(frame.minX)),\(Int(frame.minY))")
             floatingSizes[i].size = frame.size
             let cap = f.capture
             Task { await cap.updateWindowSize(frame.size) }
         }
+    }
+
+    private static func windowInfo(_ id: CGWindowID) -> (frame: CGRect, onScreen: Bool, pid: pid_t)? {
+        guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]])?.first,
+              let b = info[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: b as CFDictionary),
+              let pid = info[kCGWindowOwnerPID as String] as? pid_t else { return nil }
+        return (frame, (info[kCGWindowIsOnscreen as String] as? Bool) ?? false, pid)
+    }
+
+    // The app's largest normal window on screen now (not tiny), other than `excluding`.
+    private static func largestWindow(of pid: pid_t, excluding: CGWindowID) -> CGWindowID? {
+        let list = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
+        return list.compactMap { info -> (CGWindowID, CGFloat)? in
+            guard info[kCGWindowOwnerPID as String] as? pid_t == pid, (info[kCGWindowLayer as String] as? Int) == 0,
+                  let id = info[kCGWindowNumber as String] as? CGWindowID, id != excluding,
+                  let b = info[kCGWindowBounds as String] as? NSDictionary,
+                  let r = CGRect(dictionaryRepresentation: b as CFDictionary), r.width >= 320, r.height >= 180 else { return nil }
+            return (id, r.width * r.height)
+        }.max { $0.1 < $1.1 }?.0
     }
 
     // A monitor's pose in degrees (yaw right, pitch up): hand-placed or its grid cell.
@@ -1370,6 +1455,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         _ = done.wait(timeout: .now() + 2)
         patternWindows.forEach { $0.close() }
         patternWindows = []
+        wallpaperWindows.values.forEach { $0.close() }
+        wallpaperWindows = [:]
         window?.orderOut(nil)
         window = nil
         floatingDisplays = []
@@ -1801,18 +1888,22 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // glasses and start a fresh link.
     private var stalledSeconds = 0
 
+    // The old link is detached first and the new one attached only once the fallback loop has
+    // stopped: a display link attached while that loop asked the layer for drawables made
+    // CAMetalLayer throw and Nimbo quit (Mission Control twice in a row).
     private func recoverRenderLoop() {
         stalledSeconds = 0
-        guard let window, let view else { return }
-        startFallbackLoop()
+        guard let window, fallbackThread == nil else { return }
         log("render: stalled (the glasses display changed Space?), restarting the render loop")
         if let id = glassesID, let s = NSScreen.screens.first(where: { Displays.id(of: $0) == id }) {
             window.setFrame(s.frame, display: true)
         }
         window.orderFrontRegardless()
         displayLink?.invalidate()
+        displayLink = nil
         renderThread?.cancel()
-        startRenderLoop(layer: view.metalLayer)
+        renderThread = nil
+        startFallbackLoop()  // draws until it hands over to a new link
         requestRedraw()
     }
 
@@ -1988,6 +2079,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let hz = max(60, glassesID.flatMap { CGDisplayCopyDisplayMode($0)?.refreshRate } ?? 60)
         log("render: display link stalled (window " + (window.occlusionState.contains(.visible) ? "visible" : "not visible")
             + "); drawing on our own clock until it is back")
+        let start = CACurrentMediaTime()
         let thread = Thread { [weak self] in
             var frames = 0
             while !Thread.current.isCancelled {
@@ -1995,7 +2087,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 self.statsLock.lock()
                 let ticked = self.linkFrames != since
                 self.statsLock.unlock()
-                if ticked { break }
+                // No link attached while this loop runs (see recoverRenderLoop): after 2 s on our
+                // own clock, hand over to a new one (if it stalls too, this starts again).
+                if ticked || CACurrentMediaTime() - start > 2 { break }
                 var drew = false
                 autoreleasepool {
                     if let d = layer.nextDrawable() {  // waits for a free one: vsync pacing (1 s at most)
@@ -2005,8 +2099,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 if drew { frames += 1 } else { Thread.sleep(forTimeInterval: 1 / hz) }
             }
             DispatchQueue.main.async { [weak self] in
-                self?.fallbackThread = nil
-                self?.log("render: display link back (\(frames) frames drawn on our own clock)")
+                guard let self else { return }
+                self.fallbackThread = nil
+                self.log("render: display link back (\(frames) frames drawn on our own clock)")
+                if !self.stopped, self.displayLink == nil, let view = self.view {
+                    self.startRenderLoop(layer: view.metalLayer)
+                    self.requestRedraw()
+                }
             }
         }
         thread.name = "rayneo.render.fallback"

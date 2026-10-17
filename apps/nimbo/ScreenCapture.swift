@@ -99,6 +99,17 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         try? await stream.updateConfiguration(cfg)
     }
 
+    // A window capture moved to another window (its filter swapped, the stream kept).
+    func retarget(windowID: CGWindowID) async {
+        guard let stream, let cfg = config,
+              let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false),
+              let window = content.windows.first(where: { $0.windowID == windowID }) else { return }
+        cfg.width = Int(window.frame.width * windowScale)
+        cfg.height = Int(window.frame.height * windowScale)
+        try? await stream.updateContentFilter(SCContentFilter(desktopIndependentWindow: window))
+        try? await stream.updateConfiguration(cfg)
+    }
+
     // A single window, wherever it is (covered by others too): a floating panel in space.
     func start(windowID: CGWindowID, fps: Int) async throws -> (Int, Int) {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)

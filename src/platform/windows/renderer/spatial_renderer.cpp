@@ -226,7 +226,10 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
         const float a = panels_[std::min(options.focus_panel, kMaxPanels - 1)].aspect;
         const float fw = core::horizontal_fov(options.fov_y_deg * kDegToRad, options.eye_aspect);
         const float fh = options.fov_y_deg * kDegToRad;
-        const float fit = 0.95f * std::min(fw / panel_arc(), fh / core::panel_vertical_arc(panel_arc(), a, true));
+        // Fitted at zoom 1; the zoom (Ctrl+Alt++ / -) then scales the fitted size, as on macOS.
+        const float zoom = std::clamp(zoom_override_ > 0.0f ? zoom_override_ : options.zoom, 0.2f, 4.0f);
+        const float arc = panel_arc() / zoom;
+        const float fit = 0.95f * std::min(fw / arc, fh / core::panel_vertical_arc(arc, a, true));
         out[static_cast<size_t>(options.focus_panel)] = core::PanelPlacement{0.0f, 0.0f, std::min(1.6f, fit)};
     }
     if (options.static_head) fit_in_glasses_image(out);
