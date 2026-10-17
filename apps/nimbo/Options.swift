@@ -49,6 +49,7 @@ struct ServerOptions {
     var startCinema = false       // with startFocusPanel: cinema mode
     var vdWidth = 1152            // points; with hiDPI: large, sharp text
     var vdHeight = 648
+    var vdLikeMac = false         // with the Mac's screen as panel 1: the virtual monitors at its size
     var hiDPI = true
     var testPattern = false
     var fit = false               // size panels so all of them are visible at once

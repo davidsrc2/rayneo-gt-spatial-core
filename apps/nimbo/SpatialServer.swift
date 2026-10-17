@@ -1,7 +1,10 @@
 import AppKit
 import Carbon.HIToolbox
+import ImageIO
 import Metal
 import QuartzCore
+import ScreenCaptureKit
+import UniformTypeIdentifiers
 
 final class MetalView: NSView {
     let metalLayer = CAMetalLayer()
@@ -226,12 +229,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let builtIn = options.macScreen && !options.windowed && !options.includeMain ? Displays.builtIn() : nil
             // Next to the Mac's screen, the virtual monitors take its shape (16:10 on a MacBook):
             // at 16:9 the same width drew them shorter, as if cut top and bottom.
-            var vdHeight = options.vdHeight
+            var vdWidth = options.vdWidth, vdHeight = options.vdHeight
             if let builtIn {
                 let b = CGDisplayBounds(builtIn)
-                if b.width > 0 { vdHeight = Int((Double(options.vdWidth) * b.height / b.width).rounded()) & ~1 }
+                if options.vdLikeMac && b.width >= 640 {  // the Mac's exact resolution: the same text on all
+                    vdWidth = Int(b.width) & ~1
+                    vdHeight = Int(b.height) & ~1
+                } else if b.width > 0 {
+                    vdHeight = Int((Double(vdWidth) * b.height / b.width).rounded()) & ~1
+                }
             }
-            let vd = try VirtualDesktop(count: options.displays - (builtIn != nil ? 1 : 0), width: options.vdWidth,
+            let vd = try VirtualDesktop(count: options.displays - (builtIn != nil ? 1 : 0), width: vdWidth,
                                         height: vdHeight, hiDPI: options.hiDPI, refresh: 60)
             desktop = vd
             try await settle(0.5)
@@ -475,9 +483,18 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 let ws = NSWorkspace.shared
                 let from = NSScreen.screens.first { source != nil && Displays.id(of: $0) == source }
                     ?? NSScreen.screens.first { !ids.contains(Displays.id(of: $0)) && Displays.glassesScreen() != $0 }
-                guard let from, let url = ws.desktopImageURL(for: from) else {
+                guard let from, var url = ws.desktopImageURL(for: from) else {
                     self.log("wallpaper: none to copy")
                     return
+                }
+                // The picture was deleted or moved (macOS keeps showing its own copy): what the
+                // screen shows instead, saved by Nimbo.
+                if url.isFileURL, !FileManager.default.fileExists(atPath: url.path) {
+                    guard let saved = await Self.snapshotWallpaper(of: Displays.id(of: from)) else {
+                        self.log("wallpaper: \(url.lastPathComponent) no longer exists and the screen's could not be copied")
+                        return
+                    }
+                    url = saved
                 }
                 var options = ws.desktopImageOptions(for: from) ?? [:]
                 options[.imageScaling] = NSImageScaling.scaleProportionallyUpOrDown.rawValue
@@ -501,6 +518,33 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
+    }
+
+    // The wallpaper as a screen shows it (its window, captured without the cursor), as a PNG in
+    // Application Support/Nimbo. A new name each time: the same URL again is not reloaded.
+    private static func snapshotWallpaper(of display: CGDirectDisplayID) async -> URL? {
+        let bounds = CGDisplayBounds(display)
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false),
+              let window = content.windows.first(where: {
+                  $0.owningApplication?.bundleIdentifier == "com.apple.wallpaper.agent" && $0.frame == bounds
+              }) else { return nil }
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let cfg = SCStreamConfiguration()
+        let scale = CGFloat(filter.pointPixelScale)
+        cfg.width = Int(window.frame.width * scale)
+        cfg.height = Int(window.frame.height * scale)
+        cfg.showsCursor = false
+        guard let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) else { return nil }
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Nimbo")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for old in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        where old.lastPathComponent.hasPrefix("Wallpaper-") {
+            try? FileManager.default.removeItem(at: old)
+        }
+        let url = dir.appendingPathComponent("Wallpaper-\(Int(Date().timeIntervalSince1970)).png")
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, nil)
+        return CGImageDestinationFinalize(dest) ? url : nil
     }
 
     private var macScreenID: CGDirectDisplayID?   // the Mac's own screen as panel 1
@@ -1332,6 +1376,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             focusMode = wanted
             ro.cinema = cinema
             log("focus: \(cinema ? "cinema" : "focus") on panel \(ro.focusPanel + 1)")
+            bringCursor(toPanel: ro.focusPanel)  // the only panel shown: the cursor there, not lost on another
             onNotice?(cinema ? "Modo cine (⌘⌥P para salir)" : "Modo enfoque (⌘⌥O para salir)")
         }
         updateDepth3D()
@@ -1492,6 +1537,22 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         overview = false
         codeMode.toggle()
         setZoom(codeMode ? 1.7 : 1, message: codeMode ? "Modo código activado" : "Modo código desactivado")
+    }
+
+    // The cursor onto this panel (its centre) unless it is on it already; a floating window is
+    // brought to the front with the cursor over it.
+    private func bringCursor(toPanel i: Int) {
+        if i >= monitorPanels, i - monitorPanels < floatingResolved.count {
+            focusFloatingWindow(floatingResolved[i - monitorPanels])
+            return
+        }
+        guard i >= 0, i < panelDisplays.count else { return }
+        let b = CGDisplayBounds(panelDisplays[i])
+        if let cursor = CGEvent(source: nil)?.location, b.contains(cursor) { return }
+        CGWarpMouseCursorPosition(CGPoint(x: b.midX, y: b.midY))
+        CGAssociateMouseAndMouseCursorPosition(1)
+        lastGazePanel = i
+        log("cursor: to panel \(i + 1)")
     }
 
     // ⌘⌥J: the cursor jumps to the centre of the monitor you are looking at (on demand, where

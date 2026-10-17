@@ -62,6 +62,9 @@ final class AppModel: ObservableObject {
     @Published var glassesPinned: Bool { didSet { d.set(glassesPinned ? 1 : 0, forKey: "glassesMode") } }
     @Published var anchorAtRest: Bool { didSet { d.set(anchorAtRest, forKey: "anchorAtRest") } }  // panels frozen while the head is still
     @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
+    // With the Mac's screen as panel 1, the virtual monitors at its exact resolution (the text
+    // the same size on all of them) instead of the text size chosen.
+    @Published var monitorsLikeMac: Bool { didSet { d.set(monitorsLikeMac, forKey: "monitorsLikeMac") } }
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
     // Pinned (⌘⌥G): the panel in use follows the mouse only, not where you look (⌘⌥M).
     @Published var growByGaze: Bool { didSet { d.set(growByGaze, forKey: "growByGaze") } }
@@ -102,6 +105,7 @@ final class AppModel: ObservableObject {
         growFocused = d.object(forKey: "growFocused") as? Bool ?? true
         growByGaze = d.object(forKey: "growByGaze") as? Bool ?? true
         macScreen = d.object(forKey: "macScreen") as? Bool ?? true
+        monitorsLikeMac = d.object(forKey: "monitorsLikeMac") as? Bool ?? true
         anchorAtRest = d.bool(forKey: "anchorAtRest")
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
         depth3D = d.bool(forKey: "depth3D")
@@ -324,6 +328,7 @@ final class AppModel: ObservableObject {
         let resolution = Self.textSizes[max(0, min(Self.textSizes.count - 1, textSize))]
         o.vdWidth = resolution.width
         o.vdHeight = resolution.height
+        o.vdLikeMac = monitorsLikeMac
         o.distanceM = Float(distance)
         o.gapDeg = Float(gap)
         o.curvature = Float(curvature)

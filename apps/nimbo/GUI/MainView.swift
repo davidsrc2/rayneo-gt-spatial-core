@@ -49,10 +49,16 @@ struct MainView: View {
                 }
 
                 Section(title: "Cómo se ven") {
-                    LabeledSlider(title: "Tamaño del texto",
-                                  value: Binding(get: { Double(model.textSize) }, set: { model.textSize = Int($0.rounded()) }),
-                                  range: 0...Double(AppModel.textSizes.count - 1), step: 1,
-                                  caption: AppModel.textSizes[model.textSize].label)
+                    if model.macScreen {
+                        Toggle("Las demás pantallas con la misma resolución que la del Mac", isOn: $model.monitorsLikeMac)
+                            .font(Theme.body).foregroundStyle(Theme.text)
+                    }
+                    if !(model.macScreen && model.monitorsLikeMac) {
+                        LabeledSlider(title: "Tamaño del texto",
+                                      value: Binding(get: { Double(model.textSize) }, set: { model.textSize = Int($0.rounded()) }),
+                                      range: 0...Double(AppModel.textSizes.count - 1), step: 1,
+                                      caption: AppModel.textSizes[model.textSize].label)
+                    }
                     LabeledSlider(title: "Distancia", value: $model.distance, range: 1.2...3.0, step: 0.1,
                                   caption: String(format: "%.1f m", model.distance))
                     LabeledSlider(title: "Separación", value: $model.gap, range: 0...6, step: 0.5,

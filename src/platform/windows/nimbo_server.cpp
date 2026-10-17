@@ -1415,6 +1415,17 @@ void Server::toggle_focus(bool cinema) {
         focus_mode_ = wanted;
         ro.cinema = cinema;
         logln("focus: %s on panel %d", cinema ? "cinema" : "focus", ro.focus_panel + 1);
+        // The only panel shown: the cursor there (centre), unless it already is.
+        const int i = ro.focus_panel;
+        POINT c{};
+        if (i >= 0 && i < static_cast<int>(panel_rects_.size()) && GetCursorPos(&c) &&
+            !PtInRect(&panel_rects_[static_cast<size_t>(i)], c)) {
+            const RECT& r = panel_rects_[static_cast<size_t>(i)];
+            SetCursorPos((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+            last_cursor_ = {(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+            last_gaze_panel_ = i;
+            logln("cursor: to panel %d", i + 1);
+        }
     }
     update_depth3d();
     redraw_ = true;
