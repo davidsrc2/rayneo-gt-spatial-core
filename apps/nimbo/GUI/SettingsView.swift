@@ -146,6 +146,7 @@ struct ShortcutSheet: View {
         ("⌘⌥G", "Ctrl+Alt+G", "Modo fijo de las gafas: ellas sostienen la imagen, quietísima, todo dentro de su imagen (otra vez: espacio a tamaño real)"),
         ("⌘⌥J", "Ctrl+Alt+J", "Llevar el cursor a la pantalla que miras"),
         ("⌘⌥M", "Ctrl+Alt+M", "Modo fijo: la pantalla activa cambia solo con el ratón / también mirándola"),
+        ("⌘⌥S", "Ctrl+Alt+S", "Prueba: gafas en modo steady en vez de follow (modo normal)"),
         ("⌘⌥O", "Ctrl+Alt+O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
         ("⌘⌥K", "Ctrl+Alt+K", "Modo código: las pantallas mucho más cerca, zoom 170 % (otra vez: como estaban)"),
         ("⌘⌥+  ⌘⌥-", "Ctrl+Alt++  -", "Zoom: acercar / alejar las pantallas"),

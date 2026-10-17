@@ -743,7 +743,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.trackingAxes = o.trackingAxes
         options.panelPoses = o.panelPoses
         if let imu = pose as? ImuPoseSource {
-            if o.glassesMode >= 0 && o.glassesMode != options.glassesMode { imu.setGlassesMode(o.glassesMode) }
+            if o.glassesMode >= 0 && o.glassesMode != options.glassesMode {
+                imu.setGlassesMode(o.glassesMode)
+                log("glasses: " + ["follow", "pinned", "steady"][min(2, o.glassesMode)] + " mode")
+            }
             if o.brightness > 0 && o.brightness != options.brightness { imu.setGlassesBrightness(o.brightness) }
         }
         options.glassesMode = o.glassesMode
@@ -1252,7 +1255,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statusMenu = nil
         // Space at real size put the glasses in follow: back to pinned, how they are used without
         // Nimbo (the command goes out with the next IMU read, a few ms).
-        if options.realSize && !options.glassesPinned && options.glassesMode == 0, let imu = pose as? ImuPoseSource {
+        if options.realSize && !options.glassesPinned && options.glassesMode != 1, let imu = pose as? ImuPoseSource {
             imu.setGlassesMode(1)
             Thread.sleep(forTimeInterval: 0.15)
         }

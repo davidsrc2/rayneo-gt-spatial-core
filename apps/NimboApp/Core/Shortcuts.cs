@@ -18,6 +18,7 @@ internal static class Shortcuts
         ("Ctrl+Alt+G", "⌘⌥G", "Modo fijo de las gafas: ellas sostienen la imagen, quietísima, todo dentro de su imagen (otra vez: espacio a tamaño real)"),
         ("Ctrl+Alt+J", "⌘⌥J", "Llevar el cursor a la pantalla que miras"),
         ("Ctrl+Alt+M", "⌘⌥M", "Modo fijo: la pantalla activa cambia solo con el ratón / también mirándola"),
+        ("Ctrl+Alt+S", "⌘⌥S", "Prueba: gafas en modo steady en vez de follow (modo normal)"),
         ("Ctrl+Alt+K", "⌘⌥K", "Modo código: las pantallas mucho más cerca, zoom 170 % (otra vez: como estaban)"),
         ("Ctrl+Alt++  -", "⌘⌥+  ⌘⌥-", "Zoom: acercar / alejar las pantallas"),
         ("Ctrl+Alt+0", "⌘⌥0", "Zoom al 100 %"),

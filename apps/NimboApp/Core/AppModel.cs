@@ -207,6 +207,8 @@ internal sealed unsafe class AppModel
     public float Zoom { get => _s.Zoom > 0 ? _s.Zoom : 1f; set => _s.Zoom = value; }
     // Ctrl+Alt+M / Settings: in the glasses' pinned mode the panel in use follows the mouse only.
     public bool GrowByGaze { get => _s.GrowByGaze != 0; set => _s.GrowByGaze = B(value); }
+    // Ctrl+Alt+S (a test, for this run): the space at real size with the glasses in steady mode.
+    public bool GlassesSteady { get; set; }
 
     public void ResetPlacement() => _s.PoseCount = 0;
 
@@ -321,6 +323,7 @@ internal sealed unsafe class AppModel
             o.FloatingScale[i] = Floating[i].Pose.Scale;
         }
         o.Depth3D = 0;  // AI 3D only with Ctrl+Alt+T, for the run
+        if (GlassesSteady && !PinnedMode) o.GlassesMode = 2;  // steady instead of follow
         if (PinnedMode)
         {
             // The glasses hold the image: panels fitted inside it, the one looked at large.

@@ -2126,7 +2126,7 @@ void Server::shutdown() {
     captures_.clear();
     // The space at real size put the glasses in follow: back to pinned, how they are used
     // without Nimbo (the command goes out with the next IMU read).
-    if (imu_ && pose_ && opt_.real_size && !opt_.glasses_pinned && opt_.glasses_mode == 0) {
+    if (imu_ && pose_ && opt_.real_size && !opt_.glasses_pinned && opt_.glasses_mode != 1) {
         pose_->set_glasses_mode(1);
         Sleep(150);
     }
@@ -2230,7 +2230,11 @@ void Server::apply_pending() {
     ro.k2 = o->k2;
     ro.dim_others = o->dim_others;
     ro.tracking_axes = static_cast<core::TrackingAxes>(o->tracking_axes);
-    if (o->glasses_mode >= 0 && o->glasses_mode != opt_.glasses_mode) pose_->set_glasses_mode(o->glasses_mode);
+    if (o->glasses_mode >= 0 && o->glasses_mode != opt_.glasses_mode) {
+        pose_->set_glasses_mode(o->glasses_mode);
+        static const char* kModes[] = {"follow", "pinned", "steady"};
+        logln("glasses: %s mode", kModes[std::clamp(o->glasses_mode, 0, 2)]);
+    }
     if (o->brightness > 0 && o->brightness != opt_.brightness) pose_->set_glasses_brightness(o->brightness);
     opt_.glasses_mode = o->glasses_mode;
     opt_.brightness = o->brightness;

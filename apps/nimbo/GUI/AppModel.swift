@@ -63,6 +63,9 @@ final class AppModel: ObservableObject {
     @Published var anchorAtRest: Bool { didSet { d.set(anchorAtRest, forKey: "anchorAtRest") } }  // panels frozen while the head is still
     @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
+    // Space at real size with the glasses in their steady mode instead of follow (⌘⌥S, a test:
+    // for this run only).
+    @Published var glassesSteady = false
     // Pinned (⌘⌥G): the panel in use follows the mouse only, not where you look (⌘⌥M).
     @Published var growByGaze: Bool { didSet { d.set(growByGaze, forKey: "growByGaze") } }
     @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
@@ -347,7 +350,7 @@ final class AppModel: ObservableObject {
         o.recenterGlasses = glassesPinned
         // The two ways of seeing the panels set the glasses' mode themselves: pinned for one
         // panel large in their fixed image, follow for the space at real size.
-        o.glassesMode = glassesPinned ? 1 : 0
+        o.glassesMode = glassesPinned ? 1 : (glassesSteady ? 2 : 0)
         o.realSize = !glassesPinned
         o.growFocused = growFocused
         o.growByGaze = growByGaze

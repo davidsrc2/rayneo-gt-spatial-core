@@ -68,6 +68,14 @@ final class GUIApp: NSObject {
             self.server.settingsChanged()
             self.server.showMessage(self.model.growByGaze ? "Pantalla activa: mirada y ratón" : "Pantalla activa: solo con el ratón")
         }
+        // ⌘⌥S: in the space at real size, the glasses in steady mode instead of follow (or back),
+        // live, to compare. For this run.
+        hotKeys.register(keyCode: kVK_ANSI_S, modifiers: cmdKey | optionKey) { [weak self] in
+            guard let self, !self.model.glassesPinned else { return }
+            self.model.glassesSteady.toggle()
+            self.server.settingsChanged()
+            self.server.showMessage(self.model.glassesSteady ? "Gafas en modo steady (prueba)" : "Gafas en modo follow")
+        }
         let keys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3]
         for (key, preset) in zip(keys, AppModel.layouts) {
             hotKeys.register(keyCode: key, modifiers: cmdKey | optionKey) { [weak self] in
