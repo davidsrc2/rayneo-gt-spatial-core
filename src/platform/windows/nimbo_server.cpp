@@ -33,6 +33,7 @@
 #include "desktop_duplication.h"
 #include "displays.h"
 #include "rayneo/core/head_calibration.h"
+#include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/presets.h"
 #include "rayneo/core/settings.h"
 #include "rayneo/platform/guided_calibration.h"

@@ -28,23 +28,8 @@ struct SettingsView: View {
         .background(Theme.background)
         .preferredColorScheme(.dark)
         .animation(Theme.ease, value: advanced)
-        .onChange(of: model.fov) { server.settingsChanged() }
-        .onChange(of: model.ipd) { server.settingsChanged() }
-        .onChange(of: model.deadZone) { server.settingsChanged() }
-        .onChange(of: model.gazeCursor) { server.settingsChanged() }
-        .onChange(of: model.dimOthers) { server.settingsChanged() }
-        .onChange(of: model.tracking) { server.settingsChanged() }
-        .onChange(of: model.focusWindows) { server.settingsChanged() }
-        .onChange(of: model.growByGaze) { server.settingsChanged() }
-        .onChange(of: model.glassesSteady) { server.settingsChanged() }
-        .onChange(of: model.steadyZone) { server.settingsChanged() }
-        .onChange(of: model.steadySmooth) { server.settingsChanged() }
-        .onChange(of: model.macScreen) { server.settingsChanged() }
-        .onChange(of: model.anchorAtRest) { server.settingsChanged() }
-        .onChange(of: model.depthStrength) { server.settingsChanged() }
-        .onChange(of: model.depthPlane) { server.settingsChanged() }
-        .onChange(of: model.k1) { server.settingsChanged() }
-        .onChange(of: model.k2) { server.settingsChanged() }
+        .modifier(ApplySettingsA(model: model, server: server))
+        .modifier(ApplySettingsB(model: model, server: server))
     }
 
     // Height the sheet may take: the screen with the key window, less room for its title bar.
@@ -194,5 +179,44 @@ struct ShortcutSheet: View {
             Text("Funcionan con cualquier app delante mientras Nimbo está en marcha; el panel y las disposiciones, también con Nimbo parado.")
                 .font(.system(size: 12)).foregroundStyle(Theme.secondary)
         }
+    }
+}
+
+// Settings that apply at once (split in two: one long chain was too much for the type checker).
+@available(macOS 14.0, *)
+private struct ApplySettingsA: ViewModifier {
+    @ObservedObject var model: AppModel
+    @ObservedObject var server: ServerController
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: model.fov) { server.settingsChanged() }
+            .onChange(of: model.ipd) { server.settingsChanged() }
+            .onChange(of: model.deadZone) { server.settingsChanged() }
+            .onChange(of: model.gazeCursor) { server.settingsChanged() }
+            .onChange(of: model.dimOthers) { server.settingsChanged() }
+            .onChange(of: model.tracking) { server.settingsChanged() }
+            .onChange(of: model.focusWindows) { server.settingsChanged() }
+            .onChange(of: model.growByGaze) { server.settingsChanged() }
+    }
+}
+
+// Settings that apply at once (split in two: one long chain was too much for the type checker).
+@available(macOS 14.0, *)
+private struct ApplySettingsB: ViewModifier {
+    @ObservedObject var model: AppModel
+    @ObservedObject var server: ServerController
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: model.glassesSteady) { server.settingsChanged() }
+            .onChange(of: model.steadyZone) { server.settingsChanged() }
+            .onChange(of: model.steadySmooth) { server.settingsChanged() }
+            .onChange(of: model.macScreen) { server.settingsChanged() }
+            .onChange(of: model.anchorAtRest) { server.settingsChanged() }
+            .onChange(of: model.depthStrength) { server.settingsChanged() }
+            .onChange(of: model.depthPlane) { server.settingsChanged() }
+            .onChange(of: model.k1) { server.settingsChanged() }
+            .onChange(of: model.k2) { server.settingsChanged() }
     }
 }
