@@ -28,8 +28,20 @@ struct SettingsView: View {
         .background(Theme.background)
         .preferredColorScheme(.dark)
         .animation(Theme.ease, value: advanced)
-        .modifier(ApplySettingsA(model: model, server: server))
-        .modifier(ApplySettingsB(model: model, server: server))
+        .onChange(of: model.fov) { server.settingsChanged() }
+        .onChange(of: model.ipd) { server.settingsChanged() }
+        .onChange(of: model.deadZone) { server.settingsChanged() }
+        .onChange(of: model.gazeCursor) { server.settingsChanged() }
+        .onChange(of: model.dimOthers) { server.settingsChanged() }
+        .onChange(of: model.tracking) { server.settingsChanged() }
+        .onChange(of: model.focusWindows) { server.settingsChanged() }
+        .onChange(of: model.growByGaze) { server.settingsChanged() }
+        .onChange(of: model.macScreen) { server.settingsChanged() }
+        .onChange(of: model.anchorAtRest) { server.settingsChanged() }
+        .onChange(of: model.depthStrength) { server.settingsChanged() }
+        .onChange(of: model.depthPlane) { server.settingsChanged() }
+        .onChange(of: model.k1) { server.settingsChanged() }
+        .onChange(of: model.k2) { server.settingsChanged() }
     }
 
     // Height the sheet may take: the screen with the key window, less room for its title bar.
@@ -77,17 +89,6 @@ struct SettingsView: View {
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
-            }
-
-            Section(title: "Modo steady (⌘⌥S)") {
-                Toggle("Gafas en modo steady en vez de follow", isOn: $model.glassesSteady)
-                    .font(Theme.body).foregroundStyle(Theme.text)
-                Text("Las gafas sujetan la imagen quieta mientras te mueves poco y Nimbo compensa lo que arrastran al salirte de ese margen. Si al girar las pantallas te siguen, sube el margen; si van hacia el lado contrario, bájalo. Suavidad: cuánto tardan las gafas en alcanzarte.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                LabeledSlider(title: "Margen de las gafas", value: $model.steadyZone, range: 0...20, step: 0.5,
-                              caption: String(format: "%.1f°", model.steadyZone))
-                LabeledSlider(title: "Suavidad", value: $model.steadySmooth, range: 0...1.5, step: 0.05,
-                              caption: String(format: "%.2f s", model.steadySmooth))
             }
 
             Section(title: "Cine en 3D con IA") {
@@ -145,7 +146,6 @@ struct ShortcutSheet: View {
         ("⌘⌥G", "Ctrl+Alt+G", "Modo fijo de las gafas: ellas sostienen la imagen, quietísima, todo dentro de su imagen (otra vez: espacio a tamaño real)"),
         ("⌘⌥J", "Ctrl+Alt+J", "Llevar el cursor a la pantalla que miras"),
         ("⌘⌥M", "Ctrl+Alt+M", "Modo fijo: la pantalla activa cambia solo con el ratón / también mirándola"),
-        ("⌘⌥S", "Ctrl+Alt+S", "Modo steady de las gafas en vez de follow (modo normal; margen y suavidad en Ajustes)"),
         ("⌘⌥O", "Ctrl+Alt+O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
         ("⌘⌥K", "Ctrl+Alt+K", "Modo código: las pantallas mucho más cerca, zoom 170 % (otra vez: como estaban)"),
         ("⌘⌥+  ⌘⌥-", "Ctrl+Alt++  -", "Zoom: acercar / alejar las pantallas"),
@@ -179,44 +179,5 @@ struct ShortcutSheet: View {
             Text("Funcionan con cualquier app delante mientras Nimbo está en marcha; el panel y las disposiciones, también con Nimbo parado.")
                 .font(.system(size: 12)).foregroundStyle(Theme.secondary)
         }
-    }
-}
-
-// Settings that apply at once (split in two: one long chain was too much for the type checker).
-@available(macOS 14.0, *)
-private struct ApplySettingsA: ViewModifier {
-    @ObservedObject var model: AppModel
-    @ObservedObject var server: ServerController
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: model.fov) { server.settingsChanged() }
-            .onChange(of: model.ipd) { server.settingsChanged() }
-            .onChange(of: model.deadZone) { server.settingsChanged() }
-            .onChange(of: model.gazeCursor) { server.settingsChanged() }
-            .onChange(of: model.dimOthers) { server.settingsChanged() }
-            .onChange(of: model.tracking) { server.settingsChanged() }
-            .onChange(of: model.focusWindows) { server.settingsChanged() }
-            .onChange(of: model.growByGaze) { server.settingsChanged() }
-    }
-}
-
-// Settings that apply at once (split in two: one long chain was too much for the type checker).
-@available(macOS 14.0, *)
-private struct ApplySettingsB: ViewModifier {
-    @ObservedObject var model: AppModel
-    @ObservedObject var server: ServerController
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: model.glassesSteady) { server.settingsChanged() }
-            .onChange(of: model.steadyZone) { server.settingsChanged() }
-            .onChange(of: model.steadySmooth) { server.settingsChanged() }
-            .onChange(of: model.macScreen) { server.settingsChanged() }
-            .onChange(of: model.anchorAtRest) { server.settingsChanged() }
-            .onChange(of: model.depthStrength) { server.settingsChanged() }
-            .onChange(of: model.depthPlane) { server.settingsChanged() }
-            .onChange(of: model.k1) { server.settingsChanged() }
-            .onChange(of: model.k2) { server.settingsChanged() }
     }
 }

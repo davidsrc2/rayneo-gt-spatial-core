@@ -41,9 +41,6 @@ struct Settings {
     float depth_plane = 0.35f;   // "depthPlane": depth left on the panel's plane, 0 far .. 1 near
     float zoom = 1.0f;           // "zoom": every panel this much larger (shortcuts), as left last time
     bool grow_by_gaze = true;    // "growByGaze": glasses' pinned mode, the panel looked at takes over (else mouse only)
-    bool glasses_steady = false; // "glassesSteady": space at real size with the glasses in steady mode (modelled)
-    float steady_zone_deg = 6.0f;  // "steadyZone": the margin the glasses hold their image within
-    float steady_smooth_s = 0.2f;  // "steadySmooth": how smoothly they drag it beyond
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"

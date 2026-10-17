@@ -70,8 +70,6 @@ struct ServerOptions {
     var depthStrength: Float = 0.03    // parallax between the eyes at the nearest depth, in panel widths
     var depthConvergence: Float = 0.35  // depth left on the panel's plane: farther recedes, nearer stands out
     var zoom: Float = 1           // every panel this much larger (⌘⌥+ / -): remembered between runs
-    var steadyZoneDeg: Float = 6  // glasses in steady mode: the margin they hold the image within (model)
-    var steadySmoothS: Float = 0.2  // and how smoothly they drag it beyond (seconds)
     var lateLatch = false         // read the pose just before the frame's deadline (on the glasses its margin
                                   // always grew to the 12 ms maximum: no gain, so off unless asked)
     var depthGPU = true           // AI 3D: the GPU helps when the Neural Engine falls behind (60 fps video)
@@ -220,11 +218,6 @@ struct ServerOptions {
             case "--pinned": o.glassesPinned = true; o.glassesMode = 1
             case "--no-grow": o.growFocused = false
             case "--grow-mouse-only": o.growByGaze = false
-            case "--steady":
-                o.glassesMode = 2
-                o.realSize = true
-            case "--steady-zone": guard let v = float(), (0...30).contains(v) else { return nil }; o.steadyZoneDeg = v
-            case "--steady-smooth": guard let v = float(), (0...3).contains(v) else { return nil }; o.steadySmoothS = v
             case "--real-size": o.realSize = true
             case "--focus-monitors": o.focusWindows = false
             case "--glasses-mode":

@@ -743,10 +743,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.trackingAxes = o.trackingAxes
         options.panelPoses = o.panelPoses
         if let imu = pose as? ImuPoseSource {
-            if o.glassesMode >= 0 && o.glassesMode != options.glassesMode {
-                imu.setGlassesMode(o.glassesMode)
-                log("glasses: " + ["follow", "pinned", "steady"][min(2, o.glassesMode)] + " mode")
-            }
+            if o.glassesMode >= 0 && o.glassesMode != options.glassesMode { imu.setGlassesMode(o.glassesMode) }
             if o.brightness > 0 && o.brightness != options.brightness { imu.setGlassesBrightness(o.brightness) }
         }
         options.glassesMode = o.glassesMode
@@ -755,9 +752,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.glassesPinned = o.glassesPinned
         options.growFocused = o.growFocused
         options.growByGaze = o.growByGaze
-        if options.steadyZoneDeg != o.steadyZoneDeg || options.steadySmoothS != o.steadySmoothS { steadyG = nil }
-        options.steadyZoneDeg = o.steadyZoneDeg
-        options.steadySmoothS = o.steadySmoothS
         options.realSize = o.realSize
         options.focusWindows = o.focusWindows
         options.depth3D = o.depth3D
@@ -1256,7 +1250,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statusMenu = nil
         // Space at real size put the glasses in follow: back to pinned, how they are used without
         // Nimbo (the command goes out with the next IMU read, a few ms).
-        if options.realSize && !options.glassesPinned && options.glassesMode != 1, let imu = pose as? ImuPoseSource {
+        if options.realSize && !options.glassesPinned && options.glassesMode == 0, let imu = pose as? ImuPoseSource {
             imu.setGlassesMode(1)
             Thread.sleep(forTimeInterval: 0.15)
         }
@@ -1529,7 +1523,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         if options.glassesPinned { return }
         pose.recenter()
-        steadyG = nil  // the glasses' steady model starts again straight ahead
         lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
         log("recenter")
     }
@@ -1755,33 +1748,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statsLock.unlock()
         let targetHost = Int64(nowHost) + Int64((targetMedia - nowMedia + late / 1e3) * 1e9)
 
-        guard var p = pose.latest() else {
+        guard let p = pose.latest() else {
             renderer.invalidateSkippedFrame()
             _ = renderer.render(to: drawable, orientation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
                                 angularVelocity: .zero, sampleHostNs: 0, targetHostNs: 0)
             return true
         }
-        // Glasses in steady mode: drawn for where the glasses hold their image (modelled), not for
-        // the head: still within their margin, and compensating exactly what they drag beyond it.
-        // The model runs on the head predicted to the photon time (the glasses turn their image
-        // with no delay of their own; unpredicted, the compensation came ~30 ms late and the
-        // panels went a little with the head), and the eyes sit where that head puts them: the
-        // glasses only turn the image, the few centimetres the eyes travel as the neck turns are
-        // Nimbo's to draw (without, the panels seemed to follow the head ~1 deg per 30 deg).
-        let headVelocity = p.angularVelocity
-        var changeProbe = p
-        if options.glassesMode == 2 && options.realSize && !options.glassesPinned && p.tracking {
-            let head = predictHead(p, toNs: UInt64(max(0, targetHost)))
-            p.orientation = steadyFrame(head, nowNs: nowHost)
-            p.angularVelocity = .zero  // already at the photon time
-            renderer.eyesOrientation = head
-            renderer.separateEyes = true
-            changeProbe.orientation = head  // the eyes move with the head even while the image holds
-        } else {
-            steadyG = nil
-            renderer.separateEyes = false
-        }
-        if nothingChanged(changeProbe) {
+        if nothingChanged(p) {
             statsLock.lock()
             stats.idle += 1
             stats.tracking = p.tracking
@@ -1822,7 +1795,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                                          sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))
         let poseAge = Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6
         let photon = Double(targetHost - Int64(p.hostTimeNs)) / 1e6
-        let still = simd_length(headVelocity) < 0.0175
+        let still = simd_length(p.angularVelocity) < 0.0175
         // From the relative rotation's vector part: acos of a dot product near 1 rounds every
         // step under ~0.02 deg to 0 in Float (the log read 0 while the panels trembled).
         var step = 0.0
@@ -1848,54 +1821,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // Two frames queued. A third (tried when many refreshes were missed) did not miss fewer on
     // the glasses (63 of 110 before, 103 of 118 after, logs 17-10-2026) and added 8 ms to predict.
     private let frameLatency: Float = 2
-
-    // MARK: glasses' steady mode
-
-    // The glasses in steady mode hold their image still while the head moves within a margin and
-    // drag it along beyond (smoothly). Drawn as in follow, the panels went the head's way when
-    // the head left that margin: Nimbo compensated motion the glasses had already absorbed. So
-    // Nimbo keeps a model of where the glasses hold the image (g: a dead-zone follower of the
-    // head, `steadyZoneDeg`, eased over `steadySmoothS`) and draws for g: within the margin
-    // nothing of Nimbo's moves (the stillness is the glasses'), beyond it Nimbo moves exactly
-    // what the glasses drag. Both values are the glasses' and only approximately known: tunable
-    // in Settings. Render thread.
-    private var steadyG: simd_quatf?
-    private var steadyLastNs: UInt64 = 0
-
-    // The head at the photon time, as the renderer predicts it in follow (core::predict_orientation,
-    // ramped in with the speed: core::prediction_gain).
-    private func predictHead(_ p: PoseSample, toNs target: UInt64) -> simd_quatf {
-        let w = p.angularVelocity
-        let speed = simd_length(w)
-        guard target > p.hostTimeNs, speed > 0.02 else { return p.orientation }
-        let horizon = min(Double(target - p.hostTimeNs) / 1e9, Double(renderer.options.maxPredictionMs) / 1e3)
-        let gain = min(1, (Double(speed) - 0.02) / (0.1 - 0.02))
-        let angle = Float(Double(speed) * horizon * gain)
-        guard angle > 1e-9 else { return p.orientation }
-        return simd_normalize(simd_mul(simd_quatf(angle: angle, axis: w / speed), p.orientation))
-    }
-
-    private func steadyFrame(_ head: simd_quatf, nowNs: UInt64) -> simd_quatf {
-        guard var g = steadyG else {
-            steadyG = head
-            steadyLastNs = nowNs
-            return head
-        }
-        let dt = min(0.1, Double(nowNs &- steadyLastNs) / 1e9)
-        steadyLastNs = nowNs
-        var rel = simd_mul(simd_inverse(g), head)
-        if rel.real < 0 { rel = simd_quatf(vector: -rel.vector) }
-        let angle = 2 * asin(min(1, Double(simd_length(rel.imag))))  // precise for small angles too
-        let zone = Double(max(0, options.steadyZoneDeg)) * .pi / 180
-        if angle > zone && angle > 1e-6 {
-            let target = simd_slerp(g, head, Float((angle - zone) / angle))  // the margin's edge, towards the head
-            let tau = Double(max(0, options.steadySmoothS))
-            let a = tau < 0.005 ? 1 : 1 - exp(-dt / tau)
-            g = simd_slerp(g, target, Float(a))
-        }
-        steadyG = g
-        return g
-    }
 
     // MARK: fallback render loop
 

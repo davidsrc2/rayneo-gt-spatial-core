@@ -849,7 +849,6 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         head = core::Quat{};
         horizon_s = 0.0f;
     }
-    const core::Quat eye_pose = separate_eyes_ && !options.static_head ? core::track_axes(eyes_, options.tracking_axes) : head;
 
     // AI 3D: the depth panel shows only frames whose depth map has come.
     const int depth_panel = depth_ != nullptr && depth_->state() == DepthEngine::State::Ready &&
@@ -914,7 +913,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         const float offset = options.side_by_side ? (eye == 0 ? -0.5f : 0.5f) * options.ipd_m : 0.0f;
         SceneUniforms su;
         const float up = options.neck_model ? core::kNeckUpM : 0.0f, fwd = options.neck_model ? core::kNeckForwardM : 0.0f;
-        std::memcpy(su.view_projection, (proj * core::view_matrix(head, eye_pose, offset, up, fwd)).m, sizeof(su.view_projection));
+        std::memcpy(su.view_projection, (proj * core::view_matrix(head, offset, up, fwd)).m, sizeof(su.view_projection));
         ctx_->UpdateSubresource(scene_cb_.Get(), 0, nullptr, &su, 0, 0);
         for (int i = 0; i < count_; ++i) {
             if (options.focus_panel >= 0 && i != options.focus_panel) continue;  // focus / cinema

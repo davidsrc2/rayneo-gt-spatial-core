@@ -84,8 +84,6 @@ typedef struct {
     float depth_plane;                  /* depth left on the panel's plane, 0 far .. 1 near (0.35) */
     float zoom;                         /* every panel this much larger (Ctrl+Alt++ / -); <= 0: 1 */
     bool grow_by_gaze;                  /* glasses' pinned mode: the panel looked at takes over (false: mouse only) */
-    float steady_zone_deg;              /* glasses in steady mode (glasses_mode 2): the margin they hold the image within */
-    float steady_smooth_s;              /* and how smoothly they drag it beyond, seconds */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -193,9 +191,6 @@ typedef struct {
     float depth_plane;     /* "depthPlane" */
     float zoom;            /* "zoom": as left last time */
     bool grow_by_gaze;     /* "growByGaze" */
-    bool glasses_steady;   /* "glassesSteady" */
-    float steady_zone_deg; /* "steadyZone" */
-    float steady_smooth_s; /* "steadySmooth" */
 } nimbo_settings;
 
 NIMBO_API nimbo_settings nimbo_default_settings(void);

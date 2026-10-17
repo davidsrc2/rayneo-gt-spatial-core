@@ -113,16 +113,6 @@ public partial class App : Application
             _server.ShowMessage(_model.GrowByGaze ? "Pantalla activa: mirada y ratón" : "Pantalla activa: solo con el ratón");
             _panel.Refresh();
         });
-        // Ctrl+Alt+S: in the space at real size, the glasses in steady mode instead of follow (or
-        // back), live, to compare. For this run.
-        _hotKeys.Register('S', () =>
-        {
-            if (_model.PinnedMode) return;
-            _model.GlassesSteady = !_model.GlassesSteady;
-            _model.Save();
-            _server.SettingsChanged();
-            _server.ShowMessage(_model.GlassesSteady ? "Gafas en modo steady" : "Gafas en modo follow");
-        });
         // Ctrl+Alt+G: the glasses' own pinned mode or back to the space at real size.
         _hotKeys.Register('G', () =>
         {

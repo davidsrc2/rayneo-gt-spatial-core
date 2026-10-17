@@ -207,11 +207,6 @@ internal sealed unsafe class AppModel
     public float Zoom { get => _s.Zoom > 0 ? _s.Zoom : 1f; set => _s.Zoom = value; }
     // Ctrl+Alt+M / Settings: in the glasses' pinned mode the panel in use follows the mouse only.
     public bool GrowByGaze { get => _s.GrowByGaze != 0; set => _s.GrowByGaze = B(value); }
-    // Ctrl+Alt+S / Settings: the space at real size with the glasses in steady mode (Nimbo draws for
-    // where they hold the image, a model with these two values). Saved.
-    public bool GlassesSteady { get => _s.GlassesSteady != 0; set => _s.GlassesSteady = B(value); }
-    public float SteadyZone { get => _s.SteadyZoneDeg; set => _s.SteadyZoneDeg = Math.Clamp(value, 0f, 20f); }
-    public float SteadySmooth { get => _s.SteadySmoothS; set => _s.SteadySmoothS = Math.Clamp(value, 0f, 1.5f); }
 
     public void ResetPlacement() => _s.PoseCount = 0;
 

@@ -33,9 +33,7 @@
 #include "desktop_duplication.h"
 #include "displays.h"
 #include "rayneo/core/head_calibration.h"
-#include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/presets.h"
-#include "rayneo/core/render_math.h"
 #include "rayneo/core/settings.h"
 #include "rayneo/platform/guided_calibration.h"
 #include "rayneo/platform/nimbo_win.h"
@@ -107,8 +105,6 @@ struct Options {
     float depth_plane = 0.35f;             // depth left on the panel's plane, 0 far .. 1 near
     float zoom = 1.0f;                     // every panel this much larger (shortcuts), as left last time
     bool grow_by_gaze = true;              // glasses' pinned mode: the panel looked at takes over (else mouse only)
-    float steady_zone_deg = 6.0f;          // glasses in steady mode: the margin they hold the image within (model)
-    float steady_smooth_s = 0.2f;          // and how smoothly they drag it beyond
 
     float panel_arc_deg() const { return arc_deg.value_or(displays > 0 ? 38.0f : 50.0f); }
 };
@@ -172,8 +168,6 @@ Options from_c(const nimbo_options& c) {
     o.depth_plane = std::clamp(c.depth_plane, 0.0f, 1.0f);
     if (c.zoom > 0) o.zoom = std::clamp(c.zoom, 0.5f, 3.0f);
     o.grow_by_gaze = c.grow_by_gaze;
-    if (c.steady_zone_deg >= 0) o.steady_zone_deg = std::min(c.steady_zone_deg, 30.0f);
-    if (c.steady_smooth_s >= 0) o.steady_smooth_s = std::min(c.steady_smooth_s, 3.0f);
     return o;
 }
 
@@ -425,12 +419,6 @@ private:
     // Glasses' pinned mode: the panel looked at for 0.6 s (or the mouse taken to) fills their
     // image, as on macOS.
     void update_grow(uint64_t now);
-    // The glasses in steady mode hold their image still within a margin and drag it beyond:
-    // modelled (a dead-zone follower of the head, eased), and drawn for (macOS's steadyFrame).
-    core::Quat steady_frame(const core::Quat& head, uint64_t now);
-    core::Quat steady_g_{};
-    bool have_steady_ = false;
-    uint64_t steady_last_ns_ = 0;
     int grow_candidate_ = -2;
     uint64_t grow_since_ns_ = 0;
     int grow_mouse_panel_ = -1;
@@ -1117,35 +1105,12 @@ bool Server::frame() {
     // of the head's motion has to be predicted.
     const uint64_t margin = static_cast<uint64_t>(latch_margin_ms_ * 1e6);
     const uint64_t wake = vsync > margin ? vsync - margin : 0;
-    // Off: on macOS its margin always grew to the maximum on the glasses (no gain measured).
-    constexpr bool kLateLatch = false;
-    if (const uint64_t t = steady_ns(); kLateLatch && wake > t + 300000 && wake - t < 20000000) {
+    if (const uint64_t t = steady_ns(); wake > t + 300000 && wake - t < 20000000) {
         const uint64_t ms = (wake - t) / 1000000;
         if (ms >= 2) Sleep(static_cast<DWORD>(ms - 1));  // 1 ms timer resolution (timeBeginPeriod)
         while (steady_ns() < wake) YieldProcessor();
     }
-    auto p = pose_->latest();
-    // Glasses in steady mode: drawn for where the glasses hold their image (modelled), as on macOS:
-    // the model runs on the head predicted to the photon time, and the eyes' position (neck
-    // model) comes from that head, not from where the glasses hold the image.
-    const core::Vec3 head_velocity = p ? p->angular_velocity : core::Vec3{};
-    core::Quat change_probe = p ? p->orientation : core::Quat{};
-    if (p && p->tracking && opt_.glasses_mode == 2 && opt_.real_size && !opt_.glasses_pinned) {
-        float horizon = 0.0f;
-        if (target > p->host_ns) {
-            horizon = std::min(static_cast<float>(target - p->host_ns) * 1e-9f, renderer_.options.max_prediction_ms * 1e-3f);
-        }
-        horizon *= core::prediction_gain(head_velocity.norm(), core::kPredictStartRads, core::kPredictFullRads);
-        const core::Quat head = core::predict_orientation(p->orientation, head_velocity, horizon);
-        p->orientation = steady_frame(head, steady_ns());
-        p->angular_velocity = core::Vec3{};  // already at the photon time
-        renderer_.set_eyes(&head);
-        change_probe = head;  // the eyes move with the head even while the image holds
-    } else {
-        have_steady_ = false;
-        renderer_.set_eyes(nullptr);
-        if (p) change_probe = p->orientation;
-    }
+    const auto p = pose_->latest();
     float prediction = 0;
     if (!p) {
         renderer_.invalidate_skipped_frame();
@@ -1154,7 +1119,7 @@ bool Server::frame() {
         const bool forced = redraw_;
         redraw_ = false;
         stats_.tracking = p->tracking;
-        if (renderer_.can_skip_frame(change_probe, head_velocity, p->tracking, forced)) {
+        if (renderer_.can_skip_frame(p->orientation, p->angular_velocity, p->tracking, forced)) {
             stats_.idle += 1;
             return false;
         }
@@ -1171,7 +1136,7 @@ bool Server::frame() {
     if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) sent_[id % 128] = {p->host_ns, vsync};
     if (p) {
         // Still head: how much the drawn pose changes frame to frame (the panels' wobble).
-        if (head_velocity.norm() < 0.0175f && have_last_drawn_) {
+        if (p->angular_velocity.norm() < 0.0175f && have_last_drawn_) {
             // From the relative rotation's vector part: acos of a dot product near 1 rounds small
             // steps to 0 in float (the log read 0 while the panels trembled).
             const core::Quat r = last_drawn_.conjugate() * p->orientation;
@@ -1456,29 +1421,6 @@ void Server::toggle_focus(bool cinema) {
 }
 
 // On: cinema on the panel looked at, in depth (glasses in 3D). Off: flat, still in cinema.
-core::Quat Server::steady_frame(const core::Quat& head, uint64_t now) {
-    if (!have_steady_) {
-        steady_g_ = head;
-        steady_last_ns_ = now;
-        have_steady_ = true;
-        return head;
-    }
-    const double dt = std::min(0.1, static_cast<double>(now - steady_last_ns_) * 1e-9);
-    steady_last_ns_ = now;
-    core::Quat rel = steady_g_.conjugate() * head;
-    const double v = std::sqrt(static_cast<double>(rel.x) * rel.x + static_cast<double>(rel.y) * rel.y +
-                               static_cast<double>(rel.z) * rel.z);
-    const double angle = 2.0 * std::asin(std::min(1.0, v));
-    const double zone = std::max(0.0f, opt_.steady_zone_deg) * 0.017453292519943295;
-    if (angle > zone && angle > 1e-6) {
-        const core::Quat target = core::slerp(steady_g_, head, static_cast<float>((angle - zone) / angle));
-        const double tau = std::max(0.0f, opt_.steady_smooth_s);
-        const double a = tau < 0.005 ? 1.0 : 1.0 - std::exp(-dt / tau);
-        steady_g_ = core::slerp(steady_g_, target, static_cast<float>(a));
-    }
-    return steady_g_;
-}
-
 void Server::update_grow(uint64_t now) {
     if (!opt_.glasses_pinned || focus_mode_ != 0 || overview_ || renderer_.panel_count() < 2) {
         if (!opt_.glasses_pinned && renderer_.grow_panel() != -1) renderer_.set_grow_panel(-1);
@@ -2118,7 +2060,6 @@ void Server::on_hotkey(int id) {
         }
         if (opt_.glasses_pinned) break;
         pose_->recenter();
-        have_steady_ = false;  // the glasses' steady model starts again straight ahead
         last_gaze_panel_ = -2;  // re-evaluate: the cursor follows to the panel in front
         logln("recenter");
         break;
@@ -2186,7 +2127,7 @@ void Server::shutdown() {
     captures_.clear();
     // The space at real size put the glasses in follow: back to pinned, how they are used
     // without Nimbo (the command goes out with the next IMU read).
-    if (imu_ && pose_ && opt_.real_size && !opt_.glasses_pinned && opt_.glasses_mode != 1) {
+    if (imu_ && pose_ && opt_.real_size && !opt_.glasses_pinned && opt_.glasses_mode == 0) {
         pose_->set_glasses_mode(1);
         Sleep(150);
     }
@@ -2290,11 +2231,7 @@ void Server::apply_pending() {
     ro.k2 = o->k2;
     ro.dim_others = o->dim_others;
     ro.tracking_axes = static_cast<core::TrackingAxes>(o->tracking_axes);
-    if (o->glasses_mode >= 0 && o->glasses_mode != opt_.glasses_mode) {
-        pose_->set_glasses_mode(o->glasses_mode);
-        static const char* kModes[] = {"follow", "pinned", "steady"};
-        logln("glasses: %s mode", kModes[std::clamp(o->glasses_mode, 0, 2)]);
-    }
+    if (o->glasses_mode >= 0 && o->glasses_mode != opt_.glasses_mode) pose_->set_glasses_mode(o->glasses_mode);
     if (o->brightness > 0 && o->brightness != opt_.brightness) pose_->set_glasses_brightness(o->brightness);
     opt_.glasses_mode = o->glasses_mode;
     opt_.brightness = o->brightness;
@@ -2307,9 +2244,6 @@ void Server::apply_pending() {
     opt_.gather_windows = o->gather_windows;
     opt_.depth3d = o->depth3d;
     opt_.grow_by_gaze = o->grow_by_gaze;
-    if (opt_.steady_zone_deg != o->steady_zone_deg || opt_.steady_smooth_s != o->steady_smooth_s) have_steady_ = false;
-    opt_.steady_zone_deg = o->steady_zone_deg;
-    opt_.steady_smooth_s = o->steady_smooth_s;
     opt_.depth_strength = o->depth_strength;
     opt_.depth_plane = o->depth_plane;
     update_depth3d();
@@ -2383,9 +2317,6 @@ core::Settings to_core(const nimbo_settings& c) {
     s.depth_plane = c.depth_plane;
     s.zoom = c.zoom > 0 ? c.zoom : 1.0f;
     s.grow_by_gaze = c.grow_by_gaze;
-    s.glasses_steady = c.glasses_steady;
-    s.steady_zone_deg = c.steady_zone_deg;
-    s.steady_smooth_s = c.steady_smooth_s;
     for (int i = 0; i < std::clamp(c.pose_count, 0, NIMBO_MAX_PANELS); ++i) {
         s.panels.push_back({c.pose_yaw[i], c.pose_pitch[i], c.pose_scale[i]});
     }
@@ -2426,9 +2357,6 @@ nimbo_settings to_c(const core::Settings& s) {
     c.depth_plane = s.depth_plane;
     c.zoom = s.zoom;
     c.grow_by_gaze = s.grow_by_gaze;
-    c.glasses_steady = s.glasses_steady;
-    c.steady_zone_deg = s.steady_zone_deg;
-    c.steady_smooth_s = s.steady_smooth_s;
     c.pose_count = static_cast<int>(std::min<size_t>(s.panels.size(), NIMBO_MAX_PANELS));
     for (int i = 0; i < c.pose_count; ++i) {
         c.pose_yaw[i] = s.panels[static_cast<size_t>(i)].yaw_deg;
@@ -2479,8 +2407,6 @@ nimbo_options nimbo_default_options(void) {
     o.depth_plane = 0.35f;
     o.zoom = 1.0f;
     o.grow_by_gaze = true;
-    o.steady_zone_deg = 6.0f;
-    o.steady_smooth_s = 0.2f;
     return o;
 }
 
@@ -2683,12 +2609,6 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.depth_plane = s.depth_plane;
     o.zoom = s.zoom;
     o.grow_by_gaze = s.grow_by_gaze;
-    o.steady_zone_deg = s.steady_zone_deg;
-    o.steady_smooth_s = s.steady_smooth_s;
-    if (s.glasses_steady) {  // steady instead of follow; no anchor of Nimbo's (the stillness is the glasses')
-        o.glasses_mode = 2;
-        o.dead_zone_deg = -1.0f;
-    }
     o.brightness = s.brightness;
     o.pose_count = placed ? static_cast<int>(s.panels.size()) : 0;
     for (int i = 0; i < o.pose_count; ++i) {

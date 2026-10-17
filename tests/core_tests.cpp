@@ -905,12 +905,6 @@ void test_neck_model() {
     // The point 2 m ahead in the room, horizontally in the eye frame: shifted by about the eyes'
     // sideways travel (0.08 * sin 30 = 4 cm).
     CHECK(std::fabs(std::fabs(eye_x(neck) - eye_x(plain)) - kNeckForwardM * 0.5f) < 0.01f);
-    // Steady: drawn straight ahead (the glasses turn the image) with the eyes where the turned
-    // head put them: the same sideways travel; with the same pose on both, the one-pose form.
-    const Mat4 steady = view_matrix(Quat{}, yaw, 0.0f, kNeckUpM, kNeckForwardM);
-    CHECK(std::fabs(std::fabs(eye_x(steady)) - kNeckForwardM * 0.5f) < 0.01f);
-    const Mat4 same = view_matrix(yaw, yaw, 0.0f, kNeckUpM, kNeckForwardM);
-    for (int i = 0; i < 3; ++i) CHECK(near(same.at(i, 3), neck.at(i, 3), 1e-6f));
 }
 
 void test_slerp() {
