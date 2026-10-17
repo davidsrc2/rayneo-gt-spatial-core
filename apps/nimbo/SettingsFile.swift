@@ -99,7 +99,7 @@ final class SettingsFile: @unchecked Sendable {
     private static let plainKeys = [
         "textSize", "distance", "gap", "curvature", "curved", "tilt", "size", "autoStart", "fovY", "ipd", "stereo",
         "deadZone", "gazeCursor", "dimOthers", "gatherWindows", "tracking", "yawOnly", "glassesMode", "anchorAtRest",
-        "macScreen", "zoom", "growFocused", "growByGaze", "focusWindows", "brightness", "depth3D", "depthStrength", "depthPlane", "k1", "k2",
+        "macScreen", "zoom", "growFocused", "growByGaze", "glassesSteady", "steadyZone", "steadySmooth", "focusWindows", "brightness", "depth3D", "depthStrength", "depthPlane", "k1", "k2",
         "onboardingDone",
     ]
     private static let blobKeys = ["layoutCells": "layoutCells", "panelPoses": "panels",

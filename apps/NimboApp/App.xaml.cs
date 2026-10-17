@@ -119,8 +119,9 @@ public partial class App : Application
         {
             if (_model.PinnedMode) return;
             _model.GlassesSteady = !_model.GlassesSteady;
+            _model.Save();
             _server.SettingsChanged();
-            _server.ShowMessage(_model.GlassesSteady ? "Gafas en modo steady (prueba)" : "Gafas en modo follow");
+            _server.ShowMessage(_model.GlassesSteady ? "Gafas en modo steady" : "Gafas en modo follow");
         });
         // Ctrl+Alt+G: the glasses' own pinned mode or back to the space at real size.
         _hotKeys.Register('G', () =>

@@ -202,6 +202,9 @@ std::string settings_to_json(const Settings& s) {
     put(out, "depthPlane", s.depth_plane);
     put(out, "zoom", s.zoom);
     put(out, "growByGaze", s.grow_by_gaze);
+    put(out, "glassesSteady", s.glasses_steady);
+    put(out, "steadyZone", s.steady_zone_deg);
+    put(out, "steadySmooth", s.steady_smooth_s);
     put(out, "k1", s.k1);
     put(out, "k2", s.k2);
     put(out, "onboardingDone", s.onboarding_done, true);
@@ -219,7 +222,8 @@ std::optional<Settings> settings_from_json(std::string_view json) {
                   {"size", &s.size_deg},       {"fovY", &s.fov_y_deg},  {"ipd", &s.ipd_mm},
                   {"deadZone", &s.dead_zone_deg}, {"k1", &s.k1},        {"k2", &s.k2},
                   {"tilt", &s.tilt},           {"depthStrength", &s.depth_strength},
-                  {"depthPlane", &s.depth_plane},      {"zoom", &s.zoom}};
+                  {"depthPlane", &s.depth_plane},      {"zoom", &s.zoom},
+                  {"steadyZone", &s.steady_zone_deg},  {"steadySmooth", &s.steady_smooth_s}};
     const struct {
         const char* key;
         bool* value;
@@ -227,7 +231,8 @@ std::optional<Settings> settings_from_json(std::string_view json) {
                  {"gazeCursor", &s.gaze_cursor},     {"dimOthers", &s.dim_others},
                  {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done},
                  {"anchorAtRest", &s.anchor_at_rest}, {"macScreen", &s.mac_screen},
-                 {"depth3D", &s.depth3d},             {"growByGaze", &s.grow_by_gaze}};
+                 {"depth3D", &s.depth3d},             {"growByGaze", &s.grow_by_gaze},
+                 {"glassesSteady", &s.glasses_steady}};
     bool has_mode = false, legacy_pinned = false;
     bool has_tracking = false, legacy_yaw_only = true, has_legacy = false;
 

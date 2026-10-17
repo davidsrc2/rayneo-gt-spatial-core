@@ -93,6 +93,17 @@
             </StackPanel>
 
             <StackPanel Spacing="8">
+                <TextBlock Text="Modo steady (Ctrl+Alt+S)" FontSize="13" Opacity="0.7" />
+                <ToggleSwitch x:Name="SteadyToggle" Header="Gafas en modo steady en vez de follow" Toggled="Changed" />
+                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
+                           Text="Las gafas sujetan la imagen quieta mientras te mueves poco y Nimbo compensa lo que arrastran al salirte de ese margen. Si al girar las pantallas te siguen, sube el margen; si van hacia el lado contrario, bájalo. Suavidad: cuánto tardan las gafas en alcanzarte." />
+                <Slider x:Name="SteadyZoneSlider" Header="Margen de las gafas (°)" Minimum="0" Maximum="20" StepFrequency="0.5"
+                        ValueChanged="SliderChanged" />
+                <Slider x:Name="SteadySmoothSlider" Header="Suavidad (s)" Minimum="0" Maximum="1.5" StepFrequency="0.05"
+                        ValueChanged="SliderChanged" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
                 <TextBlock Text="Cine en 3D con IA" FontSize="13" Opacity="0.7" />
                 <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
                            Text="Con las gafas en modo 3D, mira el vídeo y pulsa Ctrl+Alt+T: modo cine con relieve. Ctrl+Alt+T otra vez lo quita; Ctrl+Alt+P sale del cine (al volver las gafas a 2D sale solo)." />

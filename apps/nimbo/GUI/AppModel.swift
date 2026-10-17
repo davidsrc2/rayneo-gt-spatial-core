@@ -63,9 +63,11 @@ final class AppModel: ObservableObject {
     @Published var anchorAtRest: Bool { didSet { d.set(anchorAtRest, forKey: "anchorAtRest") } }  // panels frozen while the head is still
     @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
-    // Space at real size with the glasses in their steady mode instead of follow (⌘⌥S, a test:
-    // for this run only).
-    @Published var glassesSteady = false
+    // Space at real size with the glasses in their steady mode instead of follow (⌘⌥S): Nimbo
+    // draws for where the glasses hold the image (a model with these two values). Saved.
+    @Published var glassesSteady: Bool { didSet { d.set(glassesSteady, forKey: "glassesSteady") } }
+    @Published var steadyZone: Double { didSet { d.set(steadyZone, forKey: "steadyZone") } }      // degrees
+    @Published var steadySmooth: Double { didSet { d.set(steadySmooth, forKey: "steadySmooth") } }  // seconds
     // Pinned (⌘⌥G): the panel in use follows the mouse only, not where you look (⌘⌥M).
     @Published var growByGaze: Bool { didSet { d.set(growByGaze, forKey: "growByGaze") } }
     @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
@@ -104,6 +106,9 @@ final class AppModel: ObservableObject {
         glassesPinned = d.int(forKey: "glassesMode") == 1
         growFocused = d.object(forKey: "growFocused") as? Bool ?? true
         growByGaze = d.object(forKey: "growByGaze") as? Bool ?? true
+        glassesSteady = d.bool(forKey: "glassesSteady")
+        steadyZone = d.object(forKey: "steadyZone") as? Double ?? 6
+        steadySmooth = d.object(forKey: "steadySmooth") as? Double ?? 0.2
         macScreen = d.object(forKey: "macScreen") as? Bool ?? true
         anchorAtRest = d.bool(forKey: "anchorAtRest")
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
@@ -341,7 +346,10 @@ final class AppModel: ObservableObject {
         // Anchor at rest: frozen while the head holds within 0.6 deg (-1 - 0.6, see rayneo_config):
         // above breathing and pulse sway (0.5-0.8 deg); at 0.3 it let go every few seconds and the
         // panels trembled with the head.
-        o.deadZoneDeg = glassesPinned ? Float(deadZone) : (anchorAtRest ? -1.6 : -1)
+        // Steady: no anchor of Nimbo's (the stillness is the glasses'; the model needs the head as is).
+        o.deadZoneDeg = glassesPinned ? Float(deadZone) : (anchorAtRest && !glassesSteady ? -1.6 : -1)
+        o.steadyZoneDeg = Float(steadyZone)
+        o.steadySmoothS = Float(steadySmooth)
         o.gazeCursor = gazeCursor
         o.dimOthers = dimOthers ? 0.55 : 1  // linear light: ~80 % perceived brightness
         o.gatherWindows = gatherWindows

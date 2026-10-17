@@ -63,6 +63,8 @@ internal static unsafe class NimboNative
         public float DepthPlane;    // depth left on the panel's plane, 0 far .. 1 near (0.35)
         public float Zoom;          // every panel this much larger; <= 0: 1
         public byte GrowByGaze;     // glasses' pinned mode: the panel looked at takes over (0: mouse only)
+        public float SteadyZoneDeg; // glasses in steady mode: their margin (model)
+        public float SteadySmoothS; // and how smoothly they drag beyond it
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -127,6 +129,9 @@ internal static unsafe class NimboNative
         public float DepthPlane;
         public float Zoom;
         public byte GrowByGaze;
+        public byte GlassesSteady;
+        public float SteadyZoneDeg;
+        public float SteadySmoothS;
     }
 
     [StructLayout(LayoutKind.Sequential)]

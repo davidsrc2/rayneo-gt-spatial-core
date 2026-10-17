@@ -36,6 +36,9 @@ struct SettingsView: View {
         .onChange(of: model.tracking) { server.settingsChanged() }
         .onChange(of: model.focusWindows) { server.settingsChanged() }
         .onChange(of: model.growByGaze) { server.settingsChanged() }
+        .onChange(of: model.glassesSteady) { server.settingsChanged() }
+        .onChange(of: model.steadyZone) { server.settingsChanged() }
+        .onChange(of: model.steadySmooth) { server.settingsChanged() }
         .onChange(of: model.macScreen) { server.settingsChanged() }
         .onChange(of: model.anchorAtRest) { server.settingsChanged() }
         .onChange(of: model.depthStrength) { server.settingsChanged() }
@@ -89,6 +92,17 @@ struct SettingsView: View {
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
+            }
+
+            Section(title: "Modo steady (⌘⌥S)") {
+                Toggle("Gafas en modo steady en vez de follow", isOn: $model.glassesSteady)
+                    .font(Theme.body).foregroundStyle(Theme.text)
+                Text("Las gafas sujetan la imagen quieta mientras te mueves poco y Nimbo compensa lo que arrastran al salirte de ese margen. Si al girar las pantallas te siguen, sube el margen; si van hacia el lado contrario, bájalo. Suavidad: cuánto tardan las gafas en alcanzarte.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                LabeledSlider(title: "Margen de las gafas", value: $model.steadyZone, range: 0...20, step: 0.5,
+                              caption: String(format: "%.1f°", model.steadyZone))
+                LabeledSlider(title: "Suavidad", value: $model.steadySmooth, range: 0...1.5, step: 0.05,
+                              caption: String(format: "%.2f s", model.steadySmooth))
             }
 
             Section(title: "Cine en 3D con IA") {
@@ -146,7 +160,7 @@ struct ShortcutSheet: View {
         ("⌘⌥G", "Ctrl+Alt+G", "Modo fijo de las gafas: ellas sostienen la imagen, quietísima, todo dentro de su imagen (otra vez: espacio a tamaño real)"),
         ("⌘⌥J", "Ctrl+Alt+J", "Llevar el cursor a la pantalla que miras"),
         ("⌘⌥M", "Ctrl+Alt+M", "Modo fijo: la pantalla activa cambia solo con el ratón / también mirándola"),
-        ("⌘⌥S", "Ctrl+Alt+S", "Prueba: gafas en modo steady en vez de follow (modo normal)"),
+        ("⌘⌥S", "Ctrl+Alt+S", "Modo steady de las gafas en vez de follow (modo normal; margen y suavidad en Ajustes)"),
         ("⌘⌥O", "Ctrl+Alt+O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
         ("⌘⌥K", "Ctrl+Alt+K", "Modo código: las pantallas mucho más cerca, zoom 170 % (otra vez: como estaban)"),
         ("⌘⌥+  ⌘⌥-", "Ctrl+Alt++  -", "Zoom: acercar / alejar las pantallas"),

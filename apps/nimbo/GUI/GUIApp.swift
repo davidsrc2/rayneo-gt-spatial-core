@@ -74,7 +74,7 @@ final class GUIApp: NSObject {
             guard let self, !self.model.glassesPinned else { return }
             self.model.glassesSteady.toggle()
             self.server.settingsChanged()
-            self.server.showMessage(self.model.glassesSteady ? "Gafas en modo steady (prueba)" : "Gafas en modo follow")
+            self.server.showMessage(self.model.glassesSteady ? "Gafas en modo steady" : "Gafas en modo follow")
         }
         let keys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3]
         for (key, preset) in zip(keys, AppModel.layouts) {

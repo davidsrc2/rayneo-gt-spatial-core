@@ -755,6 +755,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.glassesPinned = o.glassesPinned
         options.growFocused = o.growFocused
         options.growByGaze = o.growByGaze
+        if options.steadyZoneDeg != o.steadyZoneDeg || options.steadySmoothS != o.steadySmoothS { steadyG = nil }
+        options.steadyZoneDeg = o.steadyZoneDeg
+        options.steadySmoothS = o.steadySmoothS
         options.realSize = o.realSize
         options.focusWindows = o.focusWindows
         options.depth3D = o.depth3D
@@ -1528,6 +1531,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         if options.glassesPinned { return }
         pose.recenter()
+        steadyG = nil  // the glasses' steady model starts again straight ahead
         lastGazePanel = -2  // re-evaluate: the cursor follows to the panel in front
         log("recenter")
     }
@@ -1753,11 +1757,19 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statsLock.unlock()
         let targetHost = Int64(nowHost) + Int64((targetMedia - nowMedia + late / 1e3) * 1e9)
 
-        guard let p = pose.latest() else {
+        guard var p = pose.latest() else {
             renderer.invalidateSkippedFrame()
             _ = renderer.render(to: drawable, orientation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
                                 angularVelocity: .zero, sampleHostNs: 0, targetHostNs: 0)
             return true
+        }
+        // Glasses in steady mode: drawn for where the glasses hold their image (modelled), not for
+        // the head: still within their margin, and compensating exactly what they drag beyond it.
+        if options.glassesMode == 2 && options.realSize && !options.glassesPinned && p.tracking {
+            p.orientation = steadyFrame(p.orientation, nowNs: nowHost)
+            p.angularVelocity = .zero  // that frame moves slowly: nothing to predict
+        } else {
+            steadyG = nil
         }
         if nothingChanged(p) {
             statsLock.lock()
@@ -1839,6 +1851,41 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         displayLink?.preferredFrameLatency = frameLatency
         missingSeconds = 0
         log("render: refreshes missed (\(s.missed) of \(s.presentedN) last second); one more frame queued for an even rhythm")
+    }
+
+    // MARK: glasses' steady mode
+
+    // The glasses in steady mode hold their image still while the head moves within a margin and
+    // drag it along beyond (smoothly). Drawn as in follow, the panels went the head's way when
+    // the head left that margin: Nimbo compensated motion the glasses had already absorbed. So
+    // Nimbo keeps a model of where the glasses hold the image (g: a dead-zone follower of the
+    // head, `steadyZoneDeg`, eased over `steadySmoothS`) and draws for g: within the margin
+    // nothing of Nimbo's moves (the stillness is the glasses'), beyond it Nimbo moves exactly
+    // what the glasses drag. Both values are the glasses' and only approximately known: tunable
+    // in Settings. Render thread.
+    private var steadyG: simd_quatf?
+    private var steadyLastNs: UInt64 = 0
+
+    private func steadyFrame(_ head: simd_quatf, nowNs: UInt64) -> simd_quatf {
+        guard var g = steadyG else {
+            steadyG = head
+            steadyLastNs = nowNs
+            return head
+        }
+        let dt = min(0.1, Double(nowNs &- steadyLastNs) / 1e9)
+        steadyLastNs = nowNs
+        var rel = simd_mul(simd_inverse(g), head)
+        if rel.real < 0 { rel = simd_quatf(vector: -rel.vector) }
+        let angle = 2 * asin(min(1, Double(simd_length(rel.imag))))  // precise for small angles too
+        let zone = Double(max(0, options.steadyZoneDeg)) * .pi / 180
+        if angle > zone && angle > 1e-6 {
+            let target = simd_slerp(g, head, Float((angle - zone) / angle))  // the margin's edge, towards the head
+            let tau = Double(max(0, options.steadySmoothS))
+            let a = tau < 0.005 ? 1 : 1 - exp(-dt / tau)
+            g = simd_slerp(g, target, Float(a))
+        }
+        steadyG = g
+        return g
     }
 
     // MARK: fallback render loop
