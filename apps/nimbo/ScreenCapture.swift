@@ -7,6 +7,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private var config: SCStreamConfiguration?
     private var cropScale: CGFloat = 1
+    private var windowScale: CGFloat = 2
     private let queue = DispatchQueue(label: "rayneo.capture", qos: .userInteractive)
     private let onFrame: (CVPixelBuffer) -> Void
     private(set) var frames: UInt64 = 0
@@ -90,6 +91,14 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         try? await stream.updateConfiguration(cfg)
     }
 
+    // A window capture's window was resized: frames at its new size.
+    func updateWindowSize(_ size: CGSize) async {
+        guard let stream, let cfg = config else { return }
+        cfg.width = Int(size.width * windowScale)
+        cfg.height = Int(size.height * windowScale)
+        try? await stream.updateConfiguration(cfg)
+    }
+
     // A single window, wherever it is (covered by others too): a floating panel in space.
     func start(windowID: CGWindowID, fps: Int) async throws -> (Int, Int) {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
@@ -99,6 +108,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let cfg = SCStreamConfiguration()
         let scale = max(CGFloat(filter.pointPixelScale), 2)
+        windowScale = scale
         cfg.width = Int(window.frame.width * scale)
         cfg.height = Int(window.frame.height * scale)
         cfg.scalesToFit = true
@@ -109,6 +119,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         cfg.colorSpaceName = CGColorSpace.sRGB
         cfg.queueDepth = 4
         cfg.showsCursor = true
+        config = cfg
         let s = SCStream(filter: filter, configuration: cfg, delegate: self)
         try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await s.startCapture()

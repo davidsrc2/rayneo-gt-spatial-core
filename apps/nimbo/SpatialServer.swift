@@ -87,8 +87,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var growCandidate = -2          // pinned: panel looked at, not yet enlarged
     private var growCandidateSince = Date()
     private var growCursorDisplay: CGDirectDisplayID = 0
-    // Floating windows on a monitor of their own: only the window's part of it is shown.
-    private var floatingCrops: [(capture: ScreenCapture, windowID: CGWindowID, display: CGDirectDisplayID, crop: CGRect)] = []
+    // Floating windows' captures, by window, with the size each was started at.
+    private var floatingSizes: [(capture: ScreenCapture, windowID: CGWindowID, size: CGSize)] = []
     private var physicalDisplay: CGDirectDisplayID?  // glasses surface when it is not a panel
     private var glassesID: CGDirectDisplayID?        // render target (nil in --windowed)
     private var lastPoseNs: UInt64 = 0
@@ -416,7 +416,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.printStats()
             self?.checkGlassesPresent()
-            self?.refreshFloatingCrops()
+            self?.refreshFloatingSizes()
         }
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                                 object: nil, queue: .main) { [weak self] _ in
@@ -819,7 +819,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     func setFloatingWindows(_ specs: [FloatingWindow]) async {
         let old = floatingCaptures
         floatingCaptures = []
-        floatingCrops = []
+        floatingSizes = []
         for c in old { await c.stop() }
         // Monitors of the windows already afloat, by window: kept for the ones that stay.
         var kept: [UInt32: (display: RNVirtualDisplay, serial: UInt32)] = [:]
@@ -914,14 +914,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let panel = UInt(base + floatingCaptures.count)
             let cap = ScreenCapture { [weak self] pb in self?.deliver(pb, panel: Int(panel)) }
             do {
-                let (pw, ph): (Int, Int)
-                if let d = displays[i] {  // the window's part of its monitor, with the cursor over it
-                    let crop = windowCrop(CGWindowID(w.windowID), on: d.displayID)
-                    (pw, ph) = try await cap.start(displayID: d.displayID, fps: 60, excludeOwnApp: true,
-                                                   minScale: options.hiDPI ? 2 : 1, crop: crop)
-                    if let crop { floatingCrops.append((cap, CGWindowID(w.windowID), d.displayID, crop)) }
-                } else {
-                    (pw, ph) = try await cap.start(windowID: CGWindowID(w.windowID), fps: 60)
+                // The window itself, not its part of its monitor: macOS drops other windows on a
+                // new monitor (the Terminal in front showed instead of the Safari picked).
+                let (pw, ph) = try await cap.start(windowID: CGWindowID(w.windowID), fps: 60)
+                if let frame = WindowGatherer.frame(windowID: CGWindowID(w.windowID)) {
+                    floatingSizes.append((cap, CGWindowID(w.windowID), frame.size))
                 }
                 floatingCaptures.append(cap)
                 log("window: panel \(Int(panel) + 1) <- \(w.title) \(pw)x\(ph)" + (displays[i].map { " on monitor \($0.displayID)" } ?? ""))
@@ -957,12 +954,21 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let old = captures
         captures = []
         for c in old { await c.stop() }
-        let screen = glassesID.flatMap { id in NSScreen.screens.first { Displays.id(of: $0) == id } } ?? window.screen
-        do {
-            try await startCaptures(glasses: screen)
-            log("capture: restarted (\(why))")
-        } catch {
-            log("capture: could not restart: \(error.localizedDescription)")
+        // Right after a reconfiguration a monitor can be missing for a moment ("display 1 not
+        // capturable": the Mac's screen stayed frozen until the next change): tried again.
+        for attempt in 1...5 {
+            let screen = glassesID.flatMap { id in NSScreen.screens.first { Displays.id(of: $0) == id } } ?? window.screen
+            do {
+                try await startCaptures(glasses: screen)
+                log("capture: restarted (\(why))")
+                return
+            } catch {
+                for c in captures { await c.stop() }
+                captures = []
+                log("capture: could not restart (attempt \(attempt)): \(error.localizedDescription)")
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                if stopped { return }
+            }
         }
     }
 
@@ -995,22 +1001,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
     }
 
-    // The window's frame on its monitor (points, the monitor's top-left), so the panel shows the
-    // window and not the monitor around it. nil: not on it.
-    private func windowCrop(_ windowID: CGWindowID, on display: CGDirectDisplayID) -> CGRect? {
-        guard let frame = WindowGatherer.frame(windowID: windowID) else { return nil }
-        let b = CGDisplayBounds(display)
-        let r = frame.intersection(b).offsetBy(dx: -b.minX, dy: -b.minY).integral
-        return r.width >= 64 && r.height >= 64 ? r : nil
-    }
-
-    // Once a second: a floating window moved or resized on its monitor, the crop follows.
-    private func refreshFloatingCrops() {
-        for (i, f) in floatingCrops.enumerated() {
-            guard let crop = windowCrop(f.windowID, on: f.display), crop != f.crop else { continue }
-            floatingCrops[i].crop = crop
+    // Once a second: a floating window resized, its capture follows (else scaled into the old size).
+    private func refreshFloatingSizes() {
+        for (i, f) in floatingSizes.enumerated() {
+            guard let frame = WindowGatherer.frame(windowID: f.windowID),
+                  abs(frame.width - f.size.width) >= 2 || abs(frame.height - f.size.height) >= 2 else { continue }
+            floatingSizes[i].size = frame.size
             let cap = f.capture
-            Task { await cap.updateCrop(crop) }
+            Task { await cap.updateWindowSize(frame.size) }
         }
     }
 
@@ -1810,7 +1808,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                     self.latchOnTime = 0
                 }
             }
-            self.presentLateMs += (max(-10, min(40, lateMs)) - self.presentLateMs) * 0.03
+            // The glasses take frames on time or a refresh late in streaks of a second or more:
+            // followed within a few frames (at 0.03 a streak was half over before the target moved,
+            // and the pose was predicted for the wrong refresh meanwhile).
+            self.presentLateMs += (max(-10, min(40, lateMs)) - self.presentLateMs) * 0.15
             let gap = d.presentedTime - self.lastPresentedTime
             if self.lastPresentedTime > 0, gap > 0, gap < 0.05 { self.stats.addInterval(gap * 1e3) }
             self.lastPresentedTime = d.presentedTime
@@ -1844,26 +1845,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: frame pacing
 
-    // A frame shown a refresh late shows the pose predicted for the refresh before: while the
-    // head moves the panels jump back and forth (the tremor in the logs: up to all seconds with
-    // a missed refresh at 120 Hz). With more than 15 % missed for 3 seconds while drawing
-    // steadily, one more frame is queued: 8 ms more to predict (the prediction covers it),
-    // in exchange for an even rhythm.
-    private var missingSeconds = 0
-    private var frameLatency: Float = 2
-
-    private func adaptFrameLatency(_ s: LatencyStats) {
-        guard frameLatency < 3, s.presentedN >= 60 else {
-            missingSeconds = 0
-            return
-        }
-        missingSeconds = Double(s.missed) / Double(s.presentedN) > 0.15 ? missingSeconds + 1 : 0
-        guard missingSeconds >= 3 else { return }
-        frameLatency = 3
-        displayLink?.preferredFrameLatency = frameLatency
-        missingSeconds = 0
-        log("render: refreshes missed (\(s.missed) of \(s.presentedN) last second); one more frame queued for an even rhythm")
-    }
+    // Two frames queued. A third (tried when many refreshes were missed) did not miss fewer on
+    // the glasses (63 of 110 before, 103 of 118 after, logs 17-10-2026) and added 8 ms to predict.
+    private let frameLatency: Float = 2
 
     // MARK: glasses' steady mode
 
@@ -2001,7 +1985,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
                    s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, latchMs,
                    s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) as NSString : "" as NSString))
-        adaptFrameLatency(s)
         if depthPanel >= 0 {
             let d = depth3D.takeStats()
             let n = Double(max(1, d.frames))

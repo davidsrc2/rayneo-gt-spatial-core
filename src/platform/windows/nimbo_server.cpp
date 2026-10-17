@@ -1099,7 +1099,8 @@ void Server::collect_presented() {
         latch_margin_ms_ = std::max(2.0, latch_margin_ms_ - 0.25);
         latch_on_time_ = 0;
     }
-    present_late_ms_ += (std::clamp(late, -10.0, 40.0) - present_late_ms_) * 0.03;
+    // Followed within a few frames, as on macOS (late in streaks: at 0.03 half a streak went by first).
+    present_late_ms_ += (std::clamp(late, -10.0, 40.0) - present_late_ms_) * 0.15;
 }
 
 // Renders and presents one frame. False when it was skipped (nothing changed).
