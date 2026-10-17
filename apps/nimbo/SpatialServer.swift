@@ -465,7 +465,20 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // Ours again, once things settle; our own changes do not count.
         guard Date() > arrangingUntil else { return }
         rearrangeWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.rearrangeDisplays() }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // macOS mirrored one of ours (a remembered mirror set): its capture is dead until
+            // undone and started again.
+            if self.breakMirrors() {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    self?.rearrangeDisplays()
+                    await self?.restartMonitorCaptures("a mirror set undone")
+                }
+                return
+            }
+            self.rearrangeDisplays()
+        }
         rearrangeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
@@ -477,28 +490,35 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // has it, filling the screen (no bars), and the reason logged when it does not take.
     private func copyWallpaper(to ids: [CGDirectDisplayID], from source: CGDirectDisplayID?) {
         Task { @MainActor [weak self] in
+            let ws = NSWorkspace.shared
+            var picture: (url: URL, options: [NSWorkspace.DesktopImageOptionKey: Any])?
             var left = Set(ids)
             for attempt in 0..<6 {
                 guard let self, !self.stopped, !left.isEmpty else { return }
-                let ws = NSWorkspace.shared
-                let from = NSScreen.screens.first { source != nil && Displays.id(of: $0) == source }
-                    ?? NSScreen.screens.first { !ids.contains(Displays.id(of: $0)) && Displays.glassesScreen() != $0 }
-                guard let from, var url = ws.desktopImageURL(for: from) else {
-                    self.log("wallpaper: none to copy")
-                    return
-                }
-                // The picture was deleted or moved (macOS keeps showing its own copy): what the
-                // screen shows instead, saved by Nimbo.
-                if url.isFileURL, !FileManager.default.fileExists(atPath: url.path) {
-                    guard let saved = await Self.snapshotWallpaper(of: Displays.id(of: from)) else {
-                        self.log("wallpaper: \(url.lastPathComponent) no longer exists and the screen's could not be copied")
+                if picture == nil {
+                    let from = NSScreen.screens.first { source != nil && Displays.id(of: $0) == source }
+                        ?? NSScreen.screens.first { !ids.contains(Displays.id(of: $0)) && Displays.glassesScreen() != $0 }
+                    guard let from, var url = ws.desktopImageURL(for: from) else {
+                        self.log("wallpaper: none to copy")
                         return
                     }
-                    url = saved
+                    // The picture was deleted or moved (macOS keeps showing its own copy): what the
+                    // screen shows instead, saved by Nimbo once and reused on every try.
+                    if url.isFileURL, !FileManager.default.fileExists(atPath: url.path) {
+                        guard let saved = await Self.snapshotWallpaper(of: Displays.id(of: from)) else {
+                            if attempt == 5 { self.log("wallpaper: \(url.lastPathComponent) no longer exists and the screen's could not be copied") }
+                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                            continue
+                        }
+                        self.log("wallpaper: \(url.lastPathComponent) no longer exists; the screen's copied")
+                        url = saved
+                    }
+                    var options = ws.desktopImageOptions(for: from) ?? [:]
+                    options[.imageScaling] = NSImageScaling.scaleProportionallyUpOrDown.rawValue
+                    options[.allowClipping] = true  // fill the screen, cropping the overflow: no bars
+                    picture = (url, options)
                 }
-                var options = ws.desktopImageOptions(for: from) ?? [:]
-                options[.imageScaling] = NSImageScaling.scaleProportionallyUpOrDown.rawValue
-                options[.allowClipping] = true  // fill the screen, cropping the overflow: no bars
+                guard let (url, options) = picture else { continue }
                 var lastError: String?
                 for screen in NSScreen.screens where left.contains(Displays.id(of: screen)) {
                     do {
@@ -525,9 +545,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private static func snapshotWallpaper(of display: CGDirectDisplayID) async -> URL? {
         let bounds = CGDisplayBounds(display)
         guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false),
-              let window = content.windows.first(where: {
-                  $0.owningApplication?.bundleIdentifier == "com.apple.wallpaper.agent" && $0.frame == bounds
-              }) else { return nil }
+              let window = content.windows.filter({ $0.owningApplication?.bundleIdentifier == "com.apple.wallpaper.agent" })
+                  .max(by: { $0.frame.intersection(bounds).width * $0.frame.intersection(bounds).height
+                             < $1.frame.intersection(bounds).width * $1.frame.intersection(bounds).height }),
+              window.frame.intersects(bounds) else { return nil }
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let cfg = SCStreamConfiguration()
         let scale = CGFloat(filter.pointPixelScale)
@@ -944,6 +965,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         floatingResolved = resolved
         if !fresh.isEmpty {
             try? await settle(1.0)  // NSScreen list catches up
+            if breakMirrors() {
+                try? await settle(0.8)
+                rearrangeDisplays()
+                try? await settle(0.5)
+            }
             arrangeFloatingDisplays()
             try? await settle(0.5)
             for i in fresh {
@@ -1004,6 +1030,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // Right after a reconfiguration a monitor can be missing for a moment ("display 1 not
         // capturable": the Mac's screen stayed frozen until the next change): tried again.
         for attempt in 1...5 {
+            if breakMirrors() {  // a mirrored monitor is not capturable
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                rearrangeDisplays()
+                arrangeFloatingDisplays()
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
             let screen = glassesID.flatMap { id in NSScreen.screens.first { Displays.id(of: $0) == id } } ?? window.screen
             do {
                 try await startCaptures(glasses: screen)
@@ -1074,6 +1106,23 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // Each floating window's monitor goes where the window floats relative to monitor 1, at
     // monitor 1's points per degree: above the monitors, the cursor crosses up into it.
     // macOS then snaps it against its neighbours.
+    // A new monitor (a floating window's) can join a mirror set macOS remembers: the Mac's screen
+    // then mirrored the Safari window's monitor, could not be captured any more (the glasses kept
+    // a still picture without the cursor) and showed that monitor's 1024x544. Every mirror among
+    // Nimbo's displays and the Mac's screen undone, and everything placed again. true: one was.
+    @discardableResult
+    private func breakMirrors() -> Bool {
+        let ours = panelDisplays + floatingDisplays.compactMap { $0?.displayID } + [macScreenID].compactMap { $0 }
+        let mirrored = Set(ours).filter { CGDisplayIsInMirrorSet($0) != 0 }
+        guard !mirrored.isEmpty else { return false }
+        log("displays: \(mirrored.sorted().map(String.init).joined(separator: ", ")) mirrored; mirroring off and arranged again")
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success else { return true }
+        for id in mirrored { CGConfigureDisplayMirrorOfDisplay(config, id, kCGNullDirectDisplay) }
+        CGCompleteDisplayConfiguration(config, .forAppOnly)
+        return true
+    }
+
     private func arrangeFloatingDisplays() {
         guard let first = panelDisplays.first, floatingDisplays.contains(where: { $0 != nil }) else { return }
         let size = options.panelArcDeg
@@ -1906,19 +1955,19 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // MARK: frame pacing
 
     // One frame queued, ~8 ms less to predict than two. If even so more than 15 % of the
-    // refreshes are missed for 3 seconds while drawing steadily, two (logged): an even rhythm
+    // refreshes are missed for 5 seconds while tracking and drawing steadily, two (logged): an even rhythm
     // matters more than the 8 ms. (A third did not miss fewer: the misses were the drawables,
     // two for two queued frames, not the queue.)
     private var frameLatency: Float = 1
     private var missingSeconds = 0
 
     private func adaptFrameLatency(_ s: LatencyStats) {
-        guard frameLatency < 2, s.presentedN >= 60 else {
+        guard frameLatency < 2, s.tracking, s.presentedN >= 60 else {
             missingSeconds = 0
             return
         }
         missingSeconds = Double(s.missed) / Double(s.presentedN) > 0.15 ? missingSeconds + 1 : 0
-        guard missingSeconds >= 3 else { return }
+        guard missingSeconds >= 5 else { return }  // not a display reconfiguration's few seconds
         frameLatency = 2
         displayLink?.preferredFrameLatency = frameLatency
         missingSeconds = 0
