@@ -49,6 +49,8 @@ struct LatencyStats {
     var cpuSum = 0.0, cpuMax = 0.0              // wake-up (pose read) to commit (ms), display link frames
     var readyN = 0
     var readySum = 0.0                          // GPU end before the deadline (ms; < 0: after it)
+    var gpuWaitN = 0
+    var gpuWaitSum = 0.0                        // commit -> GPU start (ms)
     // Late latching as applied: from the pose read to the frame's deadline (ms), display link frames only.
     var latchN = 0
     var latchSum = 0.0
@@ -2217,10 +2219,15 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         renderer.options.sampleAgeMs = Float(max(0, Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6))
         let prediction = renderer.render(to: drawable, orientation: p.orientation,
                                          angularVelocity: p.angularVelocity,
-                                         sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost))) { [weak self] end in
+                                         sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost))) { [weak self] start, end in
             guard let self else { return }
             self.statsLock.lock()
             cpu.gpuEnd = end
+            // Waiting for the GPU: from the commit to the GPU starting on the frame.
+            if cpu.ms >= 0, start > 0 {
+                self.stats.gpuWaitSum += max(0, start - (wake + cpu.ms / 1e3)) * 1e3
+                self.stats.gpuWaitN += 1
+            }
             self.statsLock.unlock()
         }
         let cpuMs = (CACurrentMediaTime() - nowMedia) * 1e3
@@ -2409,7 +2416,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                    s.readyN > 0 ? s.readySum / Double(s.readyN) : 0,
                    (s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) : "")
                    + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "")
-                   + String(format: " | gpu %.1f ms", renderer.lastGPUMs) as NSString))
+                   + String(format: " | gpu %.1f ms (wait %.1f)", renderer.takeGPUMeanMs(), s.gpuWaitN > 0 ? s.gpuWaitSum / Double(s.gpuWaitN) : 0) as NSString))
         adaptFrameLatency(s)
         logStreamStalls()
         // Every 10 s: the gyro bias in use (a drift of the panels shows here as a bias that moves).

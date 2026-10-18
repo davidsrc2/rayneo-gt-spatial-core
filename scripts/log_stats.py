@@ -34,6 +34,7 @@ FIELDS = {
     "jitter": re.compile(r"moving jitter " + NUM),
     "wobble": re.compile(r"still wobble " + NUM),
     "gpu": re.compile(r"gpu " + NUM + " ms"),
+    "gpu_wait": re.compile(r"gpu " + NUM + r" ms \(wait " + NUM),
 }
 LINE = re.compile(r"^(?:(\d\d:\d\d:\d\d)\.\d+ )?(TRACK|CALIB) render")
 STAMP = re.compile(r"^(\d\d:\d\d:\d\d)\.\d+ ")

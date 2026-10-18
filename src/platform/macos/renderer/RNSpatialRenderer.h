@@ -134,6 +134,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 // GPU time of the last finished frame, ms (any thread).
 @property(atomic, readonly) double lastGPUMs;
+// Mean GPU time of the frames completed since the last call (ms; 0 without any).
+- (double)takeGPUMeanMs;
 
 // True when the frame about to be drawn equals the one on screen (head still, no new
 // capture, no fade, not forced): skip it. Otherwise remembers it as drawn. Render thread only.
@@ -154,13 +156,14 @@ NS_ASSUME_NONNULL_BEGIN
           angularVelocity:(simd_float3)angularVelocity
              sampleHostNs:(uint64_t)sampleHostNs
              targetHostNs:(uint64_t)targetHostNs;
-// The same; gpuDone gets the frame's GPUEndTime (CACurrentMediaTime clock) once the GPU is done.
+// The same; gpuDone gets the frame's GPUStartTime and GPUEndTime (CACurrentMediaTime clock) once
+// the GPU is done.
 - (float)renderToDrawable:(id<CAMetalDrawable>)drawable
               orientation:(simd_quatf)orientation
           angularVelocity:(simd_float3)angularVelocity
              sampleHostNs:(uint64_t)sampleHostNs
              targetHostNs:(uint64_t)targetHostNs
-                  gpuDone:(nullable void (^)(double gpuEndTime))gpuDone;
+                  gpuDone:(nullable void (^)(double gpuStartTime, double gpuEndTime))gpuDone;
 @end
 
 NS_ASSUME_NONNULL_END

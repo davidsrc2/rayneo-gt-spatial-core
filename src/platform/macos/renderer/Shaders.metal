@@ -163,6 +163,7 @@ struct DistortUniforms {
     float k1;
     float k2;
     float aspect;  // eye image width / height as perceived (16:9 even when squeezed SBS)
+    float box;     // 1: sample level 0 only (2x supersampled, no distortion: a 2x2 box per pixel)
 };
 
 vertex VOut fullscreen_vertex(uint vid [[vertex_id]]) {
@@ -185,6 +186,7 @@ fragment float4 distort_fragment(VOut in [[stage_in]],
     p.x /= d.aspect;
     const float2 uv = p * 0.5 + 0.5;
     if (any(uv < 0.0) || any(uv > 1.0)) return float4(0.0, 0.0, 0.0, 1.0);
+    if (d.box > 0.5) return float4(eye.sample(s, uv, level(0.0)).rgb, 1.0);
     return float4(eye.sample(s, uv).rgb, 1.0);
 }
 

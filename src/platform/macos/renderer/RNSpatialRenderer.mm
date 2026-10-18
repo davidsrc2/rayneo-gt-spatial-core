@@ -30,6 +30,7 @@ struct DistortUniforms {
     float k1;
     float k2;
     float aspect;
+    float box;  // 1: no distortion and a 2x supersampled eye: one bilinear tap of level 0 (2x2 box)
 };
 
 struct StereoUniforms {
@@ -190,6 +191,9 @@ static float panel_arc(RNRenderOptions* o) {
     id<MTLBuffer> _overlayIndices;
     NSUInteger _overlayIndexCount;
     id<MTLTexture> _eyeTextures[2];
+    os_unfair_lock _gpuLock;  // the GPU times below, written by completion handlers
+    double _gpuSumMs;
+    int _gpuN;
 
     core::PanelDimmer _dimmer;     // render thread
     core::FrameSkipper _skipper;   // render thread
@@ -900,6 +904,15 @@ static float effective_curvature(RNRenderOptions* o) {
     for (auto& t : _eyeTextures) t = [_device newTextureWithDescriptor:d];
 }
 
+- (double)takeGPUMeanMs {
+    os_unfair_lock_lock(&_gpuLock);  // zero-initialised ivar = OS_UNFAIR_LOCK_INIT
+    const double mean = _gpuN > 0 ? _gpuSumMs / _gpuN : 0.0;
+    _gpuSumMs = 0.0;
+    _gpuN = 0;
+    os_unfair_lock_unlock(&_gpuLock);
+    return mean;
+}
+
 - (float)renderToDrawable:(id<CAMetalDrawable>)drawable
               orientation:(simd_quatf)orientation
           angularVelocity:(simd_float3)angularVelocity
@@ -914,7 +927,7 @@ static float effective_curvature(RNRenderOptions* o) {
           angularVelocity:(simd_float3)angularVelocity
              sampleHostNs:(uint64_t)sampleHostNs
              targetHostNs:(uint64_t)targetHostNs
-                  gpuDone:(void (^)(double))gpuDone {
+                  gpuDone:(void (^)(double, double))gpuDone {
     RNRenderOptions* o = _options;
 
     // Pose prediction to the photon time.
@@ -1142,7 +1155,11 @@ static float effective_curvature(RNRenderOptions* o) {
         [enc endEncoding];
     }
 
-    if (ss > 1) {  // supersampled: the mip chain the last pass reads at the glasses' size
+    // Supersampled 2x without lens distortion: each output pixel's centre falls between four
+    // eye texels, so one bilinear tap of level 0 is their 2x2 average, exactly what mip level 1
+    // holds: no mip chain to build every frame. With distortion the chain is still needed.
+    const bool box = ss == 2 && o.k1 == 0.0f && o.k2 == 0.0f;
+    if (ss > 1 && !box) {  // supersampled: the mip chain the last pass reads at the glasses' size
         id<MTLBlitCommandEncoder> mips = [cb blitCommandEncoder];
         for (int eye = 0; eye < eyes; ++eye) [mips generateMipmapsForTexture:_eyeTextures[eye]];
         [mips endEncoding];
@@ -1154,7 +1171,7 @@ static float effective_curvature(RNRenderOptions* o) {
     out.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
     id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:out];
     [enc setRenderPipelineState:_distortPipeline];
-    const DistortUniforms du{o.k1, o.k2, o.eyeAspect};
+    const DistortUniforms du{o.k1, o.k2, o.eyeAspect, box ? 1.0f : 0.0f};
     const double half = static_cast<double>(target.width) / eyes;
     for (int eye = 0; eye < eyes; ++eye) {
         const MTLViewport vp{half * eye, 0.0, half, static_cast<double>(target.height), 0.0, 1.0};
@@ -1180,8 +1197,15 @@ static float effective_curvature(RNRenderOptions* o) {
     __weak RNSpatialRenderer* weakSelf = self;
     [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
       RNSpatialRenderer* strong = weakSelf;
-      if (strong != nil && done.GPUEndTime > done.GPUStartTime) strong->_lastGPUMs = (done.GPUEndTime - done.GPUStartTime) * 1e3;
-      if (gpuDone != nil && done.GPUEndTime > 0) gpuDone(done.GPUEndTime);
+      if (strong != nil && done.GPUEndTime > done.GPUStartTime) {
+          const double ms = (done.GPUEndTime - done.GPUStartTime) * 1e3;
+          strong->_lastGPUMs = ms;
+          os_unfair_lock_lock(&strong->_gpuLock);
+          strong->_gpuSumMs += ms;
+          strong->_gpuN += 1;
+          os_unfair_lock_unlock(&strong->_gpuLock);
+      }
+      if (gpuDone != nil && done.GPUEndTime > 0) gpuDone(done.GPUStartTime, done.GPUEndTime);
     }];
     [cb commit];
     return horizon_s * 1e3f;
