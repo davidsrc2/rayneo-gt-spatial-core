@@ -121,6 +121,14 @@ Vec3 without_roll(const Quat& head, const Vec3& omega_rads) {
     return head.rotate(w);
 }
 
+float fixed_prediction_horizon_ms(float fixed_ms, float present_late_ms, float frame_period_ms, float sample_age_ms) {
+    const float period = std::max(0.0f, frame_period_ms);
+    // NaN (no frame presented yet, no sample) counts as nothing to add.
+    const float late = present_late_ms > 0.0f ? std::min(present_late_ms, period) : 0.0f;
+    const float age = sample_age_ms > 0.0f ? std::min(sample_age_ms, period) : 0.0f;
+    return fixed_ms + late + age;
+}
+
 Quat predict_orientation(const Quat& q, const Vec3& omega_rads, float dt_s) {
     const float angle = omega_rads.norm() * dt_s;
     if (angle < 1e-9f) return q;

@@ -2096,6 +2096,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let nowHost = RNSpatialEngine.hostNowNs()
         statsLock.lock()
         let late = max(0, min(25, presentLateMs))
+        let periodMs = framePeriodS * 1e3
         statsLock.unlock()
         let targetHost = Int64(nowHost) + Int64((targetMedia - nowMedia + late / 1e3) * 1e9)
 
@@ -2143,6 +2144,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             self.lastPresentedTime = d.presentedTime
             self.statsLock.unlock()
         }
+        renderer.options.presentLateMs = Float(late)  // the fixed prediction follows the lateness too
+        renderer.options.framePeriodMs = Float(periodMs)
+        renderer.options.sampleAgeMs = Float(max(0, Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6))
         let prediction = renderer.render(to: drawable, orientation: p.orientation,
                                          angularVelocity: p.angularVelocity,
                                          sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))

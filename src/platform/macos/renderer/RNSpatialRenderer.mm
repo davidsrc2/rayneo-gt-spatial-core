@@ -129,6 +129,9 @@ struct Panel {
         _k2 = 0.0f;
         _maxPredictionMs = 50.0f;
         _fixedPredictionMs = 0.0f;
+        _presentLateMs = 0.0f;
+        _framePeriodMs = 1000.0f / 60;
+        _sampleAgeMs = 0.0f;
         _supersample = 1;
         _dimOthers = 1.0f;
         _trackingAxes = 0;
@@ -917,7 +920,7 @@ static float effective_curvature(RNRenderOptions* o) {
     // velocity (zero while the stationary lock holds), no speed ramp.
     core::Vec3 wp = w;
     if (o.fixedPredictionMs > 0.0f && !o.staticHead) {
-        horizon_s = o.fixedPredictionMs * 1e-3f;
+        horizon_s = core::fixed_prediction_horizon_ms(o.fixedPredictionMs, o.presentLateMs, o.framePeriodMs, o.sampleAgeMs) * 1e-3f;
         wp = core::without_roll(from_simd(orientation), w);  // PredXY: turning and nodding
     }
     core::Quat head = core::predict_orientation(from_simd(orientation), wp, horizon_s);

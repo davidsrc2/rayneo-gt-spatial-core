@@ -35,6 +35,11 @@ struct RenderOptions {
     float k2 = 0.0f;
     float max_prediction_ms = 50.0f;
     float fixed_prediction_ms = 0.0f;  // > 0: always this far ahead (space at real size), not the measured horizon
+    // With fixed_prediction_ms: how late frames reach the display (ms, measured) and the refresh
+    // period, added to it (core::fixed_prediction_horizon_ms). Set before each frame.
+    float present_late_ms = 0.0f;
+    float frame_period_ms = 1000.0f / 60;
+    float sample_age_ms = 0.0f;  // the pose's age when the frame read it
     int supersample = 1;               // > 1: eyes drawn this much larger, mipmapped down (space at real size)
     float dim_others = 1.0f;     // brightness of the panels you are not looking at, 1 = off
     core::TrackingAxes tracking_axes = core::TrackingAxes::Both;  // head rotations that move the panels

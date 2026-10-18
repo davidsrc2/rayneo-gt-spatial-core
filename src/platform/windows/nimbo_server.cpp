@@ -1231,6 +1231,9 @@ bool Server::frame() {
             stats_.idle += 1;
             return false;
         }
+        renderer_.options.present_late_ms = static_cast<float>(present_late_ms_);  // the fixed prediction follows it too
+        renderer_.options.frame_period_ms = 1000.0f / static_cast<float>(std::max(1, refresh_hz_));
+        renderer_.options.sample_age_ms = read_ns > p->host_ns ? static_cast<float>(read_ns - p->host_ns) / 1e6f : 0.0f;
         prediction = renderer_.render(back_rtv_.Get(), width_, height_, p->orientation, p->angular_velocity,
                                       p->host_ns, target);
     }

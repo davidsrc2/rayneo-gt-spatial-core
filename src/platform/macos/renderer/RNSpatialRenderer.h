@@ -25,6 +25,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float k2;
 @property(nonatomic) float maxPredictionMs;  // extrapolation clamp, 50
 @property(nonatomic) float fixedPredictionMs; // > 0: always this far ahead (space at real size), not the measured horizon
+// With fixedPredictionMs: how late frames reach the display (ms, measured) and the refresh
+// period, added to it (core::fixed_prediction_horizon_ms). Set before each frame.
+@property(nonatomic) float presentLateMs;
+@property(nonatomic) float framePeriodMs;
+@property(nonatomic) float sampleAgeMs;  // the pose's age when the frame read it
 // > 1: the eye images drawn this many times larger and mipmapped down into the glasses'
 // image (supersampling: sharper text, no shimmer). 1 = off.
 @property(nonatomic) NSUInteger supersample;

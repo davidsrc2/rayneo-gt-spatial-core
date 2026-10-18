@@ -898,7 +898,8 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     // velocity (zero while the stationary lock holds), no speed ramp.
     core::Vec3 wp = angular_velocity;
     if (options.fixed_prediction_ms > 0.0f && !options.static_head) {
-        horizon_s = options.fixed_prediction_ms * 1e-3f;
+        horizon_s = core::fixed_prediction_horizon_ms(options.fixed_prediction_ms, options.present_late_ms,
+                                                      options.frame_period_ms, options.sample_age_ms) * 1e-3f;
         wp = core::without_roll(orientation, angular_velocity);  // PredXY: turning and nodding
     }
     core::Quat head = core::predict_orientation(orientation, wp, horizon_s);

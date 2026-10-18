@@ -1556,6 +1556,21 @@ void test_latch_period_change_reclamps() {
     CHECK(near(s.margin_ms, latch_cap_ms(1000.0f / 240), 1e-6f));
 }
 
+void test_fixed_prediction_horizon() {
+    const float p120 = 1000.0f / 120, p60 = 1000.0f / 60;
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, 0.0f, p120), 16.0f, 1e-5f));     // on time: the tuned 16 ms
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, 3.5f, p120), 19.5f, 1e-5f));     // the measured lateness added
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, 20.0f, p120), 16.0f + p120, 1e-4f));  // at most a period
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, 20.0f, p60), 16.0f + p60, 1e-4f));
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, -4.0f, p120), 16.0f, 1e-5f));    // early: never less
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, std::nanf(""), p120), 16.0f, 1e-5f));
+    // The sample's age at the pose read is added, at most a period.
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, 0.0f, p120, 1.4f), 17.4f, 1e-5f));
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, 2.0f, p120, 1.0f), 19.0f, 1e-5f));
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, 0.0f, p120, 500.0f), 16.0f + p120, 1e-4f));
+    CHECK(near(fixed_prediction_horizon_ms(16.0f, 0.0f, p120, -1.0f), 16.0f, 1e-5f));
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -1633,6 +1648,7 @@ int main() {
     test_latch_cpu_misses_grow_to_cap();
     test_latch_shrinks_gradually();
     test_latch_period_change_reclamps();
+    test_fixed_prediction_horizon();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

@@ -46,6 +46,18 @@ inline constexpr float kNeckForwardM = 0.07f;
 // Left-handed perspective with Metal/D3D clip depth [0, 1].
 Mat4 perspective_lh(float fovy_rad, float aspect, float near_z, float far_z);
 
+// The space at real size's prediction horizon (ms): the tuned fixed motion-to-photon time plus
+// how much later than their target the frames are really shown (the measured lateness, clamped
+// to [0, one period]): a streak a refresh late is then predicted for, instead of the panels
+// sliding back and forth while the head turns. Plus the sample's age when the frame read it
+// (0-2.2 ms at 457 Hz, clamped to [0, one period]): every frame then shows the head a fixed
+// time after its own pose read, not after a sample on the IMU's own grid (that grid against
+// 120 Hz put the drawn poses up to 1.1 ms off their frames' times: an uneven step while turning).
+// The queue's own latency needs no term: the display link's target moves with it, and the
+// lateness is measured against that target (two frames queued added 1.4 ms on time, not a
+// period: logs of 17/18-10-2026).
+float fixed_prediction_horizon_ms(float fixed_ms, float present_late_ms, float frame_period_ms, float sample_age_ms = 0.0f);
+
 // Constant-rate extrapolation of a world-frame-delta orientation: exp(omega*dt) * q.
 // omega is in the same frame as q's rotation axes (rad/s).
 Quat predict_orientation(const Quat& q, const Vec3& omega_rads, float dt_s);
