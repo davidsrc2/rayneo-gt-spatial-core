@@ -20,6 +20,7 @@ final class Updater: ObservableObject {
     @Published private(set) var available: Release?
     @Published private(set) var status = ""
     @Published private(set) var busy = false
+    private var relaunching = false  // the helper is waiting for us to quit: never a second one
     var onFound: ((Release) -> Void)?
 
     private static let latestAPI = URL(string: "https://api.github.com/repos/davidsrc2/rayneo-gt-spatial-core/releases/latest")!
@@ -55,7 +56,7 @@ final class Updater: ObservableObject {
 
     @MainActor
     func install() async {
-        guard let r = available, !busy else { return }
+        guard let r = available, !busy, !relaunching else { return }
         busy = true
         defer { busy = false }
         status = "Descargando la actualización…"
@@ -101,8 +102,18 @@ final class Updater: ObservableObject {
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", script, "nimbo-update", dest, app.path]
         try p.run()
+        relaunching = true
         status = "Instalando…"
+        // AppKit ignores terminate while a sheet is up (Ajustes is one): close them first, and
+        // if the app still has not quit in 3 s, the same clean-up as a normal quit, then exit.
+        for w in NSApp.windows {
+            if let sheet = w.attachedSheet { w.endSheet(sheet) }
+        }
         NSApp.terminate(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            NSApp.delegate?.applicationWillTerminate?(Notification(name: NSApplication.willTerminateNotification))
+            exit(0)
+        }
     }
 
     private static func fetchLatest() async -> Release? {
