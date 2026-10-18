@@ -524,6 +524,7 @@ private:
 
     // Virtual monitors (W3).
     bool virtual_ = false;
+    bool no_virtual_ = false;  // asked for virtual monitors, but the driver did not answer
     std::unique_ptr<win::VirtualDisplayBackend> backend_;
     win::DisplayArrangement arrangement_;
     std::vector<std::wstring> panel_names_;  // GDI name per panel, left -> right
@@ -708,6 +709,7 @@ bool Server::start() {
     }
     if (opt_.displays > 0) backend_ = win::find_virtual_display_backend();
     if (opt_.displays > 0 && !backend_) {
+        no_virtual_ = true;
         if (win::virtual_display_driver_installed()) {
             logln("virtual monitors: the Virtual Display Driver is installed but does not answer on its control pipe"
                   " (update to 25.7.23 or newer, or restart Windows); showing an existing display instead");
@@ -862,7 +864,9 @@ bool Server::start() {
 
     // Windows left on the glasses surface would be invisible (it shows the render): bring
     // them to panel 1, and the cursor with them.
-    if (virtual_ && glasses != nullptr) {
+    // Without virtual monitors too (driver not answering): the glasses' surface is still a
+    // screen of the desktop, beside yours, where windows and the cursor would be head-locked.
+    if (glasses != nullptr && !glasses->mirrored() && sources.front()->gdi_name != glasses_gdi_) {
         const RECT target = sources.front()->desktop;
         if (opt_.gather_windows) {
             logln("windows: moved %d window(s) from the glasses display to panel 1",
@@ -961,6 +965,7 @@ bool Server::start() {
     monitor_panels_ = panels;
     render_adapter_ = first->adapter;
     start_floating(opt_.floating);
+    if (no_virtual_) flash(L"Sin monitores virtuales: solo tu pantalla\nReinicia Windows para recuperarlos", 6.0);
 
     const UINT mods = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT;
     struct Key {
@@ -2041,7 +2046,12 @@ void Server::restore_glasses_mode() {
 // has rested for a moment (the mouse wins). On the glasses surface it would be a second,
 // head-locked cursor: send it to the panel in view.
 void Server::follow_gaze(uint64_t now) {
-    if (!virtual_ || opt_.windowed || panel_rects_.empty()) return;
+    if (opt_.windowed || panel_rects_.empty()) return;
+    // Mirrored glasses share a panel's area: there the cursor belongs where it is.
+    for (const RECT& r : panel_rects_) {
+        RECT both{};
+        if (IntersectRect(&both, &r, &glasses_rect_)) return;
+    }
     POINT cur{};
     if (!GetCursorPos(&cur)) return;
     const bool moved = cur.x != last_cursor_.x || cur.y != last_cursor_.y;
@@ -2067,6 +2077,7 @@ void Server::follow_gaze(uint64_t now) {
         warp(panel_rects_[static_cast<size_t>(i)], 0.5f, 0.5f);
         return;
     }
+    if (!virtual_) return;
     // Pinned: the glasses pan over the image, so the head direction does not say which panel is in view.
     if (!opt_.gaze_cursor || focus_mode_ != 0 || panel_rects_.size() < 2 || !p || !p->tracking) return;
     if (gaze == last_gaze_panel_) {
