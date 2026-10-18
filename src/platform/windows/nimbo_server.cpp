@@ -1768,16 +1768,16 @@ void Server::start_floating(std::vector<Options::Floating> specs) {
 bool Server::start_captures(std::string* error) {
     for (auto& c : captures_) c->stop();
     captures_.clear();
-    DXGI_ADAPTER_DESC1 render_desc{};
-    render_adapter_->GetDesc1(&render_desc);
+    DXGI_ADAPTER_DESC render_desc{};
+    render_adapter_->GetDesc(&render_desc);
     for (size_t i = 0; i < panel_names_.size() && i < static_cast<size_t>(win::SpatialRenderer::kMaxPanels); ++i) {
         const win::OutputInfo* src = find_output(panel_names_[i]);
         if (src == nullptr) {
             if (error != nullptr) *error = win::narrow(panel_names_[i]) + " is gone";
             return false;
         }
-        DXGI_ADAPTER_DESC1 desc{};
-        src->adapter->GetDesc1(&desc);
+        DXGI_ADAPTER_DESC desc{};
+        src->adapter->GetDesc(&desc);
         if (desc.AdapterLuid.LowPart != render_desc.AdapterLuid.LowPart ||
             desc.AdapterLuid.HighPart != render_desc.AdapterLuid.HighPart) {
             if (error != nullptr) {
