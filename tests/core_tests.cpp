@@ -1123,6 +1123,27 @@ void test_level_reference_heading_only() {
 
 // Locked by the rest detector, then a turn starts (accelerating to 60 deg/s in 0.1 s) while
 // the detector still says rest: the lock lets go within a fraction of a degree, not after 1.
+// Recentered with the head (or the calibration) rolled 12 deg and pitched down 10: right after
+// the recenter the panels stand upright; turning 40 deg about the vertical keeps them so and
+// sweeps them horizontally.
+void test_recenter_takes_roll_as_upright() {
+    const float d2r = 0.0174533f;
+    const Quat mount = Quat::from_axis_angle({0.3f, -0.8f, 0.5f}, 1.1f);
+    const Quat h0 = Quat::from_axis_angle({0, 0, 1}, 15 * d2r) * Quat::from_axis_angle({0, -1, 0}, -10 * d2r) *
+                    Quat::from_axis_angle({1, 0, 0}, 12 * d2r);
+    const Quat fix = head_roll(h0);
+    const auto rel = [&](const Quat& h) {
+        return (body_frame_delta(h0 * mount, h * mount, mount, true) * fix.conjugate()).normalized();
+    };
+    const Quat r0 = rel(h0);
+    CHECK(std::fabs(r0.rotate({0, 1, 0}).z) < 1e-4f);                       // upright at the recenter
+    CHECK(near(std::asin(r0.rotate({1, 0, 0}).z) / d2r, -10.0f, 0.05f));   // the pitch stays
+    const Quat r1 = rel(Quat::from_axis_angle({0, 0, 1}, 40 * d2r) * h0);
+    CHECK(std::fabs(r1.rotate({0, 1, 0}).z) < 1e-4f);                       // still upright after the turn
+    const Vec3 f = r1.rotate({1, 0, 0});
+    CHECK(near(std::atan2(f.y, f.x) / d2r, 40.0f, 0.05f) && near(std::asin(f.z) / d2r, -10.0f, 0.05f));
+}
+
 void test_rest_lock_releases_at_turn_start() {
     PoseStabilizerConfig cfg = stationary_lock_stabilizer();
     cfg.lock_on_rest = true;
@@ -1492,6 +1513,7 @@ int main() {
     test_body_frame_delta();
     test_level_reference_heading_only();
     test_rest_lock_releases_at_turn_start();
+    test_recenter_takes_roll_as_upright();
     test_level_reference();
     test_world_locked_madgwick();
     test_world_locked_anchor();

@@ -60,6 +60,10 @@ Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& se
 // A head orientation reduced to its heading (pitch and roll taken out).
 Quat heading_only(const Quat& head);
 
+// The roll of a head orientation (head -> earth), as a rotation about head X: head =
+// level_head(head) * head_roll(head).
+Quat head_roll(const Quat& head);
+
 // A head orientation (head -> earth, Z up) with its roll removed: same heading and pitch.
 Quat level_head(const Quat& head);
 
@@ -114,6 +118,10 @@ private:
     Quat last_relative_;       // last output, the glide's starting point
     Quat reference_;
     Quat heading_ref_;  // pure yaw: level frame aligned with the head's forward at recenter
+    // level_reference: the head's roll at the recenter, taken as "upright" (a mounting or
+    // calibration error of a few degrees, or a head held slightly tilted): with it left in,
+    // every panel came up leaning right after Ctrl+Alt+C.
+    Quat roll_fix_;
     Quat sensor_to_head_;
 };
 

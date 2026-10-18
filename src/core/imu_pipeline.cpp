@@ -34,6 +34,7 @@ void ImuPipeline::reset() {
     last_relative_ = Quat{};
     reference_ = Quat{};
     heading_ref_ = Quat{};
+    roll_fix_ = Quat{};
     stabilizer_.reset();
 }
 
@@ -49,6 +50,8 @@ Quat heading_only(const Quat& head) {
     if (f.x * f.x + f.y * f.y < 1e-6f) return Quat{};  // straight up / down: no heading
     return Quat::from_axis_angle({0.0f, 0.0f, 1.0f}, std::atan2(f.y, f.x));
 }
+
+Quat head_roll(const Quat& head) { return (level_head(head).conjugate() * head).normalized(); }
 
 Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head, bool heading) {
     // Head orientations (head -> earth): sensor -> earth composed with head -> sensor.
@@ -123,6 +126,7 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
         // Head forward (+X) in sensor coordinates, then in earth coordinates.
         const Vec3 fwd_sensor = sensor_to_head_.conjugate().rotate({1.0f, 0.0f, 0.0f});
         heading_ref_ = heading_of(p.absolute.rotate(fwd_sensor));
+        roll_fix_ = cfg_.level_reference ? head_roll(p.absolute * sensor_to_head_.conjugate()) : Quat{};
         recenter_pending_ = false;
         stabilizer_.reset();  // the stabilizer snaps; the glide below hides the jump
         if (glide_requested_ && cfg_.recenter_glide_s > 0.0f) {
@@ -134,9 +138,12 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     // Earth-frame delta (q_ref^-1 * q would leak yaw into pitch/roll when recentered with a
     // tilted head), conjugated by a pure yaw so its axes read as head forward/left/up.
     if (cfg_.body_frame_relative) {
-        p.relative = body_frame_delta(reference_, p.absolute, sensor_to_head_, cfg_.level_reference);
-        // d(relative)/dt = 1/2 * relative * w_head = 1/2 * (relative w_head relative^-1) * relative.
-        const Vec3 w_head = sensor_to_head_.rotate(gyro_corr_degs * kDegToRad);
+        // The head's frame turned by the roll it had at the recenter (right-multiplied: head axes).
+        p.relative = (body_frame_delta(reference_, p.absolute, sensor_to_head_, cfg_.level_reference) *
+                      roll_fix_.conjugate()).normalized();
+        // d(relative)/dt = 1/2 * relative * w_head = 1/2 * (relative w_head relative^-1) * relative,
+        // w_head seen in the roll-fixed axes.
+        const Vec3 w_head = roll_fix_.rotate(sensor_to_head_.rotate(gyro_corr_degs * kDegToRad));
         p.angular_velocity_rads = p.tracking ? p.relative.rotate(w_head) : Vec3{};
     } else {
         const Quat delta = p.absolute * reference_.conjugate();
