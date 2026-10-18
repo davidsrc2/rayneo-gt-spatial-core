@@ -8,7 +8,6 @@ import Security
 // Accessibility permissions), then swapped in place of this app, which opens again.
 // Downloaded by the app itself the new copy carries no quarantine: no Gatekeeper prompt.
 @available(macOS 14.0, *)
-@MainActor
 final class Updater: ObservableObject {
     struct Release {
         let version: String
@@ -34,15 +33,14 @@ final class Updater: ObservableObject {
     func start() {
         status = "Versión \(Self.current)"
         timer = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                await self?.check(quiet: true)
-                self?.timer = Timer.scheduledTimer(withTimeInterval: 12 * 3600, repeats: true) { [weak self] _ in
-                    Task { @MainActor in await self?.check(quiet: true) }
-                }
+            Task { await self?.check(quiet: true) }
+            self?.timer = Timer.scheduledTimer(withTimeInterval: 12 * 3600, repeats: true) { [weak self] _ in
+                Task { await self?.check(quiet: true) }
             }
         }
     }
 
+    @MainActor
     func check(quiet: Bool) async {
         if !quiet { status = "Buscando…" }
         let before = available?.version
@@ -55,6 +53,7 @@ final class Updater: ObservableObject {
         }
     }
 
+    @MainActor
     func install() async {
         guard let r = available, !busy else { return }
         busy = true
@@ -89,6 +88,7 @@ final class Updater: ObservableObject {
     }
 
     // A helper shell waits for this app to quit, swaps the bundle and opens the new one.
+    @MainActor
     private func relaunchInto(_ app: URL) throws {
         let dest = Bundle.main.bundlePath
         let script = """
