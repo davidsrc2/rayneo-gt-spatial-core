@@ -34,6 +34,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float layoutArcDegrees; // panel size the hand-placed poses refer to (0 = arcDegrees)
 @property(nonatomic) NSInteger focusPanel;   // focus mode: only this panel is drawn (-1 = all)
 @property(nonatomic) BOOL cinema;            // with focusPanel: centred straight ahead and large
+@property(nonatomic) float cinemaYawRadians;   // where the cinema panel is centred (yaw right; 0 = straight ahead)
+@property(nonatomic) float cinemaPitchRadians; // (pitch up)
 @property(nonatomic) float zoom;             // every panel this much larger (and the arrangement with them), 1 = off
 // AI 3D: panels given a depth map (setSourcePixelBuffer:depth:...) are drawn in depth when side by side.
 @property(nonatomic) float depthStrength;    // parallax between the eyes at the nearest depth, in panel widths (0.03)
@@ -109,6 +111,9 @@ NS_ASSUME_NONNULL_BEGIN
 // The picture for background style 5 (any image file ImageIO reads); nil or unreadable: none.
 // Any thread.
 - (BOOL)setBackgroundImageAtPath:(nullable NSString*)path NS_SWIFT_NAME(loadBackgroundImage(path:));
+
+// The cinema panel centred where this head orientation (core frame) looks: set on entering cinema.
+- (void)centreCinemaOnGaze:(simd_quatf)orientation;
 
 // Panel index the given head orientation (core frame) looks at, or -1.
 - (NSInteger)panelAtGaze:(simd_quatf)orientation;

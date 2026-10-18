@@ -1456,6 +1456,15 @@ void Server::toggle_focus(bool cinema) {
         }
         focus_mode_ = wanted;
         ro.cinema = cinema;
+        // Space at real size: the cinema screen centred where you look now, evenly framed.
+        const auto gaze = pose_->latest();
+        if (cinema && opt_.real_size && !opt_.glasses_pinned && gaze && gaze->tracking) {
+            const core::PanelPlacement g = core::gaze_placement(gaze->orientation);
+            ro.cinema_yaw_rad = g.yaw_rad;
+            ro.cinema_pitch_rad = g.pitch_rad;
+        } else {
+            ro.cinema_yaw_rad = ro.cinema_pitch_rad = 0.0f;
+        }
         logln("focus: %s on panel %d", cinema ? "cinema" : "focus", ro.focus_panel + 1);
         // The only panel shown: the cursor there (centre), unless it already is.
         const int i = ro.focus_panel;

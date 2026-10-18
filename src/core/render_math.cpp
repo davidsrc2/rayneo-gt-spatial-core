@@ -285,6 +285,11 @@ void place_pitched(ScreenMesh& mesh, float pitch_rad, float tilt, float distance
     pitch_mesh(mesh, pitch_rad);
 }
 
+PanelPlacement gaze_placement(const Quat& head_rel) {
+    const Vec3 f = render_rotation(head_rel).transform_point({0.0f, 0.0f, 1.0f});
+    return PanelPlacement{std::atan2(f.x, f.z), std::atan2(f.y, std::sqrt(f.x * f.x + f.z * f.z)), 1.0f};
+}
+
 int panel_at_gaze(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad,
                   float vertical_arc_rad, float gap_rad) {
     const Vec3 f = render_rotation(head_rel).transform_point({0.0f, 0.0f, 1.0f});

@@ -1569,6 +1569,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             }
             focusMode = wanted
             ro.cinema = cinema
+            // Space at real size: the cinema screen centred where you look now, evenly framed.
+            if cinema, options.realSize, !options.glassesPinned, let p = pose.latest(), p.tracking {
+                renderer.centreCinema(onGaze: p.orientation)
+            } else {
+                ro.cinemaYawRadians = 0
+                ro.cinemaPitchRadians = 0
+            }
             log("focus: \(cinema ? "cinema" : "focus") on panel \(ro.focusPanel + 1)")
             bringCursor(toPanel: ro.focusPanel)  // the only panel shown: the cursor there, not lost on another
             onNotice?(cinema ? "Modo cine (⌘⌥P para salir)" : "Modo enfoque (⌘⌥O para salir)")

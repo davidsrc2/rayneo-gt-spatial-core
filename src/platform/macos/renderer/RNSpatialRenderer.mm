@@ -437,7 +437,9 @@ static float panel_arc(RNRenderOptions* o) {
         const float arc = panel_arc(o) / std::clamp(o.zoom, 0.2f, 4.0f);
         const float fw = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect), fh = o.fovYDegrees * kDegToRad;
         const float fit = 0.95f * std::min(fw / arc, fh / core::panel_vertical_arc(arc, a, true));
-        out[static_cast<size_t>(o.focusPanel)] = core::PanelPlacement{0.0f, 0.0f, std::min(kCinemaScale, fit)};
+        // Centred where you looked on entering cinema: straight ahead of the last recentre left
+        // uneven borders (top and right with the head a little down and left).
+        out[static_cast<size_t>(o.focusPanel)] = core::PanelPlacement{o.cinemaYawRadians, o.cinemaPitchRadians, std::min(kCinemaScale, fit)};
     }
     if (o.staticHead) [self arrangeInGlassesImage:out];
     return out;
@@ -611,6 +613,12 @@ static float panel_arc(RNRenderOptions* o) {
     _backgroundImage = texture;
     os_unfair_lock_unlock(&_sourceLock);
     return texture != nil || path.length == 0;
+}
+
+- (void)centreCinemaOnGaze:(simd_quatf)orientation {
+    const core::PanelPlacement g = core::gaze_placement(from_simd(orientation));
+    _options.cinemaYawRadians = g.yaw_rad;
+    _options.cinemaPitchRadians = g.pitch_rad;
 }
 
 - (NSInteger)panelAtGaze:(simd_quatf)orientation {
