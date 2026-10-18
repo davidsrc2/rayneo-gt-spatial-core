@@ -30,6 +30,11 @@ struct ImuPipelineConfig {
     // left/right-only or up/down-only tracking, but with a head tilted at the recenter, turning
     // swept the panels diagonally).
     bool body_frame_relative = false;
+    // With body_frame_relative: the reference keeps only the heading (pitch taken out too), so
+    // the relative frame stands on the floor: "up" is the world's vertical, not the head's
+    // pitch at the recenter. Recentered looking down, the panels were laid on a tilted circle
+    // and swept diagonally when turning about the vertical.
+    bool level_reference = false;
     // Right after the attitude is initialised (from one accelerometer sample, maybe while the
     // head moves) a low gain takes many seconds to settle it: start at this gain and ease down
     // to madgwick_beta between startup_beta_hold_s and startup_beta_end_s.
@@ -49,7 +54,11 @@ inline constexpr float kWorldLockedMadgwickBeta = 0.01f;
 // seen at body_frame_delta^-1 * x, and it stands level with the floor even when the head (or
 // the glasses on it) was tilted sideways at the recenter. Without levelling the whole row of
 // panels kept that tilt and looked diagonal.
-Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head);
+// heading_only: the reference levelled on both axes (see ImuPipelineConfig::level_reference).
+Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head, bool heading_only = false);
+
+// A head orientation reduced to its heading (pitch and roll taken out).
+Quat heading_only(const Quat& head);
 
 // A head orientation (head -> earth, Z up) with its roll removed: same heading and pitch.
 Quat level_head(const Quat& head);

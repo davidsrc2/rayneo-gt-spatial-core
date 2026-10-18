@@ -112,6 +112,12 @@ int panel_at_gaze(const Quat& head_rel, const std::vector<float>& centers, float
 
 // --- Grid layouts (monitors side by side and/or stacked) ------------------------------------
 
+// Horizon lock: the head pose (head axes, X forward, Y left, Z up, relative to a level
+// reference) with its roll taken out. The camera's up is rebuilt from the world's vertical
+// (right = up x forward, up = forward x right), so leaning the neck never tilts the panels
+// in the view: they stay square to the eyes and to the floor.
+Quat roll_locked(const Quat& head);
+
 struct GridCell {
     int col = 0;
     int row = 0;  // 0 = top

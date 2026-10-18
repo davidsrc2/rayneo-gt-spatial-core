@@ -857,6 +857,8 @@ static float effective_curvature(RNRenderOptions* o) {
     }
     core::Quat head = core::predict_orientation(from_simd(orientation), wp, horizon_s);
     head = core::track_axes(head, static_cast<core::TrackingAxes>(o.trackingAxes));
+    // Space at real size: horizon lock (no roll), the panels always level.
+    if (o.fixedPredictionMs > 0.0f && !o.staticHead) head = core::roll_locked(head);
     if (o.staticHead) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
         head = core::Quat{};
         horizon_s = 0.0f;

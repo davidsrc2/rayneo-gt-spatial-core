@@ -1104,6 +1104,35 @@ void test_body_frame_delta() {
     }
 }
 
+// Recentered looking 15 deg down, then turned 40 deg about the room's vertical: with the level
+// reference the head keeps its true pitch against the floor (panels on the horizon, the turn
+// purely horizontal), and the horizon lock leaves no roll.
+void test_level_reference_heading_only() {
+    const float d2r = 0.0174533f;
+    const Quat mount = Quat::from_axis_angle({0.3f, -0.8f, 0.5f}, 1.1f);
+    const Quat pitch_down = Quat::from_axis_angle({0, -1, 0}, -15 * d2r);
+    const Quat head_ref = Quat::from_axis_angle({0, 0, 1}, 10 * d2r) * pitch_down;
+    const Quat head_now = Quat::from_axis_angle({0, 0, 1}, 40 * d2r) * head_ref;
+    const Quat d = body_frame_delta(head_ref * mount, head_now * mount, mount, true);
+    const Vec3 f = d.rotate({1, 0, 0});
+    CHECK(near(std::asin(f.z) / d2r, -15.0f, 0.01f));                 // pitch against the floor
+    CHECK(near(std::atan2(f.y, f.x) / d2r, 40.0f, 0.01f));            // the turn, all of it sideways
+    const Vec3 left = d.rotate({0, 1, 0});
+    CHECK(std::fabs(left.z) < 1e-4f);                                  // no roll from the recenter
+}
+
+void test_roll_locked() {
+    const float d2r = 0.0174533f;
+    const Quat yp = Quat::from_axis_angle({0, 0, 1}, 30 * d2r) * Quat::from_axis_angle({0, -1, 0}, 12 * d2r);
+    const Quat rolled = yp * Quat::from_axis_angle({1, 0, 0}, 9 * d2r);  // the neck leant 9 deg
+    const Quat l = roll_locked(rolled);
+    const Vec3 a = l.rotate({1, 0, 0}), b = yp.rotate({1, 0, 0});
+    CHECK(near(a.x, b.x, 1e-4f) && near(a.y, b.y, 1e-4f) && near(a.z, b.z, 1e-4f));  // same gaze
+    CHECK(std::fabs(l.rotate({0, 1, 0}).z) < 1e-4f);                                  // level horizon
+    const Vec3 u = l.rotate({0, 0, 1});
+    CHECK(u.z > 0.9f);                                                                 // up stays up
+}
+
 void test_stabilizer_follows_turns() {
     PoseStabilizer s;
     const float dt = kRefDt, rate = 60.0f * 0.0174533f;
@@ -1444,6 +1473,8 @@ int main() {
     test_stabilizer_holds_still();
     test_stabilizer_world_locked();
     test_body_frame_delta();
+    test_level_reference_heading_only();
+    test_roll_locked();
     test_level_reference();
     test_world_locked_madgwick();
     test_world_locked_anchor();

@@ -44,9 +44,16 @@ Quat level_head(const Quat& head) {
     return (Quat::from_axis_angle({0.0f, 0.0f, 1.0f}, yaw) * Quat::from_axis_angle({0.0f, -1.0f, 0.0f}, pitch)).normalized();
 }
 
-Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head) {
+Quat heading_only(const Quat& head) {
+    const Vec3 f = head.rotate({1.0f, 0.0f, 0.0f});
+    if (f.x * f.x + f.y * f.y < 1e-6f) return Quat{};  // straight up / down: no heading
+    return Quat::from_axis_angle({0.0f, 0.0f, 1.0f}, std::atan2(f.y, f.x));
+}
+
+Quat body_frame_delta(const Quat& reference, const Quat& current, const Quat& sensor_to_head, bool heading) {
     // Head orientations (head -> earth): sensor -> earth composed with head -> sensor.
-    const Quat head_ref = level_head(reference * sensor_to_head.conjugate());
+    const Quat ref = reference * sensor_to_head.conjugate();
+    const Quat head_ref = heading ? heading_only(ref) : level_head(ref);
     const Quat head_now = current * sensor_to_head.conjugate();
     return (head_ref.conjugate() * head_now).normalized();
 }
@@ -127,7 +134,7 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     // Earth-frame delta (q_ref^-1 * q would leak yaw into pitch/roll when recentered with a
     // tilted head), conjugated by a pure yaw so its axes read as head forward/left/up.
     if (cfg_.body_frame_relative) {
-        p.relative = body_frame_delta(reference_, p.absolute, sensor_to_head_);
+        p.relative = body_frame_delta(reference_, p.absolute, sensor_to_head_, cfg_.level_reference);
         // d(relative)/dt = 1/2 * relative * w_head = 1/2 * (relative w_head relative^-1) * relative.
         const Vec3 w_head = sensor_to_head_.rotate(gyro_corr_degs * kDegToRad);
         p.angular_velocity_rads = p.tracking ? p.relative.rotate(w_head) : Vec3{};
