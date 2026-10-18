@@ -66,7 +66,8 @@ public:
     DesktopDuplication(const DesktopDuplication&) = delete;
     DesktopDuplication& operator=(const DesktopDuplication&) = delete;
 
-    // `adapter` must own `output`; frames are handed to `render_device` (same adapter).
+    // `adapter` must own `output`; frames are handed to `render_device`: shared on the GPU when
+    // it is the same adapter, else copied through the CPU (laptops with two GPUs).
     bool start(IDXGIAdapter* adapter, IDXGIOutput1* output, ID3D11Device* render_device, std::string* error);
     void stop();
 
@@ -97,6 +98,13 @@ private:
     PointerState pointer_;                            // guarded by mutex_
     PointerShape shape_;                              // guarded by mutex_
     std::vector<uint8_t> shape_buffer_;               // capture thread
+
+    // Another GPU renders: each frame read back here (staging) and uploaded on the render side.
+    bool cross_ = false;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_;  // capture device
+    std::vector<uint8_t> cpu_frame_;                   // guarded by mutex_, width_ * 4 per row
+    bool cpu_dirty_ = false;                           // guarded by mutex_
+    void read_back(ID3D11Texture2D* tex, const D3D11_TEXTURE2D_DESC& d);
 
     std::atomic<uint64_t> generation_{0};
     std::atomic<uint64_t> frames_{0};

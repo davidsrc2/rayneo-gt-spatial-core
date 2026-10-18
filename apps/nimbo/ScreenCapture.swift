@@ -22,7 +22,8 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     // renderer window; app-based exclusion misses processes launched from a terminal).
     // crop: only this part of the display (points, display top-left), e.g. one window on it.
     func start(displayID: CGDirectDisplayID, fps: Int, excludeOwnApp: Bool,
-               excludeWindowIDs: [CGWindowID] = [], minScale: CGFloat = 1, crop: CGRect? = nil) async throws -> (Int, Int) {
+               excludeWindowIDs: [CGWindowID] = [], minScale: CGFloat = 1, crop: CGRect? = nil,
+               showsCursor: Bool = true) async throws -> (Int, Int) {
         // Freshly created virtual monitors and just-ordered-front windows take a moment to
         // appear in the shareable content; a window missing here would not be excluded.
         var found: (SCShareableContent, SCDisplay)?
@@ -72,7 +73,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         // glasses' space) came out oversaturated and too contrasty. Converted here instead.
         cfg.colorSpaceName = CGColorSpace.sRGB
         cfg.queueDepth = 4
-        cfg.showsCursor = true
+        cfg.showsCursor = showsCursor  // false: the renderer draws it at the glasses' rate
 
         config = cfg
         let s = SCStream(filter: filter, configuration: cfg, delegate: self)

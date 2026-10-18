@@ -92,6 +92,11 @@ NS_ASSUME_NONNULL_BEGIN
 // A message fixed in front of the eyes (start-up: "preparing, keep the glasses still"), two
 // lines separated by "\n"; nil hides it. Any thread.
 - (void)setOverlayText:(nullable NSString*)text;
+// The cursor, drawn over its panel every frame (the captures run without it). Image: any
+// thread, when the system cursor changes (hotspot and size in points).
+- (void)setCursorImage:(nullable CGImageRef)image hotspot:(CGPoint)hotspot pointSize:(CGSize)size;
+// Where it is now: panel (-1: none of ours) and the hotspot in that display's points.
+- (void)setCursorPanel:(NSInteger)panel position:(CGPoint)position displaySize:(CGSize)displaySize;
 
 // The zoom (<= 1) at which every panel fits in the glasses' image at once (an overview).
 - (float)overviewZoom;

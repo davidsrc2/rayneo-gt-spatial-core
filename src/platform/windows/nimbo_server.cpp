@@ -1780,11 +1780,8 @@ bool Server::start_captures(std::string* error) {
         src->adapter->GetDesc(&desc);
         if (desc.AdapterLuid.LowPart != render_desc.AdapterLuid.LowPart ||
             desc.AdapterLuid.HighPart != render_desc.AdapterLuid.HighPart) {
-            if (error != nullptr) {
-                *error = win::narrow(src->gdi_name) + " is on another GPU (" + win::narrow(src->adapter_name) +
-                         "): not supported yet";
-            }
-            return false;
+            logln("capture: %s is on another GPU (%s): copied through the CPU", win::narrow(src->gdi_name).c_str(),
+                  win::narrow(src->adapter_name).c_str());
         }
         auto cap = std::make_unique<win::DesktopDuplication>();
         if (!cap->start(src->adapter.Get(), src->output.Get(), device_.Get(), error)) return false;

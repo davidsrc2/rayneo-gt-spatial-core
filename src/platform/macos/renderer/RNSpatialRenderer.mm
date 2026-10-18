@@ -162,6 +162,14 @@ static float panel_arc(RNRenderOptions* o) {
     id<MTLRenderPipelineState> _backgroundPipeline;   // around the panels
     id<MTLSamplerState> _mirrorSampler;               // background picture, mirrored beyond its edges
     id<MTLTexture> _backgroundImage;                  // guarded by _sourceLock
+    id<MTLRenderPipelineState> _cursorPipeline;       // premultiplied alpha over the panel
+    id<MTLTexture> _cursorTexture;                    // guarded by _sourceLock
+    CGPoint _cursorHot;                               // guarded by _sourceLock (points)
+    CGSize _cursorSize;                               // guarded by _sourceLock (points)
+    NSInteger _cursorPanel;                           // guarded by _sourceLock, -1 none
+    CGPoint _cursorPos;                               // guarded by _sourceLock (points in its display)
+    CGSize _cursorDisplay;                            // guarded by _sourceLock
+    uint64_t _cursorGeneration;                       // guarded by _sourceLock
     id<MTLSamplerState> _depthSampler;
     id<MTLSamplerState> _sampler;
     CVMetalTextureCacheRef _textureCache;
@@ -228,6 +236,7 @@ static float panel_arc(RNRenderOptions* o) {
     _queue = [device newCommandQueue];
     _sourceLock = OS_UNFAIR_LOCK_INIT;
     _panelCount = 1;
+    _cursorPanel = -1;
     _growPanel = -1;
     _growFrom = -1;
 
@@ -253,6 +262,20 @@ static float panel_arc(RNRenderOptions* o) {
     d.fragmentFunction = [lib newFunctionWithName:@"stereo_screen_fragment"];
     _stereoPipeline = [device newRenderPipelineStateWithDescriptor:d error:error];
     if (_stereoPipeline == nil) return nil;
+
+    {
+        MTLRenderPipelineDescriptor* c = [MTLRenderPipelineDescriptor new];
+        c.vertexFunction = [lib newFunctionWithName:@"screen_vertex"];
+        c.fragmentFunction = [lib newFunctionWithName:@"cursor_fragment"];
+        c.colorAttachments[0].pixelFormat = pixelFormat;
+        c.colorAttachments[0].blendingEnabled = YES;
+        c.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorOne;
+        c.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        c.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorZero;
+        c.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+        _cursorPipeline = [device newRenderPipelineStateWithDescriptor:c error:error];
+        if (_cursorPipeline == nil) return nil;
+    }
 
     d.vertexFunction = [lib newFunctionWithName:@"fullscreen_vertex"];
     d.fragmentFunction = [lib newFunctionWithName:@"background_fragment"];
@@ -342,6 +365,48 @@ static float panel_arc(RNRenderOptions* o) {
     }
     os_unfair_lock_lock(&_sourceLock);
     _poses = std::move(poses);
+    os_unfair_lock_unlock(&_sourceLock);
+}
+
+- (void)setCursorImage:(CGImageRef)image hotspot:(CGPoint)hotspot pointSize:(CGSize)size {
+    id<MTLTexture> tex = nil;
+    if (image != nullptr) {
+        const size_t w = CGImageGetWidth(image), h = CGImageGetHeight(image);
+        if (w > 0 && h > 0 && w <= 512 && h <= 512) {
+            std::vector<uint8_t> px(w * h * 4, 0);
+            CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+            CGContextRef ctx = CGBitmapContextCreate(px.data(), w, h, 8, w * 4, cs,
+                                                     kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+            CGColorSpaceRelease(cs);
+            if (ctx != nullptr) {
+                CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), image);
+                CGContextRelease(ctx);
+                MTLTextureDescriptor* td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB
+                                                                                              width:w
+                                                                                             height:h
+                                                                                          mipmapped:NO];
+                tex = [_device newTextureWithDescriptor:td];
+                [tex replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:px.data() bytesPerRow:w * 4];
+            }
+        }
+    }
+    os_unfair_lock_lock(&_sourceLock);
+    _cursorTexture = tex;
+    _cursorHot = hotspot;
+    _cursorSize = size;
+    if (_cursorPanel >= 0) _cursorGeneration += 1;
+    os_unfair_lock_unlock(&_sourceLock);
+}
+
+- (void)setCursorPanel:(NSInteger)panel position:(CGPoint)position displaySize:(CGSize)displaySize {
+    os_unfair_lock_lock(&_sourceLock);
+    if (panel != _cursorPanel || (panel >= 0 && (!CGPointEqualToPoint(position, _cursorPos) ||
+                                                  !CGSizeEqualToSize(displaySize, _cursorDisplay)))) {
+        _cursorPanel = panel;
+        _cursorPos = position;
+        _cursorDisplay = displaySize;
+        _cursorGeneration += 1;
+    }
     os_unfair_lock_unlock(&_sourceLock);
 }
 
@@ -801,7 +866,7 @@ static float effective_curvature(RNRenderOptions* o) {
                            tracking:(BOOL)tracking
                              forced:(BOOL)forced {
     os_unfair_lock_lock(&_sourceLock);
-    const uint64_t generation = _sourceGeneration;
+    const uint64_t generation = _sourceGeneration + _cursorGeneration;
     os_unfair_lock_unlock(&_sourceLock);
     core::FrameSkipper::Input in;
     in.orientation = _options.staticHead ? core::Quat{} : from_simd(orientation);
@@ -963,6 +1028,15 @@ static float effective_curvature(RNRenderOptions* o) {
     const NSInteger bgStyle = o.backgroundStyle;
     os_unfair_lock_lock(&_sourceLock);
     id<MTLTexture> bgImage = _backgroundImage;
+    id<MTLTexture> cursorTex = _cursorTexture;
+    const NSInteger cursorPanel = _cursorPanel;
+    simd_float4 cursorRect = {0, 0, 0, 0};
+    if (_cursorDisplay.width > 0 && _cursorDisplay.height > 0) {
+        const float x0 = static_cast<float>((_cursorPos.x - _cursorHot.x) / _cursorDisplay.width);
+        const float y0 = static_cast<float>((_cursorPos.y - _cursorHot.y) / _cursorDisplay.height);
+        cursorRect = simd_make_float4(x0, y0, x0 + static_cast<float>(_cursorSize.width / _cursorDisplay.width),
+                                      y0 + static_cast<float>(_cursorSize.height / _cursorDisplay.height));
+    }
     os_unfair_lock_unlock(&_sourceLock);
     BackgroundUniforms bgu{};
     {
@@ -1024,6 +1098,18 @@ static float effective_curvature(RNRenderOptions* o) {
                            indexBuffer:p.indices
                      indexBufferOffset:0];
             if (deep) [enc setRenderPipelineState:panelPipeline];
+            if (cursorTex != nil && static_cast<NSInteger>(i) == cursorPanel) {
+                [enc setRenderPipelineState:_cursorPipeline];
+                [enc setFragmentTexture:cursorTex atIndex:0];
+                [enc setFragmentBytes:&cursorRect length:sizeof(cursorRect) atIndex:0];
+                [enc setFragmentBytes:&p.brightness length:sizeof(float) atIndex:1];
+                [enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                                indexCount:p.index_count
+                                 indexType:MTLIndexTypeUInt16
+                               indexBuffer:p.indices
+                         indexBufferOffset:0];
+                [enc setRenderPipelineState:panelPipeline];
+            }
         }
         if (overlay != nil) {
             [enc setRenderPipelineState:_screenPipeline];

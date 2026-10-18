@@ -1390,6 +1390,55 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     // True when the frame about to be drawn would equal the one on screen (core::FrameSkipper).
+    // MARK: live cursor
+
+    // The system cursor's image (main thread, 30 Hz: AppKit), handed to the renderer when it
+    // changes; its position is read on the render thread right before each frame.
+    private var cursorImageTimer: Timer?
+    private var lastCursorImage: NSImage?
+    private var lastCursorHot = NSPoint.zero
+
+    private func startCursorImages() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.cursorImageTimer == nil else { return }
+            self.refreshCursorImage()
+            self.cursorImageTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+                self?.refreshCursorImage()
+            }
+        }
+    }
+
+    private func stopCursorImages() {
+        DispatchQueue.main.async { [weak self] in
+            self?.cursorImageTimer?.invalidate()
+            self?.cursorImageTimer = nil
+        }
+    }
+
+    private func refreshCursorImage() {
+        let c = NSCursor.currentSystem ?? NSCursor.arrow
+        let image = c.image
+        guard image !== lastCursorImage || c.hotSpot != lastCursorHot else { return }
+        lastCursorImage = image
+        lastCursorHot = c.hotSpot
+        var rect = CGRect(origin: .zero, size: image.size)
+        renderer.setCursorImage(image.cgImage(forProposedRect: &rect, context: nil, hints: nil),
+                                hotspot: c.hotSpot, pointSize: image.size)
+    }
+
+    // Render thread: which panel the cursor is over and where (global points, top-left origin).
+    private func updateLiveCursor() {
+        guard desktop != nil, let loc = CGEvent(source: nil)?.location else { return }
+        for (i, id) in panelDisplays.enumerated() {
+            let b = CGDisplayBounds(id)
+            if b.contains(loc) {
+                renderer.setCursorPanel(i, position: CGPoint(x: loc.x - b.minX, y: loc.y - b.minY), displaySize: b.size)
+                return
+            }
+        }
+        renderer.setCursorPanel(-1, position: .zero, displaySize: .zero)
+    }
+
     private func nothingChanged(_ p: PoseSample) -> Bool {
         statsLock.lock()
         let forced = redrawRequested
@@ -1476,6 +1525,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil
         HardwareCursor.show()
+        stopCursorImages()
         statsTimer?.invalidate()
         gazeTimer?.invalidate()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
@@ -1863,16 +1913,27 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         } else {
             plan = [(try captureDisplay(glasses: glasses), 0, true)]
         }
+        // Hall-of-mirrors guard: the glasses' own display is never a panel's source (it shows the
+        // render). Only on purpose without virtual monitors (the glasses mirroring a display).
+        if desktop != nil, let glassesID = glasses.map(Displays.id(of:)) {
+            let before = plan.count
+            plan.removeAll { $0.0 == glassesID }
+            if plan.count != before { log("capture: the glasses' display was among the panels, left out") }
+        }
         let fps = desktop != nil ? 60 : 120
         let virtualIDs = Set(desktop?.ids ?? [])
         let hiDPI = options.hiDPI
+        // With virtual monitors the renderer draws the cursor itself, every frame.
+        let liveCursor = desktop != nil
+        if liveCursor { startCursorImages() }
         for (id, panel, exclude) in plan {
             let isVirtual = virtualIDs.contains(id)
             let cap = ScreenCapture { [weak self] pb in self?.deliver(pb, panel: panel) }
             captures.append(cap)
             let renderWindow = CGWindowID(window.windowNumber)
             let (w, h) = try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude,
-                                             excludeWindowIDs: [renderWindow], minScale: isVirtual && hiDPI ? 2 : 1)
+                                             excludeWindowIDs: [renderWindow], minScale: isVirtual && hiDPI ? 2 : 1,
+                                             showsCursor: !liveCursor)
             try Task.checkCancellation()
             log("capture: panel \(panel + 1) <- display \(id) \(w)x\(h) @\(fps) fps")
         }
@@ -2027,6 +2088,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                                 angularVelocity: .zero, sampleHostNs: 0, targetHostNs: 0)
             return true
         }
+        updateLiveCursor()
         if nothingChanged(p) {
             statsLock.lock()
             stats.idle += 1

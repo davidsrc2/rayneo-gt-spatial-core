@@ -5,6 +5,9 @@
 #if defined(__APPLE__)
 #include <pthread.h>
 #include <pthread/qos.h>
+#include <mach/mach.h>
+#include <mach/mach_time.h>
+#include <mach/thread_policy.h>
 #elif defined(_WIN32)
 #include <windows.h>
 // After windows.h:
@@ -30,6 +33,20 @@ uint64_t now_ns() {
 void raise_thread_priority() {
 #if defined(__APPLE__)
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    // Mach real-time band: woken every report (~2.2 ms at 457 Hz) for up to 0.5 ms of work,
+    // within 1 ms. The scheduler demotes a thread that overruns, so it cannot starve the Mac;
+    // if the call is refused the QoS above stays.
+    mach_timebase_info_data_t tb{};
+    if (mach_timebase_info(&tb) == KERN_SUCCESS && tb.numer != 0) {
+        const auto ticks = [&](double ms) { return static_cast<uint32_t>(ms * 1e6 * tb.denom / tb.numer); };
+        thread_time_constraint_policy_data_t p{};
+        p.period = ticks(2.2);
+        p.computation = ticks(0.5);
+        p.constraint = ticks(1.0);
+        p.preemptible = TRUE;
+        thread_policy_set(pthread_mach_thread_np(pthread_self()), THREAD_TIME_CONSTRAINT_POLICY,
+                          reinterpret_cast<thread_policy_t>(&p), THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+    }
 #elif defined(_WIN32)
     // MMCSS "Pro Audio": the scheduler service keeps this thread on time under load (a plain
     // TIME_CRITICAL priority alone still gets preempted by DPC-heavy drivers).

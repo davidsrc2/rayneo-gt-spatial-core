@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 
 using Microsoft::WRL::ComPtr;
 
@@ -21,6 +22,16 @@ bool DesktopDuplication::start(IDXGIAdapter* adapter, IDXGIOutput1* output, ID3D
     }
     render_device_ = render_device;
     output_ = output;
+    // The render device on another adapter: no GPU sharing between them, a CPU copy instead.
+    {
+        ComPtr<IDXGIDevice> dxgi;
+        ComPtr<IDXGIAdapter> render_adapter;
+        DXGI_ADAPTER_DESC a{}, b{};
+        if (SUCCEEDED(render_device->QueryInterface(IID_PPV_ARGS(&dxgi))) && SUCCEEDED(dxgi->GetAdapter(&render_adapter)) &&
+            SUCCEEDED(render_adapter->GetDesc(&a)) && SUCCEEDED(adapter->GetDesc(&b))) {
+            cross_ = a.AdapterLuid.LowPart != b.AdapterLuid.LowPart || a.AdapterLuid.HighPart != b.AdapterLuid.HighPart;
+        }
+    }
     // The first duplication is opened here so the caller learns about failures (wrong
     // adapter, secure desktop); later ones (mode change, UAC prompt) reopen on the thread.
     if (!open(error)) return false;
@@ -52,6 +63,48 @@ bool DesktopDuplication::open(std::string* error) {
 
 FrameSource::Frame DesktopDuplication::latest() {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (cross_) {
+        // Uploaded into a texture of the render device (keyed mutex too, so the renderer's
+        // AcquireSync / ReleaseSync work the same).
+        if (width_ > 0 && height_ > 0) {
+            D3D11_TEXTURE2D_DESC have{};
+            if (render_texture_) render_texture_->GetDesc(&have);
+            if (!render_texture_ || have.Width != static_cast<UINT>(width_) || have.Height != static_cast<UINT>(height_)) {
+                D3D11_TEXTURE2D_DESC d{};
+                d.Width = static_cast<UINT>(width_);
+                d.Height = static_cast<UINT>(height_);
+                d.MipLevels = 1;
+                d.ArraySize = 1;
+                d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+                d.SampleDesc.Count = 1;
+                d.Usage = D3D11_USAGE_DEFAULT;
+                d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                d.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+                render_texture_.Reset();
+                render_mutex_.Reset();
+                if (SUCCEEDED(render_device_->CreateTexture2D(&d, nullptr, &render_texture_))) render_texture_.As(&render_mutex_);
+                cpu_dirty_ = true;
+            }
+            if (cpu_dirty_ && render_mutex_ && cpu_frame_.size() >= static_cast<size_t>(width_) * height_ * 4 &&
+                render_mutex_->AcquireSync(0, 0) == S_OK) {
+                ComPtr<ID3D11DeviceContext> ctx;
+                render_device_->GetImmediateContext(&ctx);
+                ctx->UpdateSubresource(render_texture_.Get(), 0, nullptr, cpu_frame_.data(), static_cast<UINT>(width_) * 4, 0);
+                render_mutex_->ReleaseSync(0);
+                cpu_dirty_ = false;
+            }
+        }
+        Frame f;
+        if (render_mutex_) {
+            f.texture = render_texture_;
+            f.mutex = render_mutex_;
+        }
+        f.generation = generation_.load(std::memory_order_acquire);
+        f.width = width_;
+        f.height = height_;
+        f.pointer = pointer_;
+        return f;
+    }
     if (shared_handle_ != opened_handle_) {
         render_texture_.Reset();
         render_mutex_.Reset();
@@ -98,7 +151,13 @@ void DesktopDuplication::run() {
         bool changed = false;
         if (info.LastPresentTime.QuadPart != 0) {
             ComPtr<ID3D11Texture2D> tex;
-            if (SUCCEEDED(resource.As(&tex))) {
+            if (SUCCEEDED(resource.As(&tex)) && cross_) {
+                D3D11_TEXTURE2D_DESC d{};
+                tex->GetDesc(&d);
+                read_back(tex.Get(), d);
+                changed = true;
+                frames_.fetch_add(1, std::memory_order_relaxed);
+            } else if (tex) {
                 D3D11_TEXTURE2D_DESC d{};
                 tex->GetDesc(&d);
                 if (latest_ == nullptr || width_ != static_cast<int>(d.Width) || height_ != static_cast<int>(d.Height)) {
@@ -146,6 +205,39 @@ void DesktopDuplication::run() {
         dup_->ReleaseFrame();
         if (changed) generation_.fetch_add(1, std::memory_order_acq_rel);
     }
+}
+
+void DesktopDuplication::read_back(ID3D11Texture2D* tex, const D3D11_TEXTURE2D_DESC& d) {
+    D3D11_TEXTURE2D_DESC have{};
+    if (staging_) staging_->GetDesc(&have);
+    if (!staging_ || have.Width != d.Width || have.Height != d.Height) {
+        D3D11_TEXTURE2D_DESC s{};
+        s.Width = d.Width;
+        s.Height = d.Height;
+        s.MipLevels = 1;
+        s.ArraySize = 1;
+        s.Format = d.Format;
+        s.SampleDesc.Count = 1;
+        s.Usage = D3D11_USAGE_STAGING;
+        s.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        staging_.Reset();
+        if (FAILED(device_->CreateTexture2D(&s, nullptr, &staging_))) return;
+    }
+    context_->CopyResource(staging_.Get(), tex);
+    D3D11_MAPPED_SUBRESOURCE m{};
+    if (FAILED(context_->Map(staging_.Get(), 0, D3D11_MAP_READ, 0, &m))) return;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const size_t row = static_cast<size_t>(d.Width) * 4;
+        cpu_frame_.resize(row * d.Height);
+        for (UINT y = 0; y < d.Height; ++y) {
+            std::memcpy(cpu_frame_.data() + y * row, static_cast<const uint8_t*>(m.pData) + static_cast<size_t>(y) * m.RowPitch, row);
+        }
+        width_ = static_cast<int>(d.Width);
+        height_ = static_cast<int>(d.Height);
+        cpu_dirty_ = true;
+    }
+    context_->Unmap(staging_.Get(), 0);
 }
 
 void DesktopDuplication::read_shape(const DXGI_OUTDUPL_FRAME_INFO& info) {

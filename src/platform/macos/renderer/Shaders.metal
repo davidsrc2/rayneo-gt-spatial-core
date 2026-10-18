@@ -41,6 +41,19 @@ fragment float4 screen_fragment(VOut in [[stage_in]],
 // The space at real size: bicubic Catmull-Rom (4x4 texels, 9 bilinear fetches) on the mipmap
 // level the pixel needs (same -0.5 bias as above): text stays crisp and does not shimmer on a
 // panel held at an angle. Negative lobes clamped.
+// The cursor over a panel at the glasses' rate, on the panel's own mesh (the capture runs
+// without it): `rect` is the shape's place in the panel (0..1), premultiplied alpha.
+fragment float4 cursor_fragment(VOut in [[stage_in]],
+                                texture2d<float> cursor [[texture(0)]],
+                                sampler s [[sampler(0)]],
+                                constant float4& rect [[buffer(0)]],
+                                constant float& brightness [[buffer(1)]]) {
+    const float2 c = (in.uv - rect.xy) / (rect.zw - rect.xy);
+    if (any(c < 0.0) || any(c > 1.0)) discard_fragment();
+    const float4 t = cursor.sample(s, c, level(0.0));
+    return float4(t.rgb * brightness, t.a);
+}
+
 fragment float4 screen_sharp_fragment(VOut in [[stage_in]],
                                       texture2d<float> source [[texture(0)]],
                                       sampler s [[sampler(0)]],
