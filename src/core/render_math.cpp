@@ -261,34 +261,6 @@ std::vector<PanelPlacement> grid_layout(const std::vector<GridCell>& cells, floa
     return out;
 }
 
-Quat roll_locked(const Quat& head) {
-    const Vec3 f = head.rotate({1.0f, 0.0f, 0.0f});
-    const float h = std::sqrt(f.x * f.x + f.y * f.y);
-    if (h < 1e-4f) return head;  // straight up / down: roll undefined, leave it
-    // Basis from forward and the world's up (Z): left = up x forward, up' = forward x left.
-    const Vec3 x = f;
-    const Vec3 y{-f.y / h, f.x / h, 0.0f};  // (0,0,1) x f, normalised: horizontal
-    const Vec3 z{x.y * y.z - x.z * y.y, x.z * y.x - x.x * y.z, x.x * y.y - x.y * y.x};
-    // Rotation matrix with columns x, y, z -> quaternion.
-    const float m00 = x.x, m11 = y.y, m22 = z.z;
-    const float tr = m00 + m11 + m22;
-    Quat q;
-    if (tr > 0.0f) {
-        const float s = std::sqrt(tr + 1.0f) * 2.0f;
-        q = {0.25f * s, (y.z - z.y) / s, (z.x - x.z) / s, (x.y - y.x) / s};
-    } else if (m00 > m11 && m00 > m22) {
-        const float s = std::sqrt(1.0f + m00 - m11 - m22) * 2.0f;
-        q = {(y.z - z.y) / s, 0.25f * s, (y.x + x.y) / s, (z.x + x.z) / s};
-    } else if (m11 > m22) {
-        const float s = std::sqrt(1.0f + m11 - m00 - m22) * 2.0f;
-        q = {(z.x - x.z) / s, (y.x + x.y) / s, 0.25f * s, (z.y + y.z) / s};
-    } else {
-        const float s = std::sqrt(1.0f + m22 - m00 - m11) * 2.0f;
-        q = {(x.y - y.x) / s, (z.x + x.z) / s, (z.y + y.z) / s, 0.25f * s};
-    }
-    return q.normalized();
-}
-
 void pitch_mesh(ScreenMesh& mesh, float pitch_rad) {
     const float cp = std::cos(pitch_rad), sp = std::sin(pitch_rad);
     for (auto& v : mesh.vertices) {

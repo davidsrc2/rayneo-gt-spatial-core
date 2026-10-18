@@ -903,8 +903,6 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     }
     core::Quat head = core::predict_orientation(orientation, wp, horizon_s);
     head = core::track_axes(head, options.tracking_axes);
-    // Space at real size: horizon lock (no roll), the panels always level.
-    if (options.fixed_prediction_ms > 0.0f && !options.static_head) head = core::roll_locked(head);
     if (options.static_head) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
         head = core::Quat{};
         horizon_s = 0.0f;
