@@ -20,6 +20,9 @@ public:
     BiasMap();
     // The bias at rest (deg/s) at this temperature, blended in over learn_tau_s.
     void learn(float temp_c, const Vec3& bias_degs, float dt);
+    // A bias known to have settled (BiasConvergence): blended in as much as kUsable seconds of
+    // rest, so this temperature is trusted from now on.
+    void learn_settled(float temp_c, const Vec3& bias_degs);
     // Interpolated from the learned bins within max_gap_c of temp_c; nullopt when none.
     std::optional<Vec3> lookup(float temp_c, float max_gap_c = 3.0f) const;
     bool empty() const;

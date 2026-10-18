@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 
+#include "rayneo/core/bias_convergence.h"
 #include "rayneo/core/bias_map.h"
 #include "rayneo/core/gyro_bias_estimator.h"
 #include "rayneo/core/madgwick.h"
@@ -20,6 +21,16 @@ struct ImuPipelineConfig {
     // detection locking the stabilizer (lock_on_rest) and teaching the map.
     bool use_vqf = false;
     VqfConfig vqf;
+    // use_vqf, start-up: the temperature map seeds VQF's bias (trusted) when it learned within
+    // bias_map_seed_gap_c of the temperature now. Without that, the start-up calibration's
+    // bias is rough (0.3-0.5 deg/s off the converged one on the reference glasses: panels
+    // drifting ~5 deg in yaw the first seconds): with hold_until_bias_settles, tracking waits
+    // until VQF's own estimate settles (bias_convergence) or bias_settle_max_s go by, and the
+    // settled bias is taught to the map as trusted for the next start.
+    float bias_map_seed_gap_c = 1.5f;
+    bool hold_until_bias_settles = false;
+    BiasConvergenceConfig bias_convergence;
+    float bias_settle_max_s = 12.0f;
     bool use_magnetometer = false;  // Off: desk/laptop interference spins yaw.
     bool stabilize = true;          // PoseStabilizer on `relative` and its angular velocity
     PoseStabilizerConfig stabilizer;
@@ -95,6 +106,9 @@ public:
     void reset();
 
     const GyroBiasEstimator& bias_estimator() const { return bias_; }
+    // use_vqf: how the start-up bias was decided (seeded from the map, settled, or held).
+    bool bias_seeded_from_map() const { return bias_seeded_; }
+    bool bias_settled() const { return bias_settled_; }
     // The gyro bias per temperature (use_vqf), loaded and saved by the caller.
     void set_bias_map(const BiasMap& map) { bias_map_ = map; }
     BiasMap& bias_map() { return bias_map_; }
@@ -106,6 +120,9 @@ private:
     PoseStabilizer stabilizer_;
     Vqf6D vqf_;
     BiasMap bias_map_;
+    BiasConvergence convergence_;
+    bool bias_seeded_ = false;
+    bool bias_settled_ = false;
 
     bool have_prev_tick_ = false;
     uint32_t prev_tick_ = 0;

@@ -60,7 +60,12 @@ void Vqf6D::update(const Vec3& gyro_rads, const Vec3& accel, float dt) {
 
     // Rest detection ("bias gate").
     if (!lp_init_) {
-        gyr_lp_ = gyr_slow_ = gyr_degs;
+        gyr_lp_ = gyr_degs;
+        // The bias average starts at the bias given (at rest the gyro reads it), not at one raw
+        // sample: from a single noisy sample (0.6 deg/s off on the reference glasses) the
+        // uncertain start pulled a good start-up bias 0.33 deg/s away within 0.5 s, and it took
+        // over 10 s to come back (the panels drifted in yaw meanwhile).
+        gyr_slow_ = bias_;
         acc_lp_ = accel;
         lp_init_ = true;
     }

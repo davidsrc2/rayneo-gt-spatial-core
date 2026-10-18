@@ -221,6 +221,7 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
             e->cfg.use_vqf = true;
             e->cfg.body_frame_relative = true;  // exact on both axes whatever the posture at the recenter
             e->cfg.level_reference = true;      // the room's vertical is "up": panels on the horizon, level
+            e->cfg.hold_until_bias_settles = true;  // no start with a rough gyro bias (yaw drift)
         }
     }
     return e;

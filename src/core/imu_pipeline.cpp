@@ -20,12 +20,16 @@ Quat heading_of(const Vec3& forward) {
 }  // namespace
 
 ImuPipeline::ImuPipeline(ImuPipelineConfig cfg)
-    : cfg_(cfg), filter_(cfg.madgwick_beta), bias_(cfg.bias), stabilizer_(cfg.stabilizer), vqf_(cfg.vqf) {}
+    : cfg_(cfg), filter_(cfg.madgwick_beta), bias_(cfg.bias), stabilizer_(cfg.stabilizer), vqf_(cfg.vqf),
+      convergence_(cfg.bias_convergence) {}
 
 void ImuPipeline::reset() {
     filter_.reset();
     vqf_.reset();
     bias_.reset();
+    convergence_.reset();
+    bias_seeded_ = false;
+    bias_settled_ = false;
     have_prev_tick_ = false;
     attitude_init_ = false;
     recenter_pending_ = true;
@@ -82,12 +86,24 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
             vqf_.initialize_from_accel(s.accel_mps2);
             // Cold start: the bias learned at this temperature on earlier runs, else the startup
             // calibration's.
-            const auto mapped = bias_map_.lookup(s.temp_c);
+            const auto mapped = bias_map_.lookup(s.temp_c, cfg_.bias_map_seed_gap_c);
             vqf_.set_bias(mapped ? *mapped : bias_.bias(), mapped ? 0.05f : 0.0f);  // the map's: learned, trusted
+            bias_seeded_ = mapped.has_value();
+            bias_settled_ = false;
+            convergence_.reset();
             attitude_init_ = true;
             attitude_s_ = 0.0f;
         } else if (dt > 0.0f && dt < cfg_.bias.gap_reset_s) {
             vqf_.update(s.gyro_degs * kDegToRad, s.accel_mps2, dt);
+            attitude_s_ += dt;
+            if (!bias_settled_) {
+                convergence_.update(vqf_.bias_degs(), s.temp_c, vqf_.rest(), dt);
+                if (convergence_.converged()) {
+                    bias_settled_ = true;
+                    // Remembered as trusted: the next start at this temperature is seeded with it.
+                    if (!bias_seeded_) bias_map_.learn_settled(s.temp_c, vqf_.bias_degs());
+                }
+            }
             if (vqf_.rest() && vqf_.settled()) bias_map_.learn(s.temp_c, vqf_.bias_degs(), dt);
         }
         gyro_corr_degs = s.gyro_degs - vqf_.bias_degs();
@@ -116,6 +132,9 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     Pose p;
     p.absolute = cfg_.use_vqf ? vqf_.quaternion() : filter_.quaternion();
     p.tracking = bias_.tracking();
+    if (cfg_.use_vqf && cfg_.hold_until_bias_settles && p.tracking) {
+        p.tracking = attitude_init_ && (bias_seeded_ || bias_settled_ || attitude_s_ >= cfg_.bias_settle_max_s);
+    }
     p.gyro_bias_degs = cfg_.use_vqf && attitude_init_ ? vqf_.bias_degs() : bias_.bias();
     p.gyro_corrected_degs = gyro_corr_degs;
     p.accel_mps2 = s.accel_mps2;

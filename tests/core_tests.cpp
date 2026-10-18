@@ -18,6 +18,7 @@
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/vqf.h"
 #include "rayneo/core/bias_map.h"
+#include "rayneo/core/bias_convergence.h"
 #include "rayneo/core/presets.h"
 #include "rayneo/core/settings.h"
 #include "rayneo/core/render_math.h"
@@ -1330,6 +1331,94 @@ void test_vqf() {
     CHECK(std::fabs(std::acos(std::fmin(1.0f, up.x * a.x / 9.81f + up.y * a.y / 9.81f + up.z * a.z / 9.81f))) < 0.5f * d2r);
 }
 
+// A good starting bias survives a noisy first sample (the bias average starts at the bias).
+void test_vqf_start_keeps_good_bias() {
+    const float dt = kRefDt, d2r = 0.0174533f;
+    const Vec3 bias{0.37f, 0.40f, 0.01f};
+    Vqf6D f;
+    f.initialize_from_accel({0, 0, 9.81f});
+    f.set_bias(bias);  // the start-up calibration's, uncertain (0.5 deg/s)
+    f.update((bias + Vec3{-0.65f, 0.1f, -0.08f}) * d2r, {0, 0, 9.81f}, dt);  // one noisy sample first
+    float worst = 0.0f;
+    for (int i = 0; i < 457 * 3; ++i) {
+        f.update(bias * d2r, {0, 0, 9.81f}, dt);
+        worst = std::fmax(worst, (f.bias_degs() - bias).norm());
+    }
+    CHECK(worst < 0.03f);
+}
+
+void test_bias_convergence() {
+    const float dt = kRefDt;
+    BiasConvergenceConfig c;  // 4 windows of 0.5 s, 0.02 deg/s, 0.3 C
+    // Steady at rest: settled after the 4 windows, not before.
+    BiasConvergence a(c);
+    int n = 0;
+    while (!a.converged() && n < 457 * 10) { a.update({0.3f, 0.4f, 0.0f}, 33.0f, true, dt); ++n; }
+    CHECK(a.converged() && n >= static_cast<int>(4 * 0.5f / dt) - 2 && n <= static_cast<int>(4 * 0.5f / dt) + 2);
+    // Still converging (0.1 deg/s per second, 0.05 per window): never.
+    BiasConvergence b(c);
+    for (int i = 0; i < 457 * 10; ++i) b.update({0.1f * i * dt, 0, 0}, 33.0f, true, dt);
+    CHECK(!b.converged());
+    // Warming up fast (1 C/s): never.
+    BiasConvergence t(c);
+    for (int i = 0; i < 457 * 10; ++i) t.update({0.3f, 0, 0}, 33.0f + i * dt, true, dt);
+    CHECK(!t.converged());
+    // The head moving every other window: those windows do not count, the count restarts.
+    BiasConvergence m(c);
+    for (int w = 0; w < 20; ++w) {
+        for (int i = 0; i < 229; ++i) m.update({0.3f, 0, 0}, 33.0f, w % 2 == 0, dt);
+    }
+    CHECK(!m.converged() && m.stable_windows() <= 1);
+    // Configurable: one window of 0.2 s is enough.
+    BiasConvergenceConfig quick;
+    quick.windows = 1;
+    quick.window_s = 0.2f;
+    BiasConvergence q(quick);
+    for (int i = 0; i < 100; ++i) q.update({0.3f, 0, 0}, 33.0f, true, dt);
+    CHECK(q.converged());
+}
+
+// Start-up with VQF: a map entry within 1.5 C seeds the bias and tracking starts as before;
+// without one, tracking waits for the bias to settle and the settled bias is learned as trusted.
+void test_pipeline_bias_seed_or_settle() {
+    ImuPipelineConfig cfg;
+    cfg.use_vqf = true;
+    cfg.hold_until_bias_settles = true;
+    const Vec3 bias{0.3f, -0.2f, 0.1f};
+    auto start = [&](ImuPipeline& p, float temp, int max_n) {
+        uint32_t tick = 0;
+        for (int i = 0; i < max_n; ++i) {
+            tick += 22;
+            auto r = make_imu_report({0, 0, 9.81f}, bias, tick);
+            put_f32(&r[28], temp);  // sensor temperature
+            if (p.process_report(r.data(), r.size())->tracking) return i;
+        }
+        return -1;
+    };
+    ImuPipelineConfig plain = cfg;
+    plain.hold_until_bias_settles = false;
+    ImuPipeline ref(plain);
+    const int t_ref = start(ref, 33.0f, 457 * 30);
+    CHECK(t_ref > 0);
+
+    ImuPipeline cold(cfg);  // empty map: waits for the bias to settle (>= 4 windows of 0.5 s)
+    const int t_cold = start(cold, 33.0f, 457 * 30);
+    CHECK(t_cold >= t_ref + 457 * 2 - 10 && t_cold <= t_ref + 457 * 3);
+    CHECK(cold.bias_settled() && !cold.bias_seeded_from_map());
+    const auto learned = cold.bias_map().lookup(33.0f);  // trusted after one settled start
+    CHECK(learned && ((*learned) - bias).norm() < 0.05f);
+
+    ImuPipeline warm(cfg);  // the next start at the same temperature: seeded, no wait
+    warm.set_bias_map(cold.bias_map());
+    CHECK(start(warm, 33.4f, 457 * 30) == t_ref);
+    CHECK(warm.bias_seeded_from_map());
+
+    ImuPipeline far(cfg);  // learned 2 C away: beyond 1.5 C, not seeded
+    far.set_bias_map(cold.bias_map());
+    CHECK(start(far, 35.0f, 457 * 30) > t_ref + 457);
+    CHECK(!far.bias_seeded_from_map());
+}
+
 void test_bias_map() {
     BiasMap m;
     CHECK(m.empty() && !m.lookup(25.0f));
@@ -1615,6 +1704,9 @@ int main() {
     test_stationary_lock();
     test_vqf();
     test_bias_map();
+    test_vqf_start_keeps_good_bias();
+    test_bias_convergence();
+    test_pipeline_bias_seed_or_settle();
     test_prediction_gain();
     test_yaw_only();
     test_panel_poses();

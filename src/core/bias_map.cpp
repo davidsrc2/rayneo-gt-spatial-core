@@ -32,6 +32,8 @@ void BiasMap::learn(float temp_c, const Vec3& bias_degs, float dt) {
     dirty_ = true;
 }
 
+void BiasMap::learn_settled(float temp_c, const Vec3& bias_degs) { learn(temp_c, bias_degs, kUsableS); }
+
 std::optional<Vec3> BiasMap::lookup(float temp_c, float max_gap_c) const {
     const int i = index(temp_c);
     if (i < 0) return std::nullopt;
