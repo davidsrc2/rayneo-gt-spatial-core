@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# compare_apps.sh: Nimbo and RealWarp measured the same way, from what the glasses are sent
+# compare_apps.sh [--realwarp]: Nimbo (and with --realwarp, RealWarp after it, for glasses it
+# supports; RealWarp 0.38 does not drive the RayNeo GT) measured the same way, from what the glasses are sent
 # (scripts/optical_motion.swift): spoken instructions (Spanish), two phases per app:
 #   1. glasses still on the table (40 s): wobble and drift with no head at all;
 #   2. worn (90 s): still looking ahead, then looking from monitor to monitor, then still.
@@ -46,6 +47,12 @@ measure nimbo
 kill "$nimbo" 2>/dev/null
 wait "$nimbo" 2>/dev/null
 sleep 5
+
+if [[ "${1:-}" != "--realwarp" ]]; then
+    step "Terminado. Gracias."
+    python3 "$root/scripts/optical_stats.py" "$out/nimbo-table.csv" "$out/nimbo-worn.csv" | tee "$out/table.md"
+    exit 0
+fi
 
 step "Prueba de RealWarp. Deja las gafas en la mesa, abre RealWarp y actívalo como lo usas normalmente. Tienes cuarenta y cinco segundos."
 open -a RealWarp
