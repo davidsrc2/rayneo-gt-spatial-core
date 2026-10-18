@@ -18,6 +18,11 @@ final class MetalView: NSView {
     required init?(coder: NSCoder) { fatalError("unused") }
 }
 
+// A frame's CPU time from the wake-up to the commit (ms), read when it is presented.
+final class FrameCPU {
+    var ms = -1.0
+}
+
 // Rolling latency statistics, printed once per second.
 struct LatencyStats {
     var frames = 0
@@ -33,6 +38,8 @@ struct LatencyStats {
     var targetErrSum = 0.0                      // presentedTime - targetPresentationTimestamp (ms)
     var missed = 0                              // frames shown a refresh (or more) after their target
     var missedMoving = 0, missedStill = 0       // of those, drawn with the head moving / still (< 1 deg/s)
+    var missedLatch = 0                         // of those, the latch's (CPU past the margin)
+    var cpuSum = 0.0, cpuMax = 0.0              // wake-up (pose read) to commit (ms), display link frames
     // Late latching as applied: from the pose read to the frame's deadline (ms), display link frames only.
     var latchN = 0
     var latchSum = 0.0
@@ -152,9 +159,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var linkFrames: UInt64 = 0  // guarded by statsLock: display link callbacks so far
     // Late latching (guarded by statsLock): the display link wakes ~3 frames before the frame
     // is seen; the pose is read at the deadline minus this margin instead, so less of the head's
-    // motion has to be predicted. A frame shown late widens it, a long run on time narrows it.
-    private var latchMarginS = 0.004
-    private var latchOnTime = 0
+    // motion has to be predicted. It grows only on a refresh missed because the frame's CPU work
+    // (wake-up to commit, measured) ran past it; a long run on time narrows it
+    // (core/latch_controller.h, at most min(4 ms, half a period)).
+    private var latch = rayneo_latch_start(1000.0 / 120)
+    private var latchMarginS: Double { Double(latch.margin_ms) / 1e3 }
     private var framePeriodS = 1.0 / 120
     private var fallbackThread: Thread? // main thread: drawing while the display link is stalled
 
@@ -358,6 +367,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if !options.windowed, let mode = CGDisplayCopyDisplayMode(screenID), mode.refreshRate > 0 {
             framePeriodS = 1 / max(30, mode.refreshRate)
         }
+        latch = rayneo_latch_start(Float(framePeriodS * 1e3))
         log(String(format: "surface: window %.0fx%.0f pt, scale %.1f, drawable %.0fx%.0f px",
                    rect.width, rect.height, scale, layer.drawableSize.width, layer.drawableSize.height))
         // Three: one on screen, one queued, one to draw into. With two, whenever the glasses
@@ -2108,6 +2118,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let sampleMedia = nowMedia - Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e9
         let target = targetMedia
         let still = simd_length(p.angularVelocity) < 0.0175
+        let cpu = FrameCPU()  // wake-up (pose read) to commit, set once the frame is committed
         drawable.addPresentedHandler { [weak self] d in
             guard let self, d.presentedTime > 0 else { return }
             self.statsLock.lock()
@@ -2117,14 +2128,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 self.stats.missed += 1
                 if still { self.stats.missedStill += 1 } else { self.stats.missedMoving += 1 }
             }
-            if lateMs > max(3, self.framePeriodS * 500) {  // missed its frame: read earlier
-                self.latchMarginS = min(0.012, self.latchMarginS + 0.001)
-                self.latchOnTime = 0
-            } else {
-                self.latchOnTime += 1
-                if self.latchOnTime >= 240 {
-                    self.latchMarginS = max(0.002, self.latchMarginS - 0.00025)
-                    self.latchOnTime = 0
+            if deadline != nil, cpu.ms >= 0 {  // display link frames: the latch's
+                let missed = lateMs > self.framePeriodS * 500
+                if rayneo_latch_presented(&self.latch, missed, Float(cpu.ms), Float(self.framePeriodS * 1e3)) {
+                    self.stats.missedLatch += 1
                 }
             }
             // The glasses take frames on time or a refresh late in streaks of a second or more:
@@ -2139,6 +2146,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let prediction = renderer.render(to: drawable, orientation: p.orientation,
                                          angularVelocity: p.angularVelocity,
                                          sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))
+        let cpuMs = (CACurrentMediaTime() - nowMedia) * 1e3
         let poseAge = Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6
         let photon = Double(targetHost - Int64(p.hostTimeNs)) / 1e6
         // From the relative rotation's vector part: acos of a dot product near 1 rounds every
@@ -2170,9 +2178,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             stats.movingSq += jitter * jitter
         }
         stats.add(poseAge: poseAge, photon: photon, prediction: Double(prediction))
+        cpu.ms = cpuMs
         if let deadline {
             stats.latchN += 1
             stats.latchSum += (deadline - nowMedia) * 1e3
+            stats.cpuSum += cpuMs
+            stats.cpuMax = max(stats.cpuMax, cpuMs)
         }
         stats.tracking = p.tracking
         if still && step < 1 {
@@ -2299,10 +2310,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let inN = Double(max(1, s.intervalN))
         let inMean = s.intervalSum / inN
         let inStd = (max(0, s.intervalSq / inN - inMean * inMean)).squareRoot()
-        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d (moving %d, still %d) | latch %.1f ms (applied %.1f)%@",
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d (moving %d, still %d, latch %d) | latch %.1f ms (applied %.1f, cpu %.1f/%.1f)%@",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
-                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, s.missedMoving, s.missedStill, latchMs,
-                   s.latchN > 0 ? s.latchSum / Double(s.latchN) : 0,
+                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, s.missedMoving, s.missedStill, s.missedLatch, latchMs,
+                   s.latchN > 0 ? s.latchSum / Double(s.latchN) : 0, s.latchN > 0 ? s.cpuSum / Double(s.latchN) : 0, s.cpuMax,
                    (s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) : "")
                    + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "")
                    + String(format: " | gpu %.1f ms", renderer.lastGPUMs) as NSString))

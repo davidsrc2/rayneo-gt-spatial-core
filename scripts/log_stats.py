@@ -26,9 +26,10 @@ FIELDS = {
     "predicted": re.compile(r"predicted " + NUM + " ms"),
     "late": re.compile(r"\((?:late|target err) \+?" + NUM),
     "interval": re.compile(r"frame interval " + NUM + "(?:±|\\+-)" + NUM + " max " + NUM),
-    "missed": re.compile(r"missed (\d+)(?: \(moving (\d+), still (\d+)\))?"),
+    "missed": re.compile(r"missed (\d+)(?: \(moving (\d+), still (\d+)(?:, latch (\d+))?\))?"),
     "latch": re.compile(r"latch " + NUM + " ms"),
     "latch_applied": re.compile(r"applied " + NUM),
+    "cpu": re.compile(r"cpu " + NUM + "/" + NUM),
     "jitter": re.compile(r"moving jitter " + NUM),
     "wobble": re.compile(r"still wobble " + NUM),
     "gpu": re.compile(r"gpu " + NUM + " ms"),
@@ -58,7 +59,9 @@ def parse_line(text):
             if f.group(2) is not None:
                 row["missed_moving"] = int(f.group(2))
                 row["missed_still"] = int(f.group(3))
-        elif key in ("pose_age", "presented"):
+            if f.group(4) is not None:
+                row["missed_latch"] = int(f.group(4))
+        elif key in ("pose_age", "presented", "cpu"):
             row[key] = float(f.group(1))
             row[key + "_max"] = float(f.group(2))
         elif key == "interval":
@@ -112,8 +115,8 @@ def in_window(t, since, until):
 def table(rows):
     out = ["| mode | lines | missed mean | missed p95 | lines > 30 | missed/s while moving | late mean | late p95 | "
            "latch mean | latch p95 | applied mean | applied p95 | s->presented mean | s->presented p95 | "
-           "predicted mean | jitter mean | jitter p95 | wobble mean |",
-           "|" + "---|" * 18]
+           "predicted mean | jitter mean | jitter p95 | wobble mean | missed by latch | cpu mean | cpu max |",
+           "|" + "---|" * 21]
     for mode in ("TRACK", "CALIB"):
         for label, sel in (("all", lambda r: True), ("moving", lambda r: r["moving"]), ("still", lambda r: not r["moving"])):
             rs = [r for r in rows if r["mode"] == mode and sel(r)]
@@ -129,7 +132,9 @@ def table(rows):
                 fmt(mean(g("late"))), fmt(p95(g("late"))), fmt(mean(g("latch", rs))), fmt(p95(g("latch", rs))),
                 fmt(mean(g("latch_applied"))), fmt(p95(g("latch_applied"))),
                 fmt(mean(g("presented"))), fmt(p95(g("presented"))), fmt(mean(g("predicted"))),
-                fmt(mean(g("jitter")), 3), fmt(p95(g("jitter")), 3), fmt(mean(g("wobble")), 4)]) + " |")
+                fmt(mean(g("jitter")), 3), fmt(p95(g("jitter")), 3), fmt(mean(g("wobble")), 4),
+                str(sum(g("missed_latch", rs))) if g("missed_latch", rs) else "–",
+                fmt(mean(g("cpu"))), fmt(max(g("cpu_max")) if g("cpu_max") else float("nan"))]) + " |")
     return "\n".join(out)
 
 

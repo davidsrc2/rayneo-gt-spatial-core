@@ -12,6 +12,7 @@
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/imu_recording.h"
+#include "rayneo/core/latch_controller.h"
 #include "rayneo/core/madgwick.h"
 #include "rayneo/core/panel_dimmer.h"
 #include "rayneo/core/pose_stabilizer.h"
@@ -1502,6 +1503,59 @@ void test_imu_recording_roundtrip() {
     CHECK(!parse_imu_recording(buf.data(), buf.size()));
 }
 
+void test_latch_cap() {
+    CHECK(near(latch_cap_ms(1000.0f / 120), 4.0f, 1e-4f));  // 4.17 ms half period: 4 ms
+    CHECK(near(latch_cap_ms(1000.0f / 60), 4.0f, 1e-4f));
+    CHECK(near(latch_cap_ms(1000.0f / 240), 2.0833f, 1e-3f));  // half a period
+    CHECK(latch_start(1000.0f / 120).margin_ms <= latch_cap_ms(1000.0f / 120));
+}
+
+void test_latch_compositor_misses_keep_margin() {
+    const float period = 1000.0f / 120;
+    LatchState s = latch_start(period);
+    const float m = s.margin_ms;
+    // Every refresh missed but the commit was early (0.6 ms of CPU): the compositor's.
+    for (int i = 0; i < 1000; ++i) s = latch_presented(s, true, 0.6f, period);
+    CHECK(near(s.margin_ms, m, 1e-6f));
+    CHECK(!latch_caused_miss(s, 0.6f));
+}
+
+void test_latch_cpu_misses_grow_to_cap() {
+    for (const float hz : {60.0f, 120.0f}) {
+        const float period = 1000.0f / hz;
+        LatchState s = latch_start(period);
+        const float m = s.margin_ms;
+        // Committed later than margin - 1 ms: the latch read too late.
+        s = latch_presented(s, true, m - 0.5f, period);
+        CHECK(s.margin_ms > m);
+        for (int i = 0; i < 100; ++i) s = latch_presented(s, true, 10.0f, period);
+        CHECK(near(s.margin_ms, latch_cap_ms(period), 1e-6f));
+        CHECK(s.margin_ms <= 0.5f * period + 1e-6f && s.margin_ms <= 4.0f + 1e-6f);
+    }
+}
+
+void test_latch_shrinks_gradually() {
+    const float period = 1000.0f / 120;
+    LatchState s{4.0f, 0};
+    for (int i = 0; i < 239; ++i) s = latch_presented(s, false, 1.0f, period);
+    CHECK(near(s.margin_ms, 4.0f, 1e-6f));  // not before 240 frames on time
+    s = latch_presented(s, false, 1.0f, period);
+    CHECK(near(s.margin_ms, 3.75f, 1e-6f));
+    for (int i = 0; i < 240 * 100; ++i) s = latch_presented(s, false, 1.0f, period);
+    CHECK(near(s.margin_ms, 1.0f, 1e-6f));  // floor
+    // A compositor miss does not restart the count; a frame on time keeps it going.
+    LatchState t{3.0f, 200};
+    t = latch_presented(t, true, 0.5f, period);
+    CHECK(t.on_time == 200);
+}
+
+void test_latch_period_change_reclamps() {
+    // 60 Hz margin of 4 ms, then the display goes to 240 Hz: re-clamped to half a period.
+    LatchState s{4.0f, 0};
+    s = latch_presented(s, false, 0.5f, 1000.0f / 240);
+    CHECK(near(s.margin_ms, latch_cap_ms(1000.0f / 240), 1e-6f));
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -1574,6 +1628,11 @@ int main() {
     test_grid_layout();
     test_bent_panels();
     test_imu_recording_roundtrip();
+    test_latch_cap();
+    test_latch_compositor_misses_keep_margin();
+    test_latch_cpu_misses_grow_to_cap();
+    test_latch_shrinks_gradually();
+    test_latch_period_change_reclamps();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

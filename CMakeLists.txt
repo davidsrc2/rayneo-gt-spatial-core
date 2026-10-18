@@ -75,6 +75,7 @@ add_library(rayneo_core STATIC
   src/core/frame_skip.cpp
   src/core/settings.cpp
   src/core/imu_recording.cpp
+  src/core/latch_controller.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
 target_include_directories(rayneo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -160,7 +161,7 @@ endif()
 # Platform: C ABI engine (portable) + macOS Objective-C++ facade.
 # ---------------------------------------------------------------------------
 add_library(rayneo_engine STATIC src/platform/rayneo_engine.cpp src/platform/guided_calibration.cpp
-  src/platform/rayneo_layouts.cpp)
+  src/platform/rayneo_layouts.cpp src/platform/rayneo_timing.cpp)
 add_library(rayneo::engine ALIAS rayneo_engine)
 target_link_libraries(rayneo_engine PUBLIC rayneo::hal)
 rayneo_warnings(rayneo_engine)

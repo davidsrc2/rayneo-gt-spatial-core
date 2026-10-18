@@ -4,3 +4,4 @@
 #import "RNSpatialRenderer.h"
 #import "RNVirtualDisplay.h"
 #import "rayneo/platform/rayneo_layouts.h"  // shared presets (C ABI)
+#import "rayneo/platform/rayneo_timing.h"   // late latching (C ABI over core)
