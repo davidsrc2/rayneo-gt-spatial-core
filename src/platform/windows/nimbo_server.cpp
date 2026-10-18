@@ -525,6 +525,7 @@ private:
     // Virtual monitors (W3).
     bool virtual_ = false;
     bool no_virtual_ = false;  // asked for virtual monitors, but the driver did not answer
+    bool driver_needs_setup_ = false;  // driver off and no task to switch it on
     std::unique_ptr<win::VirtualDisplayBackend> backend_;
     win::DisplayArrangement arrangement_;
     std::vector<std::wstring> panel_names_;  // GDI name per panel, left -> right
@@ -705,6 +706,7 @@ bool Server::start() {
     if (opt_.displays > 0 && !opt_.windowed && win::virtual_display_driver_installed() &&
         win::VirtualDisplayDriver::live_monitors() == 0) {
         driver_switched_on_ = win::virtual_driver_on(15000);
+        driver_needs_setup_ = !driver_switched_on_;
         logln("virtual monitors: driver %s", driver_switched_on_ ? "switched on" : "off and no task to switch it on (Preparar pantallas virtuales)");
     }
     if (opt_.displays > 0) backend_ = win::find_virtual_display_backend();
@@ -965,7 +967,11 @@ bool Server::start() {
     monitor_panels_ = panels;
     render_adapter_ = first->adapter;
     start_floating(opt_.floating);
-    if (no_virtual_) flash(L"Sin monitores virtuales: solo tu pantalla\nReinicia Windows para recuperarlos", 6.0);
+    if (no_virtual_) {
+        flash(driver_needs_setup_ ? L"Sin monitores virtuales: driver apagado\nAjustes > Diagnóstico > Preparar pantallas virtuales"
+                                  : L"Sin monitores virtuales: solo tu pantalla\nReinicia Windows para recuperarlos",
+              8.0);
+    }
 
     const UINT mods = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT;
     struct Key {
