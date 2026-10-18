@@ -1432,11 +1432,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         for (i, id) in panelDisplays.enumerated() {
             let b = CGDisplayBounds(id)
             if b.contains(loc) {
-                renderer.setCursorPanel(i, position: CGPoint(x: loc.x - b.minX, y: loc.y - b.minY), displaySize: b.size)
+                renderer.setCursorPanel(i, position: CGPoint(x: loc.x - b.minX, y: loc.y - b.minY), display: b.size)
                 return
             }
         }
-        renderer.setCursorPanel(-1, position: .zero, displaySize: .zero)
+        renderer.setCursorPanel(-1, position: .zero, display: .zero)
     }
 
     private func nothingChanged(_ p: PoseSample) -> Bool {
