@@ -351,17 +351,18 @@ internal sealed unsafe class AppModel
     // Whether going from `a` to `b` needs the monitors rebuilt (stop + start).
     public static bool NeedsRestart(NimboNative.Options a, NimboNative.Options b)
     {
-        if (a.Displays != b.Displays || a.LayoutCount != b.LayoutCount || a.VdScale != b.VdScale ||
-            a.VdWidth != b.VdWidth || a.DeadZoneDeg != b.DeadZoneDeg || a.GatherWindows != b.GatherWindows ||
-            a.LaptopScreen != b.LaptopScreen)
+        if (a.VdScale != b.VdScale || a.VdWidth != b.VdWidth || a.DeadZoneDeg != b.DeadZoneDeg ||
+            a.GatherWindows != b.GatherWindows || a.LaptopScreen != b.LaptopScreen)
         {
             return true;
         }
-        for (int i = 0; i < a.LayoutCount; ++i)
+        bool layout = a.Displays != b.Displays || a.LayoutCount != b.LayoutCount;
+        for (int i = 0; !layout && i < a.LayoutCount; ++i)
         {
-            if (a.LayoutCols[i] != b.LayoutCols[i] || a.LayoutRows[i] != b.LayoutRows[i]) return true;
+            layout = a.LayoutCols[i] != b.LayoutCols[i] || a.LayoutRows[i] != b.LayoutRows[i];
         }
-        return false;
+        // Parsec VDD adds and removes monitors while running: no restart for a new layout.
+        return layout && NimboNative.nimbo_displays_hot() == 0;
     }
 
     // --- helpers ----------------------------------------------------------------------------

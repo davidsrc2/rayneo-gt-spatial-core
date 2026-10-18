@@ -37,6 +37,10 @@
 #include "rayneo/core/settings.h"
 #include "rayneo/platform/guided_calibration.h"
 #include "rayneo/platform/nimbo_win.h"
+
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002  // Windows 10 1803+
+#endif
 #include "rayneo/platform/rayneo_engine.h"
 #include "spatial_renderer.h"
 #include "virtual_displays.h"
@@ -244,6 +248,7 @@ public:
     virtual std::optional<PoseSample> latest() = 0;
     virtual void nudge(float, float) {}
     virtual void set_glasses_mode(int) {}  // the glasses' own display mode (IMU only)
+    virtual bool reconnect(std::string*) { return false; }  // IMU only: reopen the glasses' HID device
     virtual bool stats(rayneo_stats*) { return false; }  // IMU transport counters (IMU only)
     virtual void set_glasses_brightness(int) {}
 };
@@ -285,6 +290,10 @@ public:
     }
     void recenter() override { rayneo_engine_recenter(engine_); }
     void set_glasses_mode(int mode) override { rayneo_engine_set_glasses_mode(engine_, mode); }
+    bool reconnect(std::string* error) override {
+        rayneo_engine_stop(engine_);
+        return start(error);
+    }
     bool stats(rayneo_stats* out) override { return rayneo_engine_stats(engine_, out); }
     void set_glasses_brightness(int level) override { rayneo_engine_set_glasses_brightness(engine_, level); }
     std::optional<PoseSample> latest() override {
@@ -528,6 +537,13 @@ private:
     // Virtual monitors (W3).
     bool virtual_ = false;
     bool no_virtual_ = false;  // asked for virtual monitors, but the driver did not answer
+    bool parsec() const { return backend_ && std::string(backend_->name()) == "Parsec VDD"; }
+    // Parsec VDD: monitors added or removed while running (the layout changed), no restart.
+    bool reconfigure_displays(const Options& o);
+    bool start_captures(std::string* error);
+    std::vector<const win::OutputInfo*> wait_virtual_outputs(int n, const std::vector<std::wstring>& keep_order);
+    HANDLE frame_timer_ = nullptr;  // high-resolution waitable timer (the wait before latching the pose)
+    uint64_t imu_lost_ns_ = 0, imu_retry_ns_ = 0;  // IMU watchdog
     bool driver_needs_setup_ = false;  // driver off and no task to switch it on
     std::unique_ptr<win::VirtualDisplayBackend> backend_;
     win::DisplayArrangement arrangement_;
@@ -769,6 +785,14 @@ bool Server::start() {
         refresh_hz_ = m->hz;  // primary display
     }
 
+    // Hall-of-mirrors guard: the glasses' own output is never a panel (it shows the render).
+    if (virtual_ && !glasses_gdi_.empty()) {
+        const auto it = std::remove(panel_names_.begin(), panel_names_.end(), glasses_gdi_);
+        if (it != panel_names_.end()) {
+            logln("capture: the glasses' display was among the panels, left out");
+            panel_names_.erase(it, panel_names_.end());
+        }
+    }
     // Sources: the virtual monitors, or the one existing display that the panel shows.
     std::vector<const win::OutputInfo*> sources;
     if (virtual_) {
@@ -946,29 +970,14 @@ bool Server::start() {
           ro.side_by_side ? "side by side (glasses in 3D)" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
           ro.distance_m, opt_.ipd_mm, ro.fov_y_deg, ro.k1, ro.k2);
 
-    for (int i = 0; i < panels; ++i) {
-        const win::OutputInfo* src = sources[static_cast<size_t>(i)];
-        DXGI_ADAPTER_DESC1 desc{};
-        src->adapter->GetDesc1(&desc);
-        if (desc.AdapterLuid.LowPart != first_desc.AdapterLuid.LowPart ||
-            desc.AdapterLuid.HighPart != first_desc.AdapterLuid.HighPart) {
-            logln("capture: %s is on another GPU (%s): not supported yet", win::narrow(src->gdi_name).c_str(),
-                  win::narrow(src->adapter_name).c_str());
-            return false;
-        }
-        auto cap = std::make_unique<win::DesktopDuplication>();
-        if (!cap->start(src->adapter.Get(), src->output.Get(), device_.Get(), &error)) {
-            logln("capture: %s", error.c_str());
-            return false;
-        }
-        renderer_.set_source(i, cap.get());
-        captures_.push_back(std::move(cap));
-        logln("capture: panel %d <- %s %dx%d", i + 1, win::narrow(src->gdi_name).c_str(), src->width(), src->height());
+    render_adapter_ = first->adapter;
+    if (!start_captures(&error)) {
+        logln("capture: %s", error.c_str());
+        return false;
     }
     refresh_rects();
     if (overlay_shown_) renderer_.set_overlay_text(L"Nimbo se está preparando\nDeja las gafas quietas unos segundos");
     monitor_panels_ = panels;
-    render_adapter_ = first->adapter;
     start_floating(opt_.floating);
     if (no_virtual_) {
         flash(driver_needs_setup_ ? L"Sin monitores virtuales: driver apagado\nInstala Parsec VDD (ver Ajustes > Diagnóstico)"
@@ -1012,6 +1021,7 @@ bool Server::start() {
         status_.zoom = zoom_;
     }
 
+    frame_timer_ = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     start_ns_ = steady_ns();
     next_stats_ns_ = start_ns_ + 1000000000ull;
     return true;
@@ -1163,7 +1173,14 @@ bool Server::frame() {
     const uint64_t wake = vsync > margin ? vsync - margin : 0;
     if (const uint64_t t = steady_ns(); wake > t + 300000 && wake - t < 20000000) {
         const uint64_t ms = (wake - t) / 1000000;
-        if (ms >= 2) Sleep(static_cast<DWORD>(ms - 1));  // 1 ms timer resolution (timeBeginPeriod)
+        if (frame_timer_ != nullptr && wake - t > 1000000) {
+            // Up to 0.5 ms before the deadline on a high-resolution timer, the rest spinning.
+            LARGE_INTEGER due;
+            due.QuadPart = -static_cast<LONGLONG>((wake - t - 500000) / 100);
+            if (SetWaitableTimer(frame_timer_, &due, 0, nullptr, nullptr, FALSE)) WaitForSingleObject(frame_timer_, 25);
+        } else if (ms >= 2) {
+            Sleep(static_cast<DWORD>(ms - 1));  // 1 ms timer resolution (timeBeginPeriod)
+        }
         while (steady_ns() < wake) YieldProcessor();
     }
     update_cursor();
@@ -1247,15 +1264,34 @@ void Server::periodic() {
 
     keep_floating_windows();
 
-    // Unplugged glasses: the IMU stops. Quit, which restores the display mode.
+    // IMU watchdog: no sample for 0.5 s (a USB hiccup, the cable moved) and the HID device is
+    // reopened silently; after 10 s without it (unplugged) Nimbo stops, restoring the displays.
     if (imu_) {
         const auto p = pose_->latest();
-        const uint64_t t = p ? p->host_ns : 0;
-        stale_pose_s_ = t == last_pose_ns_ ? stale_pose_s_ + 1 : 0;
-        last_pose_ns_ = t;
-        if (stale_pose_s_ >= 2) {
-            logln("glasses IMU stopped (unplugged?): stopping");
-            request_stop("glasses disconnected");
+        const bool stale = !p || now - std::min(now, p->host_ns) > 500000000ull;
+        if (!stale) {
+            if (imu_lost_ns_ != 0) {
+                logln("imu: data again after %.1f s", static_cast<double>(now - imu_lost_ns_) / 1e9);
+                imu_lost_ns_ = 0;
+            }
+        } else if (now >= imu_retry_ns_) {
+            if (imu_lost_ns_ == 0) {
+                imu_lost_ns_ = now;
+                logln("imu: no data for 0.5 s, reconnecting");
+            }
+            if (now - imu_lost_ns_ > 10000000000ull) {
+                logln("glasses IMU gone for 10 s (unplugged?): stopping");
+                request_stop("glasses disconnected");
+            } else {
+                std::string error;
+                if (pose_->reconnect(&error)) {
+                    logln("imu: reconnected (head tracking starts again in a few seconds)");
+                    flash(L"Gafas reconectadas\nDeja la cabeza quieta un momento", 4.0);
+                } else {
+                    logln("imu: reconnect failed: %s", error.c_str());
+                }
+                imu_retry_ns_ = now + 2000000000ull;  // the new stream gets a moment to start
+            }
         }
     }
 
@@ -1728,6 +1764,115 @@ void Server::start_floating(std::vector<Options::Floating> specs) {
     assign_floating_monitors();
 }
 
+// One Desktop Duplication per panel (panel_names_ order), on the render GPU.
+bool Server::start_captures(std::string* error) {
+    for (auto& c : captures_) c->stop();
+    captures_.clear();
+    DXGI_ADAPTER_DESC1 render_desc{};
+    render_adapter_->GetDesc1(&render_desc);
+    for (size_t i = 0; i < panel_names_.size() && i < static_cast<size_t>(win::SpatialRenderer::kMaxPanels); ++i) {
+        const win::OutputInfo* src = find_output(panel_names_[i]);
+        if (src == nullptr) {
+            if (error != nullptr) *error = win::narrow(panel_names_[i]) + " is gone";
+            return false;
+        }
+        DXGI_ADAPTER_DESC1 desc{};
+        src->adapter->GetDesc1(&desc);
+        if (desc.AdapterLuid.LowPart != render_desc.AdapterLuid.LowPart ||
+            desc.AdapterLuid.HighPart != render_desc.AdapterLuid.HighPart) {
+            if (error != nullptr) {
+                *error = win::narrow(src->gdi_name) + " is on another GPU (" + win::narrow(src->adapter_name) +
+                         "): not supported yet";
+            }
+            return false;
+        }
+        auto cap = std::make_unique<win::DesktopDuplication>();
+        if (!cap->start(src->adapter.Get(), src->output.Get(), device_.Get(), error)) return false;
+        renderer_.set_source(static_cast<int>(i), cap.get());
+        captures_.push_back(std::move(cap));
+        logln("capture: panel %zu <- %s %dx%d", i + 1, win::narrow(src->gdi_name).c_str(), src->width(), src->height());
+    }
+    return true;
+}
+
+// The driver's displays on the desktop, `n` of them, those in keep_order first (same order).
+std::vector<const win::OutputInfo*> Server::wait_virtual_outputs(int n, const std::vector<std::wstring>& keep_order) {
+    std::vector<const win::OutputInfo*> out;
+    for (int waited = 0; waited <= 6000; waited += 250) {
+        outputs_ = win::enumerate_outputs();
+        out.clear();
+        for (const auto& name : keep_order) {
+            if (const auto* o = find_output(name); o != nullptr && win::is_virtual_panel(*o)) out.push_back(o);
+        }
+        std::vector<const win::OutputInfo*> fresh;
+        for (const auto& o : outputs_) {
+            if (o.glasses || !win::is_virtual_panel(o)) continue;
+            if (std::find(keep_order.begin(), keep_order.end(), o.gdi_name) == keep_order.end()) fresh.push_back(&o);
+        }
+        std::sort(fresh.begin(), fresh.end(),
+                  [](const win::OutputInfo* a, const win::OutputInfo* b) { return a->gdi_name < b->gdi_name; });
+        for (const auto* o : fresh) out.push_back(o);
+        if (static_cast<int>(out.size()) >= n) break;
+        if (waited >= 1000 && waited % 1000 == 0) win::attach_detached_virtual(opt_.vd_width, opt_.vd_height, n);
+        Sleep(250);
+    }
+    if (static_cast<int>(out.size()) > n) out.resize(static_cast<size_t>(n));
+    return out;
+}
+
+bool Server::reconfigure_displays(const Options& o) {
+    if (!virtual_ || !parsec() || opt_.windowed) return false;
+    const int n = std::clamp(o.displays - (laptop_gdi_.empty() ? 0 : 1), 1, win::SpatialRenderer::kMaxPanels - 1);
+    logln("virtual monitors: %d -> %d, without restarting", static_cast<int>(panel_names_.size()), o.displays);
+    for (auto& c : window_captures_) c->stop();
+    window_captures_.clear();
+    for (auto& c : captures_) c->stop();
+    captures_.clear();
+    std::string error;
+    if (!backend_->set_monitors(n, opt_.vd_width, opt_.vd_height, &error)) logln("virtual monitors: %s", error.c_str());
+    std::vector<std::wstring> keep;
+    for (const auto& name : panel_names_) {
+        if (name != laptop_gdi_) keep.push_back(name);
+    }
+    const auto panels = wait_virtual_outputs(n, keep);
+    panel_names_.clear();
+    if (!laptop_gdi_.empty()) panel_names_.push_back(laptop_gdi_);
+    for (const auto* p : panels) panel_names_.push_back(p->gdi_name);
+    opt_.displays = o.displays;
+    opt_.layout = o.layout;
+    const auto* glasses = glasses_gdi_.empty() ? nullptr : find_output(glasses_gdi_);
+    const auto* laptop = laptop_gdi_.empty() ? nullptr : find_output(laptop_gdi_);
+    arranged_ns_ = steady_ns();
+    if (!arrangement_.arrange(panels, opt_.layout, glasses, outputs_, opt_.vd_width, opt_.vd_height, &error, laptop)) {
+        logln("virtual monitors: %s", error.c_str());
+    }
+    Sleep(500);
+    outputs_ = win::enumerate_outputs();
+    for (const auto& name : panel_names_) {
+        if (name != laptop_gdi_) win::set_display_scale(name, opt_.vd_scale, &error);
+    }
+    restore_glasses_mode();
+    if (!start_captures(&error)) {
+        logln("capture: %s", error.c_str());
+        request_stop("capture: " + error);
+        return true;
+    }
+    monitor_panels_ = static_cast<int>(captures_.size());
+    renderer_.set_panel_count(monitor_panels_);
+    renderer_.set_grid(static_cast<int>(opt_.layout.size()) == monitor_panels_ ? opt_.layout : std::vector<core::GridCell>{});
+    refresh_rects();
+    start_floating(opt_.floating);
+    last_gaze_panel_ = -2;
+    renderer_.invalidate_skipped_frame();
+    redraw_ = true;
+    {
+        std::lock_guard<std::mutex> lock(shared_mutex_);
+        status_.panel_count = monitor_panels_;
+    }
+    flash(L"Pantallas: " + std::to_wstring(monitor_panels_));
+    return true;
+}
+
 // Each floating window onto a spare monitor of the Virtual Display Driver's pool (no reload),
 // that monitor laid out where the window floats: above the monitors it touches their top edge,
 // so the cursor goes up into it. The window is maximised on it and stays captured as itself
@@ -1741,8 +1886,20 @@ void Server::assign_floating_monitors() {
     floating_monitors_.assign(floating_hwnds_.size(), std::wstring());
     refresh_rects();
     if (floating_hwnds_.empty() || !virtual_ || opt_.windowed || !backend_ ||
-        std::string(backend_->name()) != "Virtual Display Driver" || panel_rects_.empty()) {
+        (std::string(backend_->name()) != "Virtual Display Driver" && !parsec()) || panel_rects_.empty()) {
         return;
+    }
+    // Parsec VDD has no pool: one more display per floating window, made now.
+    if (parsec()) {
+        const int monitors = static_cast<int>(panel_names_.size()) - (laptop_gdi_.empty() ? 0 : 1);
+        std::string error;
+        if (!backend_->set_monitors(monitors + static_cast<int>(floating_hwnds_.size()), opt_.vd_width, opt_.vd_height, &error)) {
+            logln("window: %s", error.c_str());
+        }
+        for (int waited = 0; waited < 4000 && win::spare_virtual_monitors(panel_names_).size() < floating_hwnds_.size();
+             waited += 250) {
+            Sleep(250);
+        }
     }
     const auto pls = renderer_.current_placements();
     const float arc = renderer_.shown_arc_rad();
@@ -1859,6 +2016,23 @@ bool Server::setup_virtual_displays() {
         laptop != nullptr && laptop->width() > 0 && std::string(backend_->name()) == "virtual-display-rs") {
         opt_.vd_height = (opt_.vd_width * laptop->height() / laptop->width()) & ~1;
     }
+    // Parsec VDD: each virtual monitor at the computer's own resolution and, with the laptop
+    // screen as panel 1, its scaling too, so a window dragged across keeps its size.
+    if (parsec()) {
+        const win::OutputInfo* own = laptop_gdi_.empty() ? nullptr : find_output(laptop_gdi_);
+        for (const auto& o : outputs_) {
+            if (own == nullptr && o.primary && !o.glasses && !win::is_virtual_panel(o)) own = &o;
+        }
+        if (own != nullptr && own->width() > 0 && own->height() > 0) {
+            opt_.vd_width = own->width();
+            opt_.vd_height = own->height();
+            if (!laptop_gdi_.empty()) {
+                if (const auto pct = win::get_display_scale(laptop_gdi_)) opt_.vd_scale = *pct;
+            }
+            logln("virtual monitors: like %s, %dx%d at %d%%", win::narrow(own->gdi_name).c_str(), opt_.vd_width,
+                  opt_.vd_height, opt_.vd_scale);
+        }
+    }
     if (!backend_->set_monitors(n, opt_.vd_width, opt_.vd_height, &error)) {
         // More panels than the driver has, and it will not make more until Windows restarts:
         // start with the ones it has rather than not at all.
@@ -1946,8 +2120,16 @@ bool Server::setup_virtual_displays() {
     const win::OutputInfo* glasses = glasses_gdi_.empty() ? nullptr : find_output(glasses_gdi_);
     const win::OutputInfo* laptop = laptop_gdi_.empty() ? nullptr : find_output(laptop_gdi_);
     arranged_ns_ = steady_ns();
-    if (!arrangement_.arrange(panels, opt_.layout, opt_.windowed ? nullptr : glasses, outputs_, opt_.vd_width,
-                              opt_.vd_height, &error, laptop)) {
+    bool arranged = arrangement_.arrange(panels, opt_.layout, opt_.windowed ? nullptr : glasses, outputs_, opt_.vd_width,
+                                         opt_.vd_height, &error, laptop);
+    if (!arranged && parsec() && (opt_.vd_width != 1920 || opt_.vd_height != 1080)) {
+        logln("virtual monitors: %dx%d not offered by the driver, 1920x1080 instead", opt_.vd_width, opt_.vd_height);
+        opt_.vd_width = 1920;
+        opt_.vd_height = 1080;
+        arranged = arrangement_.arrange(panels, opt_.layout, opt_.windowed ? nullptr : glasses, outputs_, opt_.vd_width,
+                                        opt_.vd_height, &error, laptop);
+    }
+    if (!arranged) {
         logln("virtual monitors: %s (is %dx%d in the driver's vdd_settings.xml?)", error.c_str(), opt_.vd_width,
               opt_.vd_height);
         return false;
@@ -2220,6 +2402,10 @@ void Server::shutdown() {
     if (shut_) return;
     shut_ = true;
     for (int id = kRecenter; id <= kCinema; ++id) UnregisterHotKey(hwnd_, id);
+    if (frame_timer_ != nullptr) {
+        CloseHandle(frame_timer_);
+        frame_timer_ = nullptr;
+    }
     for (auto& c : window_captures_) c->stop();
     window_captures_.clear();
     for (auto& c : captures_) c->stop();
@@ -2304,6 +2490,12 @@ void Server::apply_pending() {
         o.swap(pending_);
     }
     if (!o) return;
+    // Monitors added or removed (Parsec VDD): rebuilt in place, before the rest is applied.
+    bool layout_changed = o->displays != opt_.displays || o->layout.size() != opt_.layout.size();
+    for (size_t i = 0; !layout_changed && i < o->layout.size(); ++i) {
+        layout_changed = o->layout[i].col != opt_.layout[i].col || o->layout[i].row != opt_.layout[i].row;
+    }
+    if (layout_changed) reconfigure_displays(*o);
     auto& ro = renderer_.options;
     ro.distance_m = o->distance_m;
     ro.gap_deg = o->gap_deg;
@@ -2647,6 +2839,8 @@ bool nimbo_glasses_connected(void) {
 }
 
 // Instant (the app asks from its UI thread): no waiting for a reloading driver's pipe.
+bool nimbo_displays_hot(void) { return win::parsec_vdd_available(); }
+
 bool nimbo_virtual_driver_available(void) {
     return win::parsec_vdd_available() || win::find_virtual_display_backend(false) != nullptr;
 }

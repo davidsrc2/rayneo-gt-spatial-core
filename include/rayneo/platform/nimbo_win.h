@@ -159,7 +159,10 @@ NIMBO_API int nimbo_list_windows(nimbo_window* out, int max);
  * --------------------------------------------------------------------------------------- */
 
 NIMBO_API bool nimbo_glasses_connected(void);         /* the SmartGlasses display is present */
-NIMBO_API bool nimbo_virtual_driver_available(void);  /* the Virtual Display Driver answers */
+NIMBO_API bool nimbo_virtual_driver_available(void);  /* a virtual display driver answers */
+/* Monitors can be added and removed while running (Parsec VDD): nimbo_apply with another
+   layout, no stop + start. */
+NIMBO_API bool nimbo_displays_hot(void);
 /* Undoes the display changes of a run that crashed. True if there was something to restore. */
 NIMBO_API bool nimbo_restore_displays(void);
 

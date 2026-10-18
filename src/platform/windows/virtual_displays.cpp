@@ -116,16 +116,28 @@ constexpr int kScaleSteps[] = {100, 125, 150, 175, 200, 225, 250, 300, 350, 400,
 
 }  // namespace
 
-bool is_virtual_panel(const OutputInfo& o) {
-    return std::any_of(o.monitors.begin(), o.monitors.end(), [](const std::wstring& m) {
-        return m.rfind(L"VDD by MTT", 0) == 0 || m.rfind(L"VirtuDisplay", 0) == 0 || m.rfind(L"ParsecVDA", 0) == 0;
-    });
-}
-
 // Adapter names of the drivers (EnumDisplayDevices' DeviceString), for monitors off the desktop.
 bool is_virtual_adapter(const std::wstring& kind) {
     return kind.find(L"Virtual Display Driver") != std::wstring::npos || kind.find(L"VirtuDisplay") != std::wstring::npos ||
            kind.find(L"Parsec Virtual Display") != std::wstring::npos;
+}
+
+bool is_virtual_source(const std::wstring& gdi_name) {
+    DISPLAY_DEVICEW dev{};
+    dev.cb = sizeof(dev);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dev, 0); ++i) {
+        if (gdi_name == dev.DeviceName) return is_virtual_adapter(dev.DeviceString);
+        dev = DISPLAY_DEVICEW{};
+        dev.cb = sizeof(dev);
+    }
+    return false;
+}
+
+bool is_virtual_panel(const OutputInfo& o) {
+    const bool named = std::any_of(o.monitors.begin(), o.monitors.end(), [](const std::wstring& m) {
+        return m.rfind(L"VDD by MTT", 0) == 0 || m.rfind(L"VirtuDisplay", 0) == 0 || m.rfind(L"ParsecVDA", 0) == 0;
+    });
+    return named || is_virtual_source(o.gdi_name);  // Parsec's monitors by their adapter
 }
 
 namespace {
@@ -725,8 +737,7 @@ std::vector<std::wstring> spare_virtual_monitors(const std::vector<std::wstring>
     dev.cb = sizeof(dev);
     for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dev, 0); ++i) {
         const std::wstring name = dev.DeviceName;
-        if (std::wstring(dev.DeviceString).find(L"Virtual Display Driver") != std::wstring::npos &&
-            std::find(exclude.begin(), exclude.end(), name) == exclude.end()) {
+        if (is_virtual_adapter(dev.DeviceString) && std::find(exclude.begin(), exclude.end(), name) == exclude.end()) {
             DISPLAY_DEVICEW mon{};
             mon.cb = sizeof(mon);
             if (EnumDisplayDevicesW(name.c_str(), 0, &mon, 0)) out.push_back(name);
@@ -777,6 +788,21 @@ std::vector<std::string> describe_display_devices() {
         dev.cb = sizeof(dev);
     }
     return out;
+}
+
+std::optional<int> get_display_scale(const std::wstring& gdi_name) {
+    LUID adapter{};
+    UINT32 id = 0;
+    if (!source_of(gdi_name, &adapter, &id)) return std::nullopt;
+    DpiScaleGet get{};
+    get.header.type = static_cast<DISPLAYCONFIG_DEVICE_INFO_TYPE>(kGetDpiScale);
+    get.header.size = sizeof(get);
+    get.header.adapterId = adapter;
+    get.header.id = id;
+    if (DisplayConfigGetDeviceInfo(&get.header) != ERROR_SUCCESS) return std::nullopt;
+    const int index = std::abs(get.min_rel) + get.cur_rel;
+    if (index < 0 || index >= static_cast<int>(std::size(kScaleSteps))) return std::nullopt;
+    return kScaleSteps[index];
 }
 
 bool set_display_scale(const std::wstring& gdi_name, int percent, std::string* error) {

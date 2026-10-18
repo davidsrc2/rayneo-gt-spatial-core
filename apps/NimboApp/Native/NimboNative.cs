@@ -225,6 +225,7 @@ internal static unsafe class NimboNative
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern byte nimbo_glasses_connected();
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern byte nimbo_virtual_driver_available();
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern byte nimbo_displays_hot();
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern byte nimbo_restore_displays();
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern Settings nimbo_default_settings();

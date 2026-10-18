@@ -12,6 +12,7 @@
 #include <windows.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -117,5 +118,9 @@ std::vector<std::string> describe_display_devices();
 // Per-monitor scaling (Settings > Display > Scale) of a display, in percent. Uses the same
 // DisplayConfig call as the Settings app; Windows remembers it per monitor.
 bool set_display_scale(const std::wstring& gdi_name, int percent, std::string* error);
+// Its scaling now, in percent (nullopt: unknown).
+std::optional<int> get_display_scale(const std::wstring& gdi_name);
+// A display of one of the virtual display drivers (by its adapter's name).
+bool is_virtual_source(const std::wstring& gdi_name);
 
 }  // namespace rayneo::win
