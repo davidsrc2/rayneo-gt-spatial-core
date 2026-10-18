@@ -72,14 +72,30 @@ internal static class Updater
     // else why not.
     public static async Task<string?> InstallAsync(UpdateInfo u)
     {
+        try
+        {
+            return await InstallCoreAsync(u);
+        }
+        catch (Exception e)  // never left at "Descargando…": say it and leave a trace
+        {
+            App.CrashLog("update: install failed", e);
+            return $"No se pudo actualizar ({e.GetType().Name}). Detalles en crash.log.";
+        }
+    }
+
+    private static async Task<string?> InstallCoreAsync(UpdateInfo u)
+    {
+        App.Trace($"update: downloading {u.Url}");
         var dir = Path.Combine(Path.GetTempPath(), "Nimbo-Update");
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, $"Nimbo-Setup-{u.Version.Major}.{u.Version.Minor}.{u.Version.Build}.exe");
         try
         {
             var bytes = await Http.GetByteArrayAsync(u.Url);
+            App.Trace($"update: {bytes.Length} bytes downloaded");
             if (Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() != u.Sha256)
             {
+                App.Trace("update: SHA-256 mismatch");
                 return "La descarga no coincide con la publicada; no se ha instalado.";
             }
             await File.WriteAllBytesAsync(path, bytes);
@@ -87,8 +103,10 @@ internal static class Updater
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or
                                       UnauthorizedAccessException)
         {
+            App.CrashLog("update: download failed", e);
             return "No se pudo descargar la actualización.";
         }
+        App.Trace($"update: running {path} /SILENT");
         try
         {
             Process.Start(new ProcessStartInfo(path, "/SILENT /SUPPRESSMSGBOXES /NORESTART")
