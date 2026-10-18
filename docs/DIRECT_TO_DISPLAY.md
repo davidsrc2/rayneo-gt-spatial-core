@@ -41,7 +41,32 @@ the hardware cursor plane, not proven to force compositing.
 4. Compare with the `TRACK` lines of the same seconds: composited seconds show `late` ~8.3 ms
    at 120 Hz with `frame interval 8.3±0.0`.
 
-Not run yet: the reference Mac has the Command Line Tools only (no Xcode, no `xctrace`).
+`scripts/trace_direct.sh [SECONDS]` does it from the command line (Nimbo running): it records
+the trace and prints, from its `displayed-surfaces-interval` table, per display whether the
+surfaces shown were direct and why not (`detachment-reason`), and the CPU-to-display latency of
+the glasses' frames. If every display table comes out empty, macOS stopped emitting display
+events (seen after several display reconfigurations in a row): reconnect the glasses or restart.
+
+## Result (Instruments, 18-10-2026, reference MacBook Pro M4, macOS 27.2, glasses at 120 Hz)
+
+- Nimbo (replay of the reference recording, capture load): of 4645 surfaces shown on the
+  glasses display in 60 s, none direct to display. What the display shows are WindowServer's
+  own framebuffers, filled from Nimbo's drawables: composited every frame. CPU-to-display
+  latency 20-21 ms (3686 frames) or 29 ms (646 frames): the late state is one more refresh of
+  that composition.
+- Variants that did not change it (all "No"): window level normal or floating instead of
+  screen saver, native full screen, layer colour space set to the display's or sRGB, a 10-bit
+  drawable (bgr10a2Unorm), window shared with capture, system cursor hidden.
+- A minimal app (one opaque full-screen CAMetalLayer clearing to a colour, nothing else, no
+  capture) on the glasses display: also never direct, and WindowServer gives the reason
+  `display rejected` (8-bit and 10-bit drawables, borderless and native full screen). The
+  glasses' display does not take a detached surface on this Mac: the composition is not
+  Nimbo's doing and Nimbo cannot avoid it. Its framebuffer is in a format of its own (`83b&`)
+  while the drawables are 8-bit BGRA.
+
+What follows for the late state: it is WindowServer's compositor taking a frame one refresh
+later, not a missed deadline of ours; the prediction already follows it (fixed + lateness) and
+drawing on through short pauses keeps the switches between the two states rare.
 
 ## Equivalent metric (what the measurements use)
 
