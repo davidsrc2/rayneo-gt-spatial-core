@@ -21,6 +21,10 @@ final class GUIApp: NSObject {
         NSApp.appearance = NSAppearance(named: .darkAqua)
         server.bind(model)
         buildStatusItem()
+        Updater.shared.onFound = { [weak self] r in
+            self?.server.tell("Actualización de Nimbo disponible", "Versión \(r.version): Ajustes > Actualizaciones, o el menú del icono")
+        }
+        Updater.shared.start()
         registerLayoutHotKeys()
         if ProcessInfo.processInfo.environment["RAYNEO_PANEL_PREVIEW"] != nil {
             showPanelPreviewWindow()  // development: the panel as a plain window, for screenshots
@@ -232,6 +236,11 @@ final class GUIApp: NSObject {
                 it.target = self
                 menu.addItem(it)
             }
+            if let r = Updater.shared.available {
+                let it = NSMenuItem(title: "Actualizar a \(r.version)", action: #selector(installUpdate), keyEquivalent: "")
+                it.target = self
+                menu.insertItem(it, at: 0)
+            }
             menu.addItem(.separator())
             let quit = NSMenuItem(title: "Salir", action: #selector(quit), keyEquivalent: "")
             quit.target = self
@@ -247,6 +256,7 @@ final class GUIApp: NSObject {
     @objc private func recenter() { server.recenter() }
     @objc private func toggleServer() { server.toggle() }
     @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func installUpdate() { Task { await Updater.shared.install() } }
 }
 
 // Borderless panel that can take key focus (sliders, toggles) and closes when it loses it.

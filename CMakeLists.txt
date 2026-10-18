@@ -11,6 +11,10 @@ if(APPLE)
 endif()
 
 project(rayneo_gt_spatial_core VERSION 0.1.0 LANGUAGES C CXX)
+# Releases (CI on a vX.Y.Z tag): the app's version from the tag.
+if(RAYNEO_VERSION)
+  set(PROJECT_VERSION "${RAYNEO_VERSION}")
+endif()
 
 if(APPLE)
   enable_language(OBJCXX)
@@ -218,6 +222,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${NIMBO_DIR}/GUI/AppModel.swift
     ${NIMBO_DIR}/GUI/ServerController.swift
     ${NIMBO_DIR}/GUI/Notifier.swift
+    ${NIMBO_DIR}/GUI/Updater.swift
     ${NIMBO_DIR}/GUI/LayoutEditor.swift
     ${NIMBO_DIR}/GUI/SpatialEditor.swift
     ${NIMBO_DIR}/GUI/FloatingWindowsList.swift
@@ -249,9 +254,15 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
   # Screen Recording / Accessibility again after each rebuild or reinstall; a stable local
   # certificate (scripts/make_signing_identity.sh) keeps the permissions.
   if(NOT DEFINED RAYNEO_CODESIGN_IDENTITY)
+    # "Nimbo Signing" (scripts/make_release_signing.sh): the same certificate as the released
+    # builds, so updates keep the permissions; else the older per-Mac one.
+    execute_process(COMMAND security find-certificate -c "Nimbo Signing"
+                    RESULT_VARIABLE _rayneo_release_cert OUTPUT_QUIET ERROR_QUIET)
     execute_process(COMMAND security find-certificate -c "Nimbo Local Signing"
                     RESULT_VARIABLE _rayneo_cert OUTPUT_QUIET ERROR_QUIET)
-    if(_rayneo_cert EQUAL 0)
+    if(_rayneo_release_cert EQUAL 0)
+      set(_rayneo_identity "Nimbo Signing")
+    elseif(_rayneo_cert EQUAL 0)
       set(_rayneo_identity "Nimbo Local Signing")
     else()
       set(_rayneo_identity "-")

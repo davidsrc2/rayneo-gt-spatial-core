@@ -109,6 +109,10 @@ struct SettingsView: View {
                 ShortcutSheet()
             }
 
+            Section(title: "Actualizaciones") {
+                UpdatesRow(updater: Updater.shared)
+            }
+
             DisclosureGroup(isExpanded: $advancedBox.value) {
                 VStack(alignment: .leading, spacing: 14) {
                     if model.glassesPinned {
@@ -237,5 +241,27 @@ struct BackgroundSettings: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         model.backgroundImage = url.path
         server.settingsChanged()
+    }
+}
+
+// "Buscar actualizaciones" / "Actualizar a …" and what the updater says.
+@available(macOS 14.0, *)
+private struct UpdatesRow: View {
+    @ObservedObject var updater: Updater
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let r = updater.available {
+                Button("Actualizar a \(r.version)") { Task { await updater.install() } }
+                    .buttonStyle(CalmButtonStyle(prominent: true))
+                    .disabled(updater.busy)
+            } else {
+                Button("Buscar actualizaciones") { Task { await updater.check(quiet: false) } }
+                    .buttonStyle(CalmButtonStyle())
+                    .disabled(updater.busy)
+            }
+            Text(updater.status.isEmpty ? "Versión \(Updater.current)" : updater.status)
+                .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        }
     }
 }

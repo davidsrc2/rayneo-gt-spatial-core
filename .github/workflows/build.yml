@@ -103,7 +103,42 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$env:GITHUB_REF_NAME" (Get-ChildItem build/installer/Nimbo-Setup-*.exe).FullName --title "Nimbo $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes
+        run: |
+          # The macOS job adds its zip to the same release: whichever comes first creates it.
+          gh release view "$env:GITHUB_REF_NAME" *> $null
+          if ($LASTEXITCODE -ne 0) { gh release create "$env:GITHUB_REF_NAME" --title "Nimbo $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes }
+          gh release upload "$env:GITHUB_REF_NAME" (Get-ChildItem build/installer/Nimbo-Setup-*.exe).FullName --clobber
+
+      - name: macOS release app (tags)
+        if: runner.os == 'macOS' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAC_SIGNING_P12: ${{ secrets.MAC_SIGNING_P12 }}
+          MAC_SIGNING_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"
+          if [ -z "${MAC_SIGNING_P12:-}" ]; then
+            echo "::warning::MAC_SIGNING_P12 not set (scripts/make_release_signing.sh): no macOS app in this release"
+            exit 0
+          fi
+          kc="$RUNNER_TEMP/nimbo.keychain-db"
+          security create-keychain -p ci "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p ci "$kc"
+          echo "$MAC_SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/id.p12"
+          security import "$RUNNER_TEMP/id.p12" -k "$kc" -P "$MAC_SIGNING_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DRAYNEO_VERSION="$v" \
+                -DRAYNEO_CODESIGN_IDENTITY="Nimbo Signing" -DRAYNEO_BUILD_TESTS=OFF
+          cmake --build build-release --target nimbo --parallel
+          codesign --verify --strict build-release/Nimbo.app
+          zip="build-release/Nimbo-macOS-$v.zip"
+          ditto -c -k --keepParent build-release/Nimbo.app "$zip"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Nimbo $v" --generate-notes || true
+          gh release upload "$GITHUB_REF_NAME" "$zip" --clobber
 
       - name: Upload Windows installer
         if: runner.os == 'Windows'
