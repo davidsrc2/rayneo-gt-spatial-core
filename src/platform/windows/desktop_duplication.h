@@ -25,6 +25,8 @@ struct PointerShape {
     uint64_t generation = 0;  // bumps when the shape changes
     int width = 0;
     int height = 0;
+    int hot_x = 0;  // the point GetCursorPos reports, inside the shape
+    int hot_y = 0;
     std::vector<uint32_t> color;
     std::vector<uint32_t> invert;
 };
@@ -43,7 +45,7 @@ public:
     struct Frame {
         Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;  // render device, B8G8R8A8_UNORM
         Microsoft::WRL::ComPtr<IDXGIKeyedMutex> mutex;    // hold (key 0) while reading `texture`
-        uint64_t generation = 0;  // bumps on every new frame or pointer change
+        uint64_t generation = 0;  // bumps on every new desktop frame (the cursor is drawn live, apart)
         int width = 0;
         int height = 0;
         PointerState pointer;     // windows: never visible (the capture draws the cursor itself)

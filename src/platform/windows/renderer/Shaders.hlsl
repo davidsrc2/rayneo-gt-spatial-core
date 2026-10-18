@@ -89,6 +89,15 @@ float4 overlay_fragment(VOut i) : SV_Target {
     return source.Sample(samp, i.uv);
 }
 
+// The cursor drawn over a panel at the glasses' rate, on the panel's own mesh: `rect` is the
+// shape's place in the panel (0..1). Two passes, as above: colour (alpha blend), then XOR pixels.
+float4 cursor_fragment(VOut i) : SV_Target {
+    const float2 c = (i.uv - rect.xy) / (rect.zw - rect.xy);
+    if (any(c < 0.0) || any(c > 1.0)) discard;
+    const float4 s = source.SampleLevel(samp, c, 0);
+    return float4(s.rgb * brightness, s.a);
+}
+
 // ---------------------------------------------------------------------------------------
 // AI 3D (cinema): a 2D video seen in depth, as in Shaders.metal. Each eye samples the frame
 // shifted by a parallax taken from its depth map (0 far .. 1 near).

@@ -139,12 +139,10 @@ void DesktopDuplication::run() {
             pointer_.visible = info.PointerPosition.Visible != FALSE;
             pointer_.x = info.PointerPosition.Position.x;
             pointer_.y = info.PointerPosition.Position.y;
-            changed = true;
         }
-        if (info.PointerShapeBufferSize > 0) {
-            read_shape(info);
-            changed = true;
-        }
+        // The renderer draws the cursor itself at the glasses' rate (GetCursorPos): a move or a
+        // new shape is not a new desktop frame to copy and mipmap.
+        if (info.PointerShapeBufferSize > 0) read_shape(info);
         dup_->ReleaseFrame();
         if (changed) generation_.fetch_add(1, std::memory_order_acq_rel);
     }
@@ -160,6 +158,8 @@ void DesktopDuplication::read_shape(const DXGI_OUTDUPL_FRAME_INFO& info) {
     const bool mono = si.Type == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME;
     s.width = static_cast<int>(si.Width);
     s.height = static_cast<int>(mono ? si.Height / 2 : si.Height);
+    s.hot_x = si.HotSpot.x;
+    s.hot_y = si.HotSpot.y;
     s.color.assign(static_cast<size_t>(s.width) * s.height, 0);
     s.invert.assign(s.color.size(), 0);
     const uint8_t* buf = shape_buffer_.data();

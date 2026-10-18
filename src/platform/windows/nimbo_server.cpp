@@ -450,6 +450,9 @@ private:
     const win::OutputInfo* find_output(const std::wstring& gdi_name) const;
     void refresh_rects();
     void follow_gaze(uint64_t now);
+    // The cursor over the monitor panels, read just before each frame (floating windows'
+    // captures draw their own).
+    void update_cursor();
     // Glasses' pinned mode: the panel looked at for 0.6 s (or the mouse taken to) fills their
     // image, as on macOS.
     void update_grow(uint64_t now);
@@ -1163,6 +1166,7 @@ bool Server::frame() {
         if (ms >= 2) Sleep(static_cast<DWORD>(ms - 1));  // 1 ms timer resolution (timeBeginPeriod)
         while (steady_ns() < wake) YieldProcessor();
     }
+    update_cursor();
     const auto p = pose_->latest();
     float prediction = 0;
     if (!p) {
@@ -2112,6 +2116,17 @@ void Server::follow_gaze(uint64_t now) {
         }
     }
     warp(to, rx, ry);
+}
+
+void Server::update_cursor() {
+    CURSORINFO ci{sizeof(ci)};
+    const bool showing = GetCursorInfo(&ci) && (ci.flags & CURSOR_SHOWING) != 0;
+    const POINT c = ci.ptScreenPos;
+    const int n = std::min(monitor_panels_, static_cast<int>(panel_rects_.size()));
+    for (int i = 0; i < n; ++i) {
+        const RECT& r = panel_rects_[static_cast<size_t>(i)];
+        renderer_.set_cursor(i, showing && PtInRect(&r, c) != FALSE, c.x - r.left, c.y - r.top);
+    }
 }
 
 void Server::adjust_fov(float delta) {

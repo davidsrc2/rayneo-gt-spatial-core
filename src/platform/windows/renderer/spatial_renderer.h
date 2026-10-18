@@ -79,6 +79,9 @@ public:
     void set_overlay_text(const std::wstring& text);
     // The capture feeding a panel (not owned; must outlive the renderer's use).
     void set_source(int panel, FrameSource* source);
+    // The cursor over a panel, where GetCursorPos puts it now (hotspot, in the panel's pixels):
+    // drawn every frame, not baked into the capture, so it moves at the glasses' rate.
+    void set_cursor(int panel, bool visible, int x, int y);
     // AI 3D (not owned; must outlive the renderer's use).
     void set_depth_engine(DepthEngine* engine) { depth_ = engine; }
     struct DepthStats {
@@ -131,6 +134,9 @@ private:
         uint64_t shape_generation = 0;
         Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> cursor_color, cursor_invert;
         int cursor_w = 0, cursor_h = 0;
+        int cursor_hot_x = 0, cursor_hot_y = 0;
+        bool cursor_visible = false;
+        int cursor_x = 0, cursor_y = 0;  // hotspot, panel pixels
 
         Microsoft::WRL::ComPtr<ID3D11Buffer> vertices, indices;
         UINT index_count = 0;
@@ -145,9 +151,11 @@ private:
     std::vector<core::PanelPlacement> placements(float aspect) const;
     void rebuild_mesh(Panel& p, const core::PanelPlacement& pl);
     void compose(Panel& p);
-    // compose in two steps: the frame copied into the composite, then the cursor and mipmaps.
+    // compose in two steps: the frame copied into the composite, then its mipmaps.
     bool compose_copy(Panel& p, ID3D11Texture2D* frame, int width, int height);
-    void compose_finish(Panel& p, const PointerState& pointer);
+    void compose_finish(Panel& p);
+    void update_cursor_shape(Panel& p);
+    void draw_cursor(const Panel& p, ID3D11PixelShader* panel_ps);
 
     // AI 3D. A frame of the depth panel goes: copied into a slot (with its pointer), shrunk on
     // the GPU and read back without waiting (Reading), handed to the engine (Inferring; while it
@@ -181,7 +189,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> ctx_;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> screen_vs_, fullscreen_vs_, overlay_vs_;
-    Microsoft::WRL::ComPtr<ID3D11PixelShader> screen_ps_, distort_ps_, overlay_ps_;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> screen_ps_, distort_ps_, overlay_ps_, cursor_ps_;
+    uint64_t cursor_generation_ = 0;  // bumps when a drawn cursor moves, shows, hides or changes shape
     Microsoft::WRL::ComPtr<ID3D11PixelShader> stereo_ps_, depth_blend_ps_, downscale_ps_;
     Microsoft::WRL::ComPtr<ID3D11Buffer> stereo_cb_, depth_blend_cb_;
     Microsoft::WRL::ComPtr<ID3D11SamplerState> depth_sampler_;

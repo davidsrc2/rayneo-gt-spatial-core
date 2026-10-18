@@ -123,6 +123,8 @@ bool SpatialRenderer::init(ID3D11Device* device, std::string* error) {
     device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &distort_ps_);
     if (!compile("overlay_fragment", "ps_4_0", &ps, error)) return false;
     device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &overlay_ps_);
+    if (!compile("cursor_fragment", "ps_4_0", &ps, error)) return false;
+    device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &cursor_ps_);
     if (!compile("stereo_screen_fragment", "ps_4_0", &ps, error)) return false;
     device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &stereo_ps_);
     if (!compile("depth_blend_fragment", "ps_4_0", &ps, error)) return false;
@@ -206,6 +208,17 @@ bool SpatialRenderer::init(ID3D11Device* device, std::string* error) {
 }
 
 void SpatialRenderer::set_panel_count(int count) { count_ = std::clamp(count, 1, kMaxPanels); }
+
+void SpatialRenderer::set_cursor(int panel, bool visible, int x, int y) {
+    if (panel < 0 || panel >= kMaxPanels) return;
+    Panel& p = panels_[panel];
+    if (!visible && !p.cursor_visible) return;
+    if (visible == p.cursor_visible && x == p.cursor_x && y == p.cursor_y) return;
+    p.cursor_visible = visible;
+    p.cursor_x = x;
+    p.cursor_y = y;
+    cursor_generation_ += 1;
+}
 
 void SpatialRenderer::set_source(int panel, FrameSource* source) {
     if (panel < 0 || panel >= kMaxPanels) return;
@@ -464,7 +477,7 @@ bool SpatialRenderer::can_skip_frame(const core::Quat& orientation, const core::
     core::FrameSkipper::Input in;
     in.orientation = options.static_head ? core::Quat{} : orientation;
     in.angular_speed_rads = options.static_head ? 0.0f : angular_velocity.norm();
-    in.source_generation = generation + overlay_generation_ + depth_generation_ + grow_generation_;
+    in.source_generation = generation + overlay_generation_ + depth_generation_ + grow_generation_ + cursor_generation_;
     in.tracking = tracking;
     const bool moving_background = background_ps_ && (options.background == 1 || options.background == 2 || options.background == 4);
     in.animating = dimmer_.animating() || depth_pending() || grow_animating() || moving_background;  // depth on its way, a pan / zoom, rain
@@ -519,7 +532,7 @@ void SpatialRenderer::compose(Panel& p) {
     f.mutex->ReleaseSync(0);
     if (!copied) return;
     p.composed_generation = f.generation;
-    compose_finish(p, f.pointer);
+    compose_finish(p);
 }
 
 bool SpatialRenderer::compose_copy(Panel& p, ID3D11Texture2D* frame, int width, int height) {
@@ -555,46 +568,45 @@ bool SpatialRenderer::compose_copy(Panel& p, ID3D11Texture2D* frame, int width, 
     return true;
 }
 
-void SpatialRenderer::compose_finish(Panel& p, const PointerState& pointer) {
+void SpatialRenderer::compose_finish(Panel& p) { ctx_->GenerateMips(p.composite_srv.Get()); }
+
+// The capture's pointer shape (Desktop Duplication hands it over apart), sRGB like the panels.
+void SpatialRenderer::update_cursor_shape(Panel& p) {
     PointerShape shape;
-    if (p.source->pointer_shape(p.shape_generation, &shape) && shape.width > 0 && shape.height > 0) {
-        p.shape_generation = shape.generation;
-        p.cursor_w = shape.width;
-        p.cursor_h = shape.height;
-        p.cursor_color = image(device_.Get(), shape.width, shape.height, shape.color.data(), DXGI_FORMAT_B8G8R8A8_UNORM);
-        const bool inverts = std::any_of(shape.invert.begin(), shape.invert.end(), [](uint32_t v) { return v != 0; });
-        p.cursor_invert = inverts ? image(device_.Get(), shape.width, shape.height, shape.invert.data(),
-                                          DXGI_FORMAT_B8G8R8A8_UNORM)
-                                  : nullptr;
+    if (p.source == nullptr || !p.source->pointer_shape(p.shape_generation, &shape) || shape.width <= 0 ||
+        shape.height <= 0) {
+        return;
     }
-    if (pointer.visible && p.cursor_color && p.composite_rtv) {
-        const OverlayUniforms ou{{static_cast<float>(pointer.x) / p.width, static_cast<float>(pointer.y) / p.height,
-                                  static_cast<float>(pointer.x + p.cursor_w) / p.width,
-                                  static_cast<float>(pointer.y + p.cursor_h) / p.height}};
-        ctx_->UpdateSubresource(overlay_cb_.Get(), 0, nullptr, &ou, 0, 0);
-        ID3D11RenderTargetView* rtv = p.composite_rtv.Get();
-        ctx_->OMSetRenderTargets(1, &rtv, nullptr);
-        const D3D11_VIEWPORT vp{0, 0, static_cast<float>(p.width), static_cast<float>(p.height), 0, 1};
-        ctx_->RSSetViewports(1, &vp);
-        ctx_->RSSetState(raster_.Get());
-        ctx_->IASetInputLayout(nullptr);
-        ctx_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-        ctx_->VSSetShader(overlay_vs_.Get(), nullptr, 0);
-        ctx_->VSSetConstantBuffers(3, 1, overlay_cb_.GetAddressOf());
-        ctx_->PSSetShader(overlay_ps_.Get(), nullptr, 0);
-        ctx_->PSSetSamplers(0, 1, sampler_.GetAddressOf());
-        ctx_->OMSetBlendState(blend_alpha_.Get(), nullptr, 0xFFFFFFFF);
-        ctx_->PSSetShaderResources(0, 1, p.cursor_color.GetAddressOf());
-        ctx_->Draw(4, 0);
-        if (p.cursor_invert) {
-            ctx_->OMSetBlendState(blend_invert_.Get(), nullptr, 0xFFFFFFFF);
-            ctx_->PSSetShaderResources(0, 1, p.cursor_invert.GetAddressOf());
-            ctx_->Draw(4, 0);
-        }
-        ctx_->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
-        ctx_->OMSetRenderTargets(0, nullptr, nullptr);
+    p.shape_generation = shape.generation;
+    p.cursor_w = shape.width;
+    p.cursor_h = shape.height;
+    p.cursor_hot_x = shape.hot_x;
+    p.cursor_hot_y = shape.hot_y;
+    p.cursor_color = image(device_.Get(), shape.width, shape.height, shape.color.data(), DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+    const bool inverts = std::any_of(shape.invert.begin(), shape.invert.end(), [](uint32_t v) { return v != 0; });
+    p.cursor_invert =
+        inverts ? image(device_.Get(), shape.width, shape.height, shape.invert.data(), DXGI_FORMAT_B8G8R8A8_UNORM) : nullptr;
+    if (p.cursor_visible) cursor_generation_ += 1;
+}
+
+// Over the panel just drawn (its mesh and PanelUniforms still bound).
+void SpatialRenderer::draw_cursor(const Panel& p, ID3D11PixelShader* panel_ps) {
+    if (!p.cursor_visible || !p.cursor_color || p.width <= 0 || p.height <= 0) return;
+    const float x0 = static_cast<float>(p.cursor_x - p.cursor_hot_x), y0 = static_cast<float>(p.cursor_y - p.cursor_hot_y);
+    const OverlayUniforms ou{{x0 / p.width, y0 / p.height, (x0 + p.cursor_w) / p.width, (y0 + p.cursor_h) / p.height}};
+    ctx_->UpdateSubresource(overlay_cb_.Get(), 0, nullptr, &ou, 0, 0);
+    ctx_->PSSetConstantBuffers(3, 1, overlay_cb_.GetAddressOf());
+    ctx_->PSSetShader(cursor_ps_.Get(), nullptr, 0);
+    ctx_->OMSetBlendState(blend_alpha_.Get(), nullptr, 0xFFFFFFFF);
+    ctx_->PSSetShaderResources(0, 1, p.cursor_color.GetAddressOf());
+    ctx_->DrawIndexed(p.index_count, 0, 0);
+    if (p.cursor_invert) {
+        ctx_->OMSetBlendState(blend_invert_.Get(), nullptr, 0xFFFFFFFF);
+        ctx_->PSSetShaderResources(0, 1, p.cursor_invert.GetAddressOf());
+        ctx_->DrawIndexed(p.index_count, 0, 0);
     }
-    ctx_->GenerateMips(p.composite_srv.Get());
+    ctx_->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    ctx_->PSSetShader(panel_ps, nullptr, 0);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -801,7 +813,7 @@ void SpatialRenderer::depth_frame(Panel& p) {
             if (s.state != DepthSlot::State::Inferring || s.seq != out.seq) continue;
             blend_depth(out);
             for (int k = 0; k < 4; ++k) depth_video_[k] = out.video[k];
-            if (compose_copy(p, s.color.Get(), s.width, s.height)) compose_finish(p, s.pointer);
+            if (compose_copy(p, s.color.Get(), s.width, s.height)) compose_finish(p);
             s.state = DepthSlot::State::Free;
             depth_generation_ += 1;
             depth_stats_.shown += 1;
@@ -912,6 +924,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         } else {
             compose(panels_[i]);
         }
+        update_cursor_shape(panels_[i]);
     }
     // One layout for all panels (they share a size); per-panel aspect only shapes its mesh.
     const auto pls = placements(panels_[0].aspect);
@@ -1029,6 +1042,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
                 ctx_->PSSetShaderResources(1, 1, &none);
                 ctx_->PSSetShader(panel_ps, nullptr, 0);
             }
+            draw_cursor(p, panel_ps);
         }
         if (overlay_ && overlay_vertices_) {
             ctx_->PSSetShader(screen_ps_.Get(), nullptr, 0);
