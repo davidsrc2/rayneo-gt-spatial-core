@@ -55,5 +55,8 @@ deadline) tells the two apart.
 Measured on the reference recording (see the commit history, phase 3): the late state starts
 after seconds of drawing every refresh (head turning, no idle frames) and ends at the first
 idle frames; while in it the GPU ends 0.5-2 ms after the display link's `targetTimestamp`
-(which is not WindowServer's real cutoff: on-time runs end 2 ms after it too). With
-supersample 1 the GPU takes 0.5 ms instead of ~2 and the state did not appear.
+(which is not WindowServer's real cutoff: on-time runs end 2 ms after it too). The GPU's mean
+time per frame is ~1.1 ms with supersample 2 (the "~2 ms" first quoted was one frame a second)
+and its wait from the commit 0.7-0.8 ms, the same in on-time and late seconds: neither tells the
+late state apart. Drawing on for 0.5 s after the head stops cut the switches between the two
+states 113 -> 10 in a replay where it appeared. Windows: [WINDOWS_PRESENT.md](WINDOWS_PRESENT.md).

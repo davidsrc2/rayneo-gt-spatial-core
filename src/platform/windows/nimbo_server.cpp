@@ -398,6 +398,10 @@ struct LatencyStats {
     // As on macOS: frames shown a refresh (or more) after their target, split by the head moving
     // or still when drawn; the scanout rhythm; the pose read to vsync as applied (late latching).
     int missed = 0, missed_moving = 0, missed_still = 0, missed_latch = 0;
+    int late_switches = 0;          // on time <-> a refresh late (each one a step of the panels)
+    int gpu_n = 0;
+    double gpu_sum = 0;             // GPU time per frame (ms, timestamp queries)
+    int composed = 0, overlay = 0, not_composed = 0, failed = 0;  // DXGI_FRAME_PRESENTATION_MODE of the stats read
     double cpu_sum = 0, cpu_max = 0;  // wake-up to Present (ms)
     int interval_n = 0;
     double interval_sum = 0, interval_sq = 0, interval_max = 0;  // ms
@@ -590,8 +594,23 @@ private:
     struct Sent {
         uint64_t sample_ns = 0, target_ns = 0;
         bool still = false;
-        float cpu_ms = 0;  // wake-up (pose read) to Present returning
+        float cpu_ms = 0;   // wake-up (pose read) to Present returning
+        float gpu_ms = -1;  // its GPU time once the queries are read back (-1: not yet)
     };
+    // GPU time per frame: timestamp queries around the frame's draws, read back a few frames
+    // later without waiting on the GPU.
+    struct GpuQuery {
+        ComPtr<ID3D11Query> disjoint, begin, end;
+        UINT present = 0;
+        bool pending = false;
+    };
+    GpuQuery gpu_q_[4];
+    int gpu_q_next_ = 0;
+    bool gpu_q_ok_ = false;
+    void collect_gpu_times();
+    ComPtr<IDXGISwapChainMedia> swap_media_;  // how each frame was presented (composed or not)
+    bool last_late_ = false;
+    uint64_t last_motion_ns_ = 0;  // the last frame drawn with the head moving
     uint64_t last_shown_ns_ = 0;  // scanout of the last frame statistics collected
     UINT last_shown_count_ = 0;
     core::Quat last_predicted_{};
@@ -1115,6 +1134,20 @@ bool Server::create_swap_chain() {
     factory->MakeWindowAssociation(hwnd_, DXGI_MWA_NO_ALT_ENTER);
     swap_chain_->SetMaximumFrameLatency(1);
     waitable_ = swap_chain_->GetFrameLatencyWaitableObject();
+    swap_media_.Reset();
+    if (FAILED(swap_chain_.As(&swap_media_))) logln("surface: presentation mode not reported (no IDXGISwapChainMedia)");
+    if (!gpu_q_ok_) {
+        gpu_q_ok_ = true;
+        D3D11_QUERY_DESC qd{};
+        for (auto& q : gpu_q_) {
+            qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+            gpu_q_ok_ = gpu_q_ok_ && SUCCEEDED(device_->CreateQuery(&qd, &q.disjoint));
+            qd.Query = D3D11_QUERY_TIMESTAMP;
+            gpu_q_ok_ = gpu_q_ok_ && SUCCEEDED(device_->CreateQuery(&qd, &q.begin)) &&
+                        SUCCEEDED(device_->CreateQuery(&qd, &q.end));
+        }
+        if (!gpu_q_ok_) logln("gpu: timestamp queries unavailable (no GPU time per frame)");
+    }
     swap_chain_->GetContainingOutput(&vblank_output_);
     logln("surface: %dx%d px, flip model, target %d Hz", width_, height_, refresh_hz_);
     return create_back_buffer_view();
@@ -1146,6 +1179,25 @@ uint64_t Server::estimate_vsync(uint64_t now) {
     return now + static_cast<uint64_t>(period);
 }
 
+void Server::collect_gpu_times() {
+    for (auto& q : gpu_q_) {
+        if (!q.pending) continue;
+        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj{};
+        if (ctx_->GetData(q.disjoint.Get(), &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) continue;
+        UINT64 t0 = 0, t1 = 0;
+        if (ctx_->GetData(q.begin.Get(), &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
+            ctx_->GetData(q.end.Get(), &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+            continue;
+        }
+        q.pending = false;
+        if (dj.Disjoint || dj.Frequency == 0 || t1 < t0) continue;  // clock changed: no reading
+        const double ms = static_cast<double>(t1 - t0) * 1000.0 / static_cast<double>(dj.Frequency);
+        sent_[q.present % 128].gpu_ms = static_cast<float>(ms);
+        stats_.gpu_sum += ms;
+        stats_.gpu_n += 1;
+    }
+}
+
 void Server::collect_presented() {
     DXGI_FRAME_STATISTICS fs{};
     if (FAILED(swap_chain_->GetFrameStatistics(&fs)) || fs.PresentCount == last_stats_present_ ||
@@ -1153,6 +1205,16 @@ void Server::collect_presented() {
         return;
     }
     last_stats_present_ = fs.PresentCount;
+    // Composed by DWM or flipped straight to the display (RealWarp checks Independent_Flip).
+    DXGI_FRAME_STATISTICS_MEDIA fm{};
+    if (swap_media_ && SUCCEEDED(swap_media_->GetFrameStatisticsMedia(&fm))) {
+        switch (fm.CompositionMode) {
+        case DXGI_FRAME_PRESENTATION_MODE_COMPOSED: stats_.composed += 1; break;
+        case DXGI_FRAME_PRESENTATION_MODE_OVERLAY: stats_.overlay += 1; break;
+        case DXGI_FRAME_PRESENTATION_MODE_NONE: stats_.not_composed += 1; break;
+        default: stats_.failed += 1; break;
+        }
+    }
     const Sent& s = sent_[fs.PresentCount % 128];
     if (s.sample_ns == 0) return;
     const uint64_t shown = qpc_.to_steady(fs.SyncQPCTime.QuadPart);
@@ -1179,19 +1241,24 @@ void Server::collect_presented() {
     }
     last_shown_ns_ = shown;
     last_shown_count_ = fs.PresentCount;
-    // Late latching: a refresh missed because the frame's CPU work ran past the margin reads
-    // the pose earlier from now on (a refresh lost to the compositor does not); a long run on
-    // time narrows the margin again.
+    // Late latching: a refresh missed because the frame's work (CPU to Present, then its GPU
+    // time when read back; as macOS, which uses the GPU's end) ran past the margin reads the
+    // pose earlier from now on (a refresh lost to the compositor does not); a long run on time
+    // narrows the margin again.
     const float period = 1000.0f / static_cast<float>(std::max(1, refresh_hz_));
     const bool missed = late > 0.5 * period;
-    if (missed && core::latch_caused_miss(latch_, s.cpu_ms)) stats_.missed_latch += 1;
-    latch_ = core::latch_presented(latch_, missed, s.cpu_ms, period);
+    if (missed != last_late_) stats_.late_switches += 1;
+    last_late_ = missed;
+    const float work = s.cpu_ms + std::max(0.0f, s.gpu_ms);
+    if (missed && core::latch_caused_miss(latch_, work)) stats_.missed_latch += 1;
+    latch_ = core::latch_presented(latch_, missed, work, period);
     // Followed within a few frames, as on macOS (late in streaks: at 0.03 half a streak went by first).
     present_late_ms_ += (std::clamp(late, -10.0, 40.0) - present_late_ms_) * 0.15;
 }
 
 // Renders and presents one frame. False when it was skipped (nothing changed).
 bool Server::frame() {
+    collect_gpu_times();
     collect_presented();
     const uint64_t now = steady_ns();
     // Predicted for when the frame really reaches the glasses (vsync + measured lateness);
@@ -1220,6 +1287,7 @@ bool Server::frame() {
     const uint64_t read_ns = steady_ns();
     const auto p = pose_->latest();
     float prediction = 0;
+    GpuQuery* timed = nullptr;
     if (!p) {
         renderer_.invalidate_skipped_frame();
         renderer_.render(back_rtv_.Get(), width_, height_, core::Quat{}, core::Vec3{}, 0, 0);
@@ -1227,15 +1295,29 @@ bool Server::frame() {
         const bool forced = redraw_;
         redraw_ = false;
         stats_.tracking = p->tracking;
-        if (renderer_.can_skip_frame(p->orientation, p->angular_velocity, p->tracking, forced)) {
+        // As macOS: frames drawn on for 0.5 s after the head stops (fewer on-time <-> late switches).
+        const uint64_t t = steady_ns();
+        if (p->angular_velocity.norm() >= 0.0175f) last_motion_ns_ = t;
+        if (t - std::min(t, last_motion_ns_) < 500000000ull) {
+            renderer_.invalidate_skipped_frame();
+        } else if (renderer_.can_skip_frame(p->orientation, p->angular_velocity, p->tracking, forced)) {
             stats_.idle += 1;
             return false;
         }
         renderer_.options.present_late_ms = static_cast<float>(present_late_ms_);  // the fixed prediction follows it too
         renderer_.options.frame_period_ms = 1000.0f / static_cast<float>(std::max(1, refresh_hz_));
         renderer_.options.sample_age_ms = read_ns > p->host_ns ? static_cast<float>(read_ns - p->host_ns) / 1e6f : 0.0f;
+        timed = gpu_q_ok_ && !gpu_q_[gpu_q_next_].pending ? &gpu_q_[gpu_q_next_] : nullptr;
+        if (timed) {
+            ctx_->Begin(timed->disjoint.Get());
+            ctx_->End(timed->begin.Get());
+        }
         prediction = renderer_.render(back_rtv_.Get(), width_, height_, p->orientation, p->angular_velocity,
                                       p->host_ns, target);
+        if (timed) {
+            ctx_->End(timed->end.Get());
+            ctx_->End(timed->disjoint.Get());
+        }
     }
     const HRESULT hr = swap_chain_->Present(1, 0);
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
@@ -1246,7 +1328,14 @@ bool Server::frame() {
     UINT id = 0;
     const bool still = p && p->angular_velocity.norm() < 0.0175f;
     const float cpu_ms = static_cast<float>(steady_ns() - read_ns) / 1e6f;
-    if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) sent_[id % 128] = {p->host_ns, vsync, still, cpu_ms};
+    if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) {
+        sent_[id % 128] = {p->host_ns, vsync, still, cpu_ms, -1.0f};
+        if (timed) {
+            timed->present = id;
+            timed->pending = true;
+            gpu_q_next_ = (gpu_q_next_ + 1) % 4;
+        }
+    }
     if (p) {
         // Still head: how much the drawn pose changes frame to frame (the panels' wobble).
         if (p->angular_velocity.norm() < 0.0175f && have_last_drawn_) {
@@ -1423,18 +1512,29 @@ void Server::periodic() {
         std::snprintf(buf, sizeof(buf), " | moving jitter %.3f deg", std::sqrt(s.moving_sq / s.moving_n));
         wobble += buf;
     }
+    // GPU time and how the frames were presented ("direct": DXGI_FRAME_PRESENTATION_MODE_NONE,
+    // not composed by DWM; see docs/WINDOWS_PRESENT.md).
+    std::string present;
+    {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), " | gpu %.1f ms | present composed %d, overlay %d, direct %d%s",
+                      s.gpu_n > 0 ? s.gpu_sum / s.gpu_n : 0.0, s.composed, s.overlay, s.not_composed,
+                      s.failed > 0 ? (", failed " + std::to_string(s.failed)).c_str() : "");
+        present = buf;
+    }
     const double in_n = std::max(1, s.interval_n);
     const double in_mean = s.interval_sum / in_n;
     const double in_std = std::sqrt(std::max(0.0, s.interval_sq / in_n - in_mean * in_mean));
     // Same fields and order as macOS (scripts/log_stats.py reads both).
     logln("%s render %3d fps%s | capture %3llu fps (%zu src) | pose age %.1f/%.1f ms | sample->scanout %.1f/%.1f ms"
         " | predicted %.1f ms (late %.1f) | frame interval %.1f+-%.1f max %.1f ms | missed %d (moving %d, still %d,"
-        " latch %d) | latch %.1f ms (applied %.1f, cpu %.1f/%.1f)%s%s",
+        " latch %d, switches %d) | latch %.1f ms (applied %.1f, cpu %.1f/%.1f)%s%s%s",
         s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? (" (" + std::to_string(s.idle) + " idle)").c_str() : "",
         static_cast<unsigned long long>(cap_fps), captures_.size(), s.pose_age_sum / n, s.pose_age_max, s.presented_sum / pn,
         s.presented_max, s.pred_sum / n, s.target_err_sum / pn, in_mean, in_std, s.interval_max, s.missed, s.missed_moving,
-        s.missed_still, s.missed_latch, static_cast<double>(latch_.margin_ms), s.latch_n > 0 ? s.latch_sum / s.latch_n : 0.0,
-        s.latch_n > 0 ? s.cpu_sum / s.latch_n : 0.0, s.cpu_max, imu.c_str(), wobble.c_str());
+        s.missed_still, s.missed_latch, s.late_switches, static_cast<double>(latch_.margin_ms),
+        s.latch_n > 0 ? s.latch_sum / s.latch_n : 0.0, s.latch_n > 0 ? s.cpu_sum / s.latch_n : 0.0, s.cpu_max, imu.c_str(),
+        wobble.c_str(), present.c_str());
     if (renderer_.options.depth_panel >= 0) {
         if (depth_.state() == win::DepthEngine::State::Failed) {
             if (!depth_failed_logged_) logln("3d: unavailable (%s); the panel stays flat", depth_.error().c_str());
@@ -2457,6 +2557,9 @@ void Server::on_hotkey(int id) {
 }
 
 void Server::run() {
+    // The frame loop above the app's other threads, as the IMU threads (late latching wakes it
+    // a millisecond or two before the vsync: it must get the CPU then).
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
     bool presented = true;
     while (!quit_.load()) {
         if (presented) {
