@@ -373,6 +373,10 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
 endif()
 
 if(RAYNEO_BUILD_APPS)
+  # Offline prediction quality on an IMU recording (core only).
+  add_executable(replay_eval apps/replay_eval/main.cpp)
+  target_link_libraries(replay_eval PRIVATE rayneo::core)
+  rayneo_warnings(replay_eval)
   add_executable(imu_probe apps/imu_probe/main.cpp)
   target_link_libraries(imu_probe PRIVATE rayneo::engine)
   rayneo_warnings(imu_probe)

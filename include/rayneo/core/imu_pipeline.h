@@ -54,6 +54,12 @@ struct ImuPipelineConfig {
     float startup_beta_end_s = 6.0f;
 };
 
+// The space at real size (fixed in the room), on top of `base`: stationary lock locked by VQF's
+// rest detection, orientation and gyro bias from Vqf6D, body-frame relative pose on a level
+// reference, tracking held until the start-up bias settles. The engine and the replay tools
+// use this one definition.
+ImuPipelineConfig real_size_pipeline_config(ImuPipelineConfig base = {});
+
 // Madgwick gain for panels fixed in the room. The default 0.033 takes the accelerometer's
 // word quickly, and breathing or a millimetre of body sway reads as tilt: simulated, the
 // panels rocked 0.44 deg rms (0.76 max) with the head still; 0.01 trusts the gyro more,

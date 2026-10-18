@@ -217,12 +217,7 @@ rayneo_engine* rayneo_engine_create(const rayneo_config* cfg) {
             // damping, knock rejection and lag compensation of earlier builds).
             // Orientation from Vqf6D (gyro heading, gentle gravity tilt correction, gyro bias by
             // Kalman at rest from the temperature map); its rest detection is the lock ("bias gate").
-            e->cfg.stabilizer = rayneo::core::stationary_lock_stabilizer();
-            e->cfg.stabilizer.lock_on_rest = true;
-            e->cfg.use_vqf = true;
-            e->cfg.body_frame_relative = true;  // exact on both axes whatever the posture at the recenter
-            e->cfg.level_reference = true;      // the room's vertical is "up": panels on the horizon, level
-            e->cfg.hold_until_bias_settles = true;  // no start with a rough gyro bias (yaw drift)
+            e->cfg = rayneo::core::real_size_pipeline_config(e->cfg);
         }
     }
     return e;

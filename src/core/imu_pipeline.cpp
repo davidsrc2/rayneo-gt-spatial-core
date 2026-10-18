@@ -42,6 +42,16 @@ void ImuPipeline::reset() {
     stabilizer_.reset();
 }
 
+ImuPipelineConfig real_size_pipeline_config(ImuPipelineConfig c) {
+    c.stabilizer = stationary_lock_stabilizer();
+    c.stabilizer.lock_on_rest = true;
+    c.use_vqf = true;
+    c.body_frame_relative = true;  // exact on both axes whatever the posture at the recenter
+    c.level_reference = true;      // the room's vertical is "up": panels on the horizon, level
+    c.hold_until_bias_settles = true;  // no start with a rough gyro bias (yaw drift)
+    return c;
+}
+
 Quat level_head(const Quat& head) {
     const Vec3 f = head.rotate({1.0f, 0.0f, 0.0f});
     const float yaw = std::atan2(f.y, f.x);
