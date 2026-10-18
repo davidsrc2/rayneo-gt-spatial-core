@@ -78,7 +78,7 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
             attitude_s_ = 0.0f;
         } else if (dt > 0.0f && dt < cfg_.bias.gap_reset_s) {
             vqf_.update(s.gyro_degs * kDegToRad, s.accel_mps2, dt);
-            if (vqf_.rest()) bias_map_.learn(s.temp_c, vqf_.bias_degs(), dt);
+            if (vqf_.rest() && vqf_.settled()) bias_map_.learn(s.temp_c, vqf_.bias_degs(), dt);
         }
         gyro_corr_degs = s.gyro_degs - vqf_.bias_degs();
         stabilizer_.set_rest(vqf_.rest());

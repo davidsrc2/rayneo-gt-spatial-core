@@ -20,6 +20,7 @@
 
 - (simd_quatf)orientation { return simd_quaternion(_p.qx, _p.qy, _p.qz, _p.qw); }
 - (simd_float3)angularVelocity { return simd_make_float3(_p.wx, _p.wy, _p.wz); }
+- (simd_float3)gyroBias { return simd_make_float3(_p.bias_x, _p.bias_y, _p.bias_z); }
 - (uint64_t)hostTimeNs { return _p.host_time_ns; }
 - (float)yawDegrees { return _p.yaw_deg; }
 - (float)pitchDegrees { return _p.pitch_deg; }

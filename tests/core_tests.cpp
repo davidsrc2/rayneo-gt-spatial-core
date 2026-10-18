@@ -1238,9 +1238,16 @@ void test_vqf() {
     f.initialize_from_accel({0, 0, 9.81f});
     f.set_bias({0, 0, 0});
     const Vec3 bias_degs{0.4f, -0.3f, 0.2f};
-    for (int i = 0; i < 457 * 20; ++i) f.update(bias_degs * d2r, {0, 0, 9.81f}, dt);
+    for (int i = 0; i < 457 * 25; ++i) f.update(bias_degs * d2r, {0, 0, 9.81f}, dt);
     CHECK(f.rest());
     CHECK((f.bias_degs() - bias_degs).norm() < 0.03f);
+    // Settled, a slow head drift at rest (0.6 deg/s off the bias) is motion, not bias.
+    Vqf6D h;
+    h.initialize_from_accel({0, 0, 9.81f});
+    for (int i = 0; i < 457 * 35; ++i) h.update({0, 0, 0}, {0, 0, 9.81f}, dt);
+    CHECK(h.settled());
+    for (int i = 0; i < 457 * 5; ++i) h.update(Vec3{0, 0, 0.6f} * d2r, {0, 0, 9.81f}, dt);
+    CHECK(h.bias_degs().norm() < 0.01f);
     const Quat before = f.quaternion();
     for (int i = 0; i < 457; ++i) f.update(Vec3{0, 0, 90 * d2r} + bias_degs * d2r, {0, 0, 9.81f}, dt);  // 1 s at 90 deg/s
     CHECK(std::fabs(angle_between_deg(f.quaternion(), before) - 90.0f) < 1.0f);
@@ -1258,7 +1265,9 @@ void test_bias_map() {
     BiasMap m;
     CHECK(m.empty() && !m.lookup(25.0f));
     for (int i = 0; i < 457 * 3; ++i) m.learn(24.0f, {0.2f, 0, 0}, kRefDt);
-    for (int i = 0; i < 457 * 3; ++i) m.learn(26.0f, {0.4f, 0, 0}, kRefDt);
+    CHECK(!m.lookup(24.0f));  // 3 s of rest: not trusted yet
+    for (int i = 0; i < 457 * 30; ++i) m.learn(24.0f, {0.2f, 0, 0}, kRefDt);
+    for (int i = 0; i < 457 * 30; ++i) m.learn(26.0f, {0.4f, 0, 0}, kRefDt);
     const auto mid = m.lookup(25.0f);
     CHECK(mid && near(mid->x, 0.3f, 0.01f));
     CHECK(!m.lookup(35.0f));  // too far from anything learned

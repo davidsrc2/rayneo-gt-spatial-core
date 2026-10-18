@@ -14,8 +14,11 @@ namespace rayneo::core {
 //    typing or a step never reaches the panels.
 //  - Rest detection: low-passed gyro under rest_gyro_degs and accelerometer within
 //    rest_acc_mps2 of its own low-pass for rest_min_s ("bias gate" locked).
-//  - Gyro bias: a 1D Kalman filter per axis fed by the low-passed gyro at rest, its
-//    uncertainty growing in motion, clipped to bias_clip_degs.
+//  - Gyro bias: at rest, the gyro averaged over bias_smooth_tau_s chased slowly (bias_tau_s;
+//    bias_tau_start_s for the first bias_start_s), and only while within bias_gate_degs of the
+//    current bias: a head that drifts slowly is moving, not biased. Clipped to bias_clip_degs.
+//    (Learning in ~0.1 s from the 0.1 s low-pass, the first version took slow head motion for
+//    bias, up to 0.7 deg/s off, and the panels drifted sideways on their own.)
 // Frame: sensor -> earth, earth Z up (as MadgwickFilter). Gyro in rad/s, accel in m/s^2.
 struct VqfConfig {
     float tau_acc_s = 3.0f;
@@ -23,9 +26,12 @@ struct VqfConfig {
     float rest_gyro_degs = 1.5f;
     float rest_acc_mps2 = 0.5f;
     float rest_min_s = 0.2f;
-    float bias_sigma_init_degs = 0.5f;
-    float bias_forgetting_s = 100.0f;  // the bias' uncertainty grows to sigma_init in this long
-    float bias_sigma_rest_degs = 0.03f;  // measurement noise of the low-passed gyro at rest
+    float bias_smooth_tau_s = 1.0f;
+    float bias_gate_degs = 0.3f;
+    float bias_gate_start_degs = 1.0f;  // the first bias_start_s: the starting bias may be rough
+    float bias_tau_s = 20.0f;
+    float bias_tau_start_s = 5.0f;
+    float bias_start_s = 30.0f;
     float bias_clip_degs = 2.0f;
 };
 
@@ -44,6 +50,8 @@ public:
 
     Quat quaternion() const { return (acc_q_ * gyr_q_).normalized(); }
     bool rest() const { return rest_; }
+    // Past the start phase: the bias has had time to settle (worth remembering per temperature).
+    bool settled() const { return elapsed_s_ >= cfg_.bias_start_s; }
     const Vec3& bias_degs() const { return bias_; }
 
 private:
@@ -55,7 +63,8 @@ private:
     float rest_s_ = 0.0f;
     bool rest_ = false;
     Vec3 bias_;                   // deg/s
-    float bias_p_[3] = {0, 0, 0};  // variance, (deg/s)^2
+    Vec3 gyr_slow_;               // gyro averaged over bias_smooth_tau_s
+    float elapsed_s_ = 0.0f;
 };
 
 }  // namespace rayneo::core

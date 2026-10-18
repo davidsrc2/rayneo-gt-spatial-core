@@ -45,6 +45,7 @@ final class ImuPoseSource: PoseSource {
     // The glasses' own display mode (0 follow, 1 pinned, 2 steady); pinned again = recentre its anchor.
     func setGlassesMode(_ mode: Int) { engine.setGlassesMode(mode) }
     func setGlassesBrightness(_ level: Int) { engine.setGlassesBrightness(level) }
+    var gyroBias: simd_float3? { engine.latestPose()?.gyroBias }
 
     func latest() -> PoseSample? {
         guard let p = engine.latestPose() else { return nil }

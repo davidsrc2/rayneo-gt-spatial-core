@@ -2082,6 +2082,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // matters more than the 8 ms. (A third did not miss fewer: the misses were the drawables,
     // two for two queued frames, not the queue.)
     private var frameLatency: Float = 1
+    private var biasLogSeconds = 0
     private var missingSeconds = 0
 
     private func adaptFrameLatency(_ s: LatencyStats) {
@@ -2196,6 +2197,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                    + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "")
                    + String(format: " | gpu %.1f ms", renderer.lastGPUMs) as NSString))
         adaptFrameLatency(s)
+        // Every 10 s: the gyro bias in use (a drift of the panels shows here as a bias that moves).
+        biasLogSeconds += 1
+        if biasLogSeconds >= 10, s.tracking, let b = (pose as? ImuPoseSource)?.gyroBias {
+            biasLogSeconds = 0
+            log(String(format: "imu: gyro bias %.3f %.3f %.3f deg/s", b.x, b.y, b.z))
+        }
         if depthPanel >= 0 {
             let d = depth3D.takeStats()
             let n = Double(max(1, d.frames))

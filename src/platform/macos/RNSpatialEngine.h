@@ -16,6 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) float rollDegrees;
 @property(nonatomic, readonly) uint64_t sequence;
 @property(nonatomic, readonly, getter=isTracking) BOOL tracking;
+@property(nonatomic, readonly) simd_float3 gyroBias;          // deg/s, sensor frame (diagnostics)
 @end
 
 @interface RNSpatialEngine : NSObject

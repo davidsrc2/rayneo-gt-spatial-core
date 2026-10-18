@@ -9,8 +9,10 @@
 namespace rayneo::core {
 namespace {
 
-constexpr float kLearnTauS = 5.0f;   // a bin follows the estimate at rest over this long
-constexpr float kWeightCapS = 60.0f;
+constexpr float kLearnTauS = 30.0f;  // a bin follows the estimate at rest over this long
+constexpr float kWeightCapS = 600.0f;
+constexpr float kUsableS = 20.0f;    // a bin is trusted after this much rest learned
+constexpr int kVersion = 2;          // version 1 learned from a bias that took head motion for drift
 
 }  // namespace
 
@@ -36,10 +38,10 @@ std::optional<Vec3> BiasMap::lookup(float temp_c, float max_gap_c) const {
     const int reach = static_cast<int>(std::lround(max_gap_c / kStepC));
     int lo = -1, hi = -1;
     for (int k = i; k >= std::max(0, i - reach); --k) {
-        if (bins_[static_cast<size_t>(k)].weight > 1.0f) { lo = k; break; }
+        if (bins_[static_cast<size_t>(k)].weight >= kUsableS) { lo = k; break; }
     }
     for (int k = i; k <= std::min(static_cast<int>(bins_.size()) - 1, i + reach); ++k) {
-        if (bins_[static_cast<size_t>(k)].weight > 1.0f) { hi = k; break; }
+        if (bins_[static_cast<size_t>(k)].weight >= kUsableS) { hi = k; break; }
     }
     if (lo < 0 && hi < 0) return std::nullopt;
     if (lo < 0) return bins_[static_cast<size_t>(hi)].bias;
@@ -51,12 +53,12 @@ std::optional<Vec3> BiasMap::lookup(float temp_c, float max_gap_c) const {
 }
 
 bool BiasMap::empty() const {
-    return std::none_of(bins_.begin(), bins_.end(), [](const Bin& b) { return b.weight > 1.0f; });
+    return std::none_of(bins_.begin(), bins_.end(), [](const Bin& b) { return b.weight >= kUsableS; });
 }
 
 // {"bins":[[temp, x, y, z, weight], ...]}: only the learned bins.
 std::string BiasMap::to_json() const {
-    std::string out = "{\"bins\":[";
+    std::string out = "{\"version\":" + std::to_string(kVersion) + ",\"bins\":[";
     bool first = true;
     char buf[160];
     for (size_t i = 0; i < bins_.size(); ++i) {
@@ -72,6 +74,8 @@ std::string BiasMap::to_json() const {
 
 std::optional<BiasMap> BiasMap::from_json(std::string_view json) {
     BiasMap m;
+    const size_t ver = json.find("\"version\":");
+    if (ver == std::string_view::npos || std::atoi(std::string(json.substr(ver + 10, 4)).c_str()) != kVersion) return std::nullopt;
     const size_t start = json.find('[');
     if (start == std::string_view::npos) return std::nullopt;
     std::string s(json.substr(start + 1));
