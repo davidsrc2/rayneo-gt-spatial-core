@@ -51,6 +51,15 @@ public:
     uint64_t reports_read() const { return reports_read_.load(std::memory_order_relaxed); }
     uint64_t reports_dropped() const { return reports_dropped_.load(std::memory_order_relaxed); }
 
+    // Stalls (core/stream_watchdog.h): no report for 0.5 s sends stream-on again, every 0.5 s
+    // while it lasts; its acknowledgements; stalls that ended, and how long the last one was.
+    uint64_t stream_resends() const { return resends_.load(std::memory_order_relaxed); }
+    uint64_t stream_acks() const { return acks_.load(std::memory_order_relaxed); }
+    uint64_t stalls_recovered() const { return recovered_.load(std::memory_order_relaxed); }
+    uint64_t last_stall_ns() const { return last_stall_ns_.load(std::memory_order_relaxed); }
+    // Test hook: stream-off now and no IMU report let through for this long (a stall).
+    void simulate_stall(uint64_t ns) { simulate_ns_.store(ns, std::memory_order_release); }
+
 private:
     bool send_command_verified(uint8_t cmd, int timeout_ms);
     void run();
@@ -62,6 +71,8 @@ private:
     std::atomic<int> pending_[16] = {};  // per opcode (0x00..0x0F): value, or -1 = none (set in the ctor)
     std::atomic<uint64_t> reports_read_{0};
     std::atomic<uint64_t> reports_dropped_{0};
+    std::atomic<uint64_t> resends_{0}, acks_{0}, recovered_{0}, last_stall_ns_{0};
+    std::atomic<uint64_t> simulate_ns_{0};
     Ring ring_;
 };
 

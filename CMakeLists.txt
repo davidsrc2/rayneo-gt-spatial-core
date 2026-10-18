@@ -77,6 +77,7 @@ add_library(rayneo_core STATIC
   src/core/imu_recording.cpp
   src/core/latch_controller.cpp
   src/core/bias_convergence.cpp
+  src/core/stream_watchdog.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
 target_include_directories(rayneo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

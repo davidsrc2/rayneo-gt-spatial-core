@@ -31,6 +31,7 @@ typedef struct {
     uint64_t host_time_ns;     /* std::chrono::steady_clock, see RNSpatialEngine.hostNowNs */
     uint64_t sequence;         /* increments per fused sample */
     bool tracking;
+    bool stale;                /* no sample for 0.5 s (stream stalled): w zeroed, the pose held */
 } rayneo_pose;
 
 /* Transport and device-clock health counters, cumulative since start. */
@@ -43,6 +44,10 @@ typedef struct {
     uint64_t irregular_ticks;    /* tick deltas off the 21-tick grid */
     uint64_t device_span_100us;  /* device time covered by imu_samples */
     double device_rate_hz;       /* imu_samples per device second */
+    uint64_t stream_resends;     /* stream-on sent again after 0.5 s without samples */
+    uint64_t stream_acks;        /* ... and acknowledged */
+    uint64_t stalls_recovered;   /* stalls that ended with samples again */
+    double last_stall_ms;        /* length of the last one */
 } rayneo_stats;
 
 typedef struct {
@@ -89,6 +94,9 @@ void rayneo_engine_set_record_path(rayneo_engine* e, const char* path);
 /* A recording played back in real time instead of the glasses' IMU (no HID device opened;
  * the bias map is read, not saved). Before start; empty: the glasses. */
 void rayneo_engine_set_replay_path(rayneo_engine* e, const char* path);
+
+/* Test hook: the IMU stream stops (stream-off) and no sample is let through for ms. */
+void rayneo_engine_simulate_stall(rayneo_engine* e, int ms);
 
 /* Last error message, valid until the next call on this engine. */
 const char* rayneo_engine_last_error(rayneo_engine* e);

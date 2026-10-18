@@ -6,6 +6,7 @@ struct PoseSample {
     var angularVelocity: simd_float3 // rad/s, same frame
     var hostTimeNs: UInt64           // RNSpatialEngine.hostNowNs clock
     var tracking: Bool
+    var stale = false                // no sample for 0.5 s (stream stalled): held, angular velocity zeroed
 }
 
 protocol PoseSource: AnyObject {
@@ -49,11 +50,18 @@ final class ImuPoseSource: PoseSource {
     func setGlassesMode(_ mode: Int) { engine.setGlassesMode(mode) }
     func setGlassesBrightness(_ level: Int) { engine.setGlassesBrightness(level) }
     var gyroBias: simd_float3? { engine.latestPose()?.gyroBias }
+    // Stream stalls so far: stream-on resent / acknowledged / stalls ended, the last one (ms).
+    var stalls: (resent: UInt64, acked: UInt64, recovered: UInt64, lastMs: Double) {
+        var r: UInt64 = 0, a: UInt64 = 0, v: UInt64 = 0, ms = 0.0
+        engine.streamStallsResent(&r, acked: &a, recovered: &v, lastMs: &ms)
+        return (r, a, v, ms)
+    }
+    func simulateStall(ms: Int) { engine.simulateStallMs(ms) }
 
     func latest() -> PoseSample? {
         guard let p = engine.latestPose() else { return nil }
         return PoseSample(orientation: p.orientation, angularVelocity: p.angularVelocity,
-                          hostTimeNs: p.hostTimeNs, tracking: p.isTracking)
+                          hostTimeNs: p.hostTimeNs, tracking: p.isTracking, stale: p.isStale)
     }
 }
 

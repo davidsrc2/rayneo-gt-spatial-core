@@ -1327,11 +1327,13 @@ void Server::periodic() {
 
     keep_floating_windows();
 
-    // IMU watchdog: no sample for 0.5 s (a USB hiccup, the cable moved) and the HID device is
-    // reopened silently; after 10 s without it (unplugged) Nimbo stops, restoring the displays.
+    // IMU watchdog: after 0.5 s without samples the engine holds the pose and sends stream-on
+    // again (core/stream_watchdog.h); still nothing at 1.5 s (a USB hiccup, the cable moved) and
+    // the HID device is reopened silently; after 10 s without it (unplugged) Nimbo stops,
+    // restoring the displays.
     if (imu_) {
         const auto p = pose_->latest();
-        const bool stale = !p || now - std::min(now, p->host_ns) > 500000000ull;
+        const bool stale = !p || now - std::min(now, p->host_ns) > 1500000000ull;
         if (!stale) {
             if (imu_lost_ns_ != 0) {
                 logln("imu: data again after %.1f s", static_cast<double>(now - imu_lost_ns_) / 1e9);
@@ -1340,7 +1342,7 @@ void Server::periodic() {
         } else if (now >= imu_retry_ns_) {
             if (imu_lost_ns_ == 0) {
                 imu_lost_ns_ = now;
-                logln("imu: no data for 0.5 s, reconnecting");
+                logln("imu: no data for 1.5 s (stream-on did not bring it back), reconnecting");
             }
             if (now - imu_lost_ns_ > 10000000000ull) {
                 logln("glasses IMU gone for 10 s (unplugged?): stopping");
@@ -1401,6 +1403,13 @@ void Server::periodic() {
                       static_cast<unsigned long long>(st.missed_samples - last_imu_.missed_samples),
                       static_cast<unsigned long long>(st.reports_dropped - last_imu_.reports_dropped));
         imu = buf;
+        if (st.stream_resends > last_imu_.stream_resends) {
+            logln("imu: no samples for 0.5 s; pose held, stream-on sent again (%llu acknowledged so far)",
+                  static_cast<unsigned long long>(st.stream_acks));
+        }
+        if (st.stalls_recovered > last_imu_.stalls_recovered) {
+            logln("imu: samples again after %.0f ms (stream reconnected, nothing restarted)", st.last_stall_ms);
+        }
         last_imu_ = st;
     }
     std::string wobble;

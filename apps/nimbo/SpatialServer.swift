@@ -234,6 +234,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             pose = imu
             if let r = options.recordImuPath { log("imu: recording raw reports to \(r)") }
             if let r = options.replayImuPath { log("imu: replaying \(r) instead of the glasses") }
+            if options.simulateStallAtS > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + options.simulateStallAtS) { [weak self] in
+                    self?.log("imu: simulating a 1 s stall of the stream")
+                    imu.simulateStall(ms: 1000)
+                }
+            }
         }
         try pose.start()
         if let imu = pose as? ImuPoseSource {
@@ -2302,6 +2308,21 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         fallbackThread = thread
     }
 
+    // The IMU stream stalling and coming back (core/stream_watchdog.h): in the log only, no
+    // message on the glasses; the displays stay as they are.
+    private var stallsSeen: (resent: UInt64, recovered: UInt64) = (0, 0)
+    private func logStreamStalls() {
+        guard let imu = pose as? ImuPoseSource else { return }
+        let s = imu.stalls
+        if s.resent > stallsSeen.resent {
+            log("imu: no samples for 0.5 s; pose held, stream-on sent again (\(s.resent - stallsSeen.resent)x, \(s.acked) acknowledged so far)")
+        }
+        if s.recovered > stallsSeen.recovered {
+            log(String(format: "imu: samples again after %.0f ms (stream reconnected, nothing restarted)", s.lastMs))
+        }
+        stallsSeen = (s.resent, s.recovered)
+    }
+
     private func printStats() {
         statsLock.lock()
         let s = stats
@@ -2354,6 +2375,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                    + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "")
                    + String(format: " | gpu %.1f ms", renderer.lastGPUMs) as NSString))
         adaptFrameLatency(s)
+        logStreamStalls()
         // Every 10 s: the gyro bias in use (a drift of the panels shows here as a bias that moves).
         biasLogSeconds += 1
         if biasLogSeconds >= 10, s.tracking, let b = (pose as? ImuPoseSource)?.gyroBias {

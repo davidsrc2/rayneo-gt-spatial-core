@@ -22,6 +22,7 @@
 #include "rayneo/core/gt_protocol.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/imu_recording.h"
+#include "rayneo/core/stream_watchdog.h"
 #include "rayneo/core/tick_monitor.h"
 #include "rayneo/hal/hid_transport.h"
 #include "rayneo/hal/imu_stream_reader.h"
@@ -312,6 +313,9 @@ bool rayneo_engine_latest_pose(rayneo_engine* e, rayneo_pose* out) {
     std::lock_guard<std::mutex> lock(e->pose_mutex);
     if (!e->has_pose) return false;
     *out = e->latest;
+    // Stalled stream: the last pose held, nothing predicted from its (old) angular velocity.
+    out->stale = rayneo::core::pose_stale(out->host_time_ns, now_ns());
+    if (out->stale) out->wx = out->wy = out->wz = 0.0f;
     return true;
 }
 
@@ -320,6 +324,10 @@ bool rayneo_engine_stats(rayneo_engine* e, rayneo_stats* out) {
     rayneo_stats s{};
     s.reports_read = e->reader->reports_read();
     s.reports_dropped = e->reader->reports_dropped();
+    s.stream_resends = e->reader->stream_resends();
+    s.stream_acks = e->reader->stream_acks();
+    s.stalls_recovered = e->reader->stalls_recovered();
+    s.last_stall_ms = static_cast<double>(e->reader->last_stall_ns()) / 1e6;
     {
         std::lock_guard<std::mutex> lock(e->pose_mutex);
         s.imu_samples = e->ticks.samples();
@@ -356,6 +364,10 @@ void rayneo_engine_set_sensor_to_head(rayneo_engine* e, float qw, float qx, floa
 
 void rayneo_engine_set_bias_map_path(rayneo_engine* e, const char* path) {
     if (e != nullptr) e->bias_map_path = path != nullptr ? path : "";
+}
+
+void rayneo_engine_simulate_stall(rayneo_engine* e, int ms) {
+    if (e != nullptr && e->reader && ms > 0) e->reader->simulate_stall(static_cast<uint64_t>(ms) * 1000000ull);
 }
 
 void rayneo_engine_set_record_path(rayneo_engine* e, const char* path) {

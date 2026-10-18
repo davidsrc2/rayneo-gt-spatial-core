@@ -16,6 +16,7 @@
 #endif
 
 #include "rayneo/core/gt_protocol.h"
+#include "rayneo/core/stream_watchdog.h"
 
 namespace rayneo::hal {
 namespace gt = rayneo::core::gt;
@@ -139,12 +140,28 @@ void ImuStreamReader::run() {
     raise_thread_priority();
     [[maybe_unused]] const TimerResolution timer;
     RawReport rr{};
+    core::StreamWatchdog watchdog;
+    watchdog.start(now_ns());
+    bool awaiting_ack = false;
+    uint64_t silent_until = 0;  // simulate_stall: IMU reports dropped until then
     while (running_.load(std::memory_order_acquire)) {
         for (int cmd = 0; cmd < 16; ++cmd) {
             const int value = pending_[cmd].exchange(-1, std::memory_order_acq_rel);
             if (value < 0) continue;
             const auto frame = gt::build_command(static_cast<uint8_t>(cmd), static_cast<uint8_t>(value));
             transport_->write(frame.data(), frame.size());
+        }
+        if (const uint64_t sim = simulate_ns_.exchange(0, std::memory_order_acq_rel); sim > 0) {
+            const auto off = gt::build_command(gt::kCmdStreamOff);
+            transport_->write(off.data(), off.size());
+            silent_until = now_ns() + sim;
+        }
+        // Stalled: stream-on again, as at start (the displays and everything else stay).
+        if (watchdog.should_resend(now_ns())) {
+            const auto on = gt::build_command(gt::kCmdStreamOn);
+            transport_->write(on.data(), on.size());
+            resends_.fetch_add(1, std::memory_order_relaxed);
+            awaiting_ack = true;
         }
         const int n = transport_->read(rr.data, sizeof(rr.data), kReadTimeoutMs);
         if (n < 0) {
@@ -154,6 +171,19 @@ void ImuStreamReader::run() {
         if (n == 0) continue;
         rr.length = static_cast<uint8_t>(n);
         rr.host_time_ns = now_ns();
+        const auto decoded = gt::decode_report(rr.data, rr.length);
+        if (awaiting_ack && decoded.kind == gt::ReportKind::Ack && decoded.ack_cmd == gt::kCmdStreamOn) {
+            acks_.fetch_add(1, std::memory_order_relaxed);
+            awaiting_ack = false;
+        }
+        if (decoded.kind == gt::ReportKind::Imu) {
+            if (rr.host_time_ns < silent_until) continue;
+            watchdog.report(rr.host_time_ns);
+            if (const uint64_t stall = watchdog.take_recovered_ns(); stall > 0) {
+                last_stall_ns_.store(stall, std::memory_order_relaxed);
+                recovered_.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
         reports_read_.fetch_add(1, std::memory_order_relaxed);
         if (!ring_.try_push(rr)) reports_dropped_.fetch_add(1, std::memory_order_relaxed);
     }

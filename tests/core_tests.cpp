@@ -13,6 +13,7 @@
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/imu_recording.h"
 #include "rayneo/core/latch_controller.h"
+#include "rayneo/core/stream_watchdog.h"
 #include "rayneo/core/madgwick.h"
 #include "rayneo/core/panel_dimmer.h"
 #include "rayneo/core/pose_stabilizer.h"
@@ -1660,6 +1661,36 @@ void test_fixed_prediction_horizon() {
     CHECK(near(fixed_prediction_horizon_ms(16.0f, 0.0f, p120, -1.0f), 16.0f, 1e-5f));
 }
 
+void test_stream_watchdog() {
+    const uint64_t ms = 1000000ull;
+    StreamWatchdog w;
+    w.start(0);
+    // Reports every 2.2 ms: never stale, nothing sent.
+    uint64_t t = 0;
+    for (int i = 0; i < 1000; ++i) {
+        t += 22 * ms / 10;
+        w.report(t);
+        CHECK(!w.should_resend(t) && !w.stale(t));
+    }
+    // A 1 s stall: stale after 0.5 s, stream-on at 0.5 s and again every 0.5 s, not more often.
+    const uint64_t last = t;
+    CHECK(!w.stale(last + 499 * ms) && !w.should_resend(last + 499 * ms));
+    CHECK(w.stale(last + 501 * ms) && w.should_resend(last + 501 * ms));
+    CHECK(!w.should_resend(last + 700 * ms));
+    CHECK(w.should_resend(last + 1002 * ms));
+    CHECK(w.resends() == 2);
+    // Samples again: recovered, the stall's length read once.
+    w.report(last + 1000 * ms + 50 * ms);
+    CHECK(!w.stale(last + 1060 * ms));
+    CHECK(w.take_recovered_ns() == 1050 * ms && w.take_recovered_ns() == 0);
+    // The free check the engine uses for the pose.
+    CHECK(!pose_stale(100 * ms, 600 * ms) && pose_stale(100 * ms, 601 * ms) && !pose_stale(700 * ms, 600 * ms));
+    // A stall at start (stream-on not taken): the first resend after 0.5 s too.
+    StreamWatchdog s;
+    s.start(10 * ms);
+    CHECK(!s.should_resend(400 * ms) && s.should_resend(520 * ms));
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -1741,6 +1772,7 @@ int main() {
     test_latch_shrinks_gradually();
     test_latch_period_change_reclamps();
     test_fixed_prediction_horizon();
+    test_stream_watchdog();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

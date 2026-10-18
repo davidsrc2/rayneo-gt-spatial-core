@@ -27,6 +27,7 @@
 - (float)rollDegrees { return _p.roll_deg; }
 - (uint64_t)sequence { return _p.sequence; }
 - (BOOL)isTracking { return _p.tracking ? YES : NO; }
+- (BOOL)isStale { return _p.stale ? YES : NO; }
 
 @end
 
@@ -72,6 +73,17 @@
 - (void)recenter { rayneo_engine_recenter(_engine); }
 - (void)setGlassesMode:(NSInteger)mode { rayneo_engine_set_glasses_mode(_engine, static_cast<int>(mode)); }
 - (void)setGlassesBrightness:(NSInteger)level { rayneo_engine_set_glasses_brightness(_engine, static_cast<int>(level)); }
+
+- (void)streamStallsResent:(uint64_t*)resent acked:(uint64_t*)acked recovered:(uint64_t*)recovered lastMs:(double*)lastMs {
+    rayneo_stats s{};
+    rayneo_engine_stats(_engine, &s);
+    *resent = s.stream_resends;
+    *acked = s.stream_acks;
+    *recovered = s.stalls_recovered;
+    *lastMs = s.last_stall_ms;
+}
+
+- (void)simulateStallMs:(NSInteger)ms { rayneo_engine_simulate_stall(_engine, static_cast<int>(ms)); }
 
 - (void)setRecordPath:(NSString*)path { rayneo_engine_set_record_path(_engine, path != nil ? path.UTF8String : ""); }
 - (void)setReplayPath:(NSString*)path { rayneo_engine_set_replay_path(_engine, path != nil ? path.UTF8String : ""); }

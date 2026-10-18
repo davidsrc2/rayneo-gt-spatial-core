@@ -16,6 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) float rollDegrees;
 @property(nonatomic, readonly) uint64_t sequence;
 @property(nonatomic, readonly, getter=isTracking) BOOL tracking;
+@property(nonatomic, readonly, getter=isStale) BOOL stale;  // no sample for 0.5 s: held, not predicted
 @property(nonatomic, readonly) simd_float3 gyroBias;          // deg/s, sensor frame (diagnostics)
 @end
 
@@ -30,6 +31,10 @@ NS_ASSUME_NONNULL_BEGIN
 // The glasses' brightness, 1 (dim) .. 8 (factory level).
 - (void)setGlassesBrightness:(NSInteger)level;
 - (nullable RNPose*)latestPose;
+// IMU stream stalls so far: stream-on resent / acknowledged / stalls ended, and the last one (ms).
+- (void)streamStallsResent:(uint64_t*)resent acked:(uint64_t*)acked recovered:(uint64_t*)recovered lastMs:(double*)lastMs;
+// Test hook: the stream stops and no sample gets through for ms.
+- (void)simulateStallMs:(NSInteger)ms;
 
 // Before start: the session's raw IMU reports written to this file / a recording played back
 // instead of the glasses (core/imu_recording.h). nil: off.
