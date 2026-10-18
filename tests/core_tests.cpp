@@ -1287,6 +1287,13 @@ void test_vqf() {
     CHECK(h.settled());
     for (int i = 0; i < 457 * 5; ++i) h.update(Vec3{0, 0, 0.6f} * d2r, {0, 0, 9.81f}, dt);
     CHECK(h.bias_degs().norm() < 0.01f);
+    // Kalman: uncertain at first, sure once learned; a trusted start barely moves.
+    CHECK(f.bias_variance().x < 0.01f);
+    Vqf6D k;
+    k.initialize_from_accel({0, 0, 9.81f});
+    k.set_bias(bias_degs, 0.05f);
+    for (int i = 0; i < 457 * 5; ++i) k.update((bias_degs + Vec3{0.1f, 0, 0}) * d2r, {0, 0, 9.81f}, dt);
+    CHECK(k.bias_degs().x > bias_degs.x + 0.01f && k.bias_degs().x < bias_degs.x + 0.09f);
     const Quat before = f.quaternion();
     for (int i = 0; i < 457; ++i) f.update(Vec3{0, 0, 90 * d2r} + bias_degs * d2r, {0, 0, 9.81f}, dt);  // 1 s at 90 deg/s
     CHECK(std::fabs(angle_between_deg(f.quaternion(), before) - 90.0f) < 1.0f);

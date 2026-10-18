@@ -107,16 +107,6 @@ public partial class App : Application
                 _panel.Refresh();
             });
         }
-        // Ctrl+Alt+M: in the glasses' pinned mode, the panel in use follows the mouse only (or the
-        // gaze too again). Saved, like the switch in Settings.
-        _hotKeys.Register('M', () =>
-        {
-            _model.GrowByGaze = !_model.GrowByGaze;
-            _model.Save();
-            _server.SettingsChanged();
-            _server.ShowMessage(_model.GrowByGaze ? "Pantalla activa: mirada y ratón" : "Pantalla activa: solo con el ratón");
-            _panel.Refresh();
-        });
         // Ctrl+Alt+F: the next background around the panels (the picture only once one is chosen).
         _hotKeys.Register('F', () =>
         {

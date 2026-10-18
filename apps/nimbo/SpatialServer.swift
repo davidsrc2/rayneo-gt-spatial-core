@@ -1349,7 +1349,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 return
             }
         }
-        // Mouse only (⌘⌥M): the gaze never changes the panel in use.
+        // Mouse only (Settings): the gaze never changes the panel in use.
         guard options.growByGaze else {
             growCandidate = -2
             return

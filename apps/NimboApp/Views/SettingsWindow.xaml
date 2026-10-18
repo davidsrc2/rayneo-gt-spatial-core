@@ -87,7 +87,7 @@
                 <ToggleSwitch x:Name="AnchorToggle" Toggled="Changed"
                               Header="Anclar las pantallas con la cabeza quieta (en el espacio a tamaño real va siempre incluido: quietas al parar, 1:1 al mover la cabeza)" />
                 <ToggleSwitch x:Name="GrowGazeToggle" Toggled="Changed"
-                              Header="Modo fijo (Ctrl+Alt+G): cambiar de pantalla mirándola (desactivado: solo con el ratón; Ctrl+Alt+M lo cambia)" />
+                              Header="Modo fijo (Ctrl+Alt+G): cambiar de pantalla mirándola (desactivado: solo con el ratón)" />
                 <ToggleSwitch x:Name="LaptopToggle" Toggled="Changed"
                               Header="La pantalla del portátil es una de las de Nimbo (con 2 pantallas, la del portátil y una más; con 1, solo la del portátil)" />
             </StackPanel>

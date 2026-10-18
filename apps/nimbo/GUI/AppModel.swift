@@ -73,7 +73,7 @@ final class AppModel: ObservableObject {
     // the same size on all of them) instead of the text size chosen.
     @Published var monitorsLikeMac: Bool { didSet { d.set(monitorsLikeMac, forKey: "monitorsLikeMac") } }
     @Published var growFocused: Bool { didSet { d.set(growFocused, forKey: "growFocused") } }  // pinned: the panel in use large
-    // Pinned (⌘⌥G): the panel in use follows the mouse only, not where you look (⌘⌥M).
+    // Pinned (⌘⌥G): the panel in use follows the mouse only, not where you look (Settings).
     @Published var growByGaze: Bool { didSet { d.set(growByGaze, forKey: "growByGaze") } }
     @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
     @Published var brightness: Int { didSet { d.set(brightness, forKey: "brightness") } }  // 1..8, 0 = leave

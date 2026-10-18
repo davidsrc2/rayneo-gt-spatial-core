@@ -80,7 +80,7 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
             // Cold start: the bias learned at this temperature on earlier runs, else the startup
             // calibration's.
             const auto mapped = bias_map_.lookup(s.temp_c);
-            vqf_.set_bias(mapped ? *mapped : bias_.bias());
+            vqf_.set_bias(mapped ? *mapped : bias_.bias(), mapped ? 0.05f : 0.0f);  // the map's: learned, trusted
             attitude_init_ = true;
             attitude_s_ = 0.0f;
         } else if (dt > 0.0f && dt < cfg_.bias.gap_reset_s) {

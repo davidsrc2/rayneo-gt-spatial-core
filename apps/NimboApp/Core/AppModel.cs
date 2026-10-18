@@ -205,7 +205,7 @@ internal sealed unsafe class AppModel
     public bool PinnedMode { get => _s.GlassesMode == 1; set => _s.GlassesMode = value ? 1 : 0; }
     // Ctrl+Alt++ / - / 0 / K: the zoom, as left last time (the server reports it).
     public float Zoom { get => _s.Zoom > 0 ? _s.Zoom : 1f; set => _s.Zoom = value; }
-    // Ctrl+Alt+M / Settings: in the glasses' pinned mode the panel in use follows the mouse only.
+    // Settings: in the glasses' pinned mode the panel in use follows the mouse only.
     public bool GrowByGaze { get => _s.GrowByGaze != 0; set => _s.GrowByGaze = B(value); }
     // Ctrl+Alt+F / Settings: around the panels, fixed in the room.
     public static readonly string[] Backgrounds = { "Ninguno (se ve la habitación)", "Lluvia", "Estrellas", "Atardecer", "Aurora", "Imagen propia" };

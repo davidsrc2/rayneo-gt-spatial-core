@@ -2537,7 +2537,10 @@ void Server::apply_pending() {
     opt_.background_brightness = o->background_brightness;
     opt_.background_image = o->background_image;
     if (o->glasses_mode >= 0 && o->glasses_mode != opt_.glasses_mode) pose_->set_glasses_mode(o->glasses_mode);
-    if (o->brightness > 0 && o->brightness != opt_.brightness) pose_->set_glasses_brightness(o->brightness);
+    if (o->brightness > 0 && o->brightness != opt_.brightness) {
+        pose_->set_glasses_brightness(o->brightness);
+        logln("glasses: brightness %d sent", o->brightness);
+    }
     opt_.glasses_mode = o->glasses_mode;
     opt_.brightness = o->brightness;
     opt_.recenter_glasses = o->recenter_glasses;

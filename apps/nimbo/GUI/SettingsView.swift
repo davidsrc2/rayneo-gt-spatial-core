@@ -79,7 +79,7 @@ struct SettingsView: View {
                 .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Modo fijo (⌘⌥G): cambiar de pantalla mirándola", isOn: $model.growByGaze)
-                    Text("En el modo fijo de las gafas, la pantalla que miras pasa a primer plano. Desactivado: solo la que eliges con el ratón. ⌘⌥M lo cambia.")
+                    Text("En el modo fijo de las gafas, la pantalla que miras pasa a primer plano. Desactivado: solo la que eliges con el ratón.)
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
@@ -156,7 +156,6 @@ struct ShortcutSheet: View {
         ("⌘⌥C", "Ctrl+Alt+C", "Recentrar: las pantallas vuelven delante de ti"),
         ("⌘⌥G", "Ctrl+Alt+G", "Modo fijo de las gafas: ellas sostienen la imagen, quietísima, todo dentro de su imagen (otra vez: espacio a tamaño real)"),
         ("⌘⌥J", "Ctrl+Alt+J", "Llevar el cursor a la pantalla que miras"),
-        ("⌘⌥M", "Ctrl+Alt+M", "Modo fijo: la pantalla activa cambia solo con el ratón / también mirándola"),
         ("⌘⌥O", "Ctrl+Alt+O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
         ("⌘⌥K", "Ctrl+Alt+K", "Modo código: las pantallas mucho más cerca, zoom 170 % (otra vez: como estaban)"),
         ("⌘⌥+  ⌘⌥-", "Ctrl+Alt++  -", "Zoom: acercar / alejar las pantallas"),
