@@ -903,6 +903,11 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     }
     core::Quat head = core::predict_orientation(orientation, wp, horizon_s);
     head = core::track_axes(head, options.tracking_axes);
+    // Space at real size: the camera rebuilt as yaw * pitch from where the eyes point, roll 0 by
+    // construction (core::level_head). A roll in the pose (the glasses sitting slightly crooked,
+    // a calibration a few degrees off, the head tilted at the recenter) made every look up or
+    // down sweep the panels diagonally.
+    if (options.fixed_prediction_ms > 0.0f && !options.static_head) head = core::level_head(head);
     if (options.static_head) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
         head = core::Quat{};
         horizon_s = 0.0f;

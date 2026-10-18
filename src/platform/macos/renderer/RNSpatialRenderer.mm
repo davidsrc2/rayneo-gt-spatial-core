@@ -12,6 +12,7 @@
 
 #include "rayneo/core/frame_skip.h"
 #include "rayneo/core/panel_dimmer.h"
+#include "rayneo/core/imu_pipeline.h"  // level_head
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/render_math.h"
 #include "rn_shaders.h"  // generated: kRNShaderSource
@@ -922,6 +923,8 @@ static float effective_curvature(RNRenderOptions* o) {
     }
     core::Quat head = core::predict_orientation(from_simd(orientation), wp, horizon_s);
     head = core::track_axes(head, static_cast<core::TrackingAxes>(o.trackingAxes));
+    // Space at real size: yaw * pitch, roll 0 by construction (see spatial_renderer.cpp).
+    if (o.fixedPredictionMs > 0.0f && !o.staticHead) head = core::level_head(head);
     if (o.staticHead) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
         head = core::Quat{};
         horizon_s = 0.0f;

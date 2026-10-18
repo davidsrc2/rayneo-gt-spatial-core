@@ -16,6 +16,7 @@
 #include "desktop_duplication.h"
 #include "rayneo/core/frame_skip.h"
 #include "rayneo/core/panel_dimmer.h"
+#include "rayneo/core/imu_pipeline.h"  // level_head
 #include "rayneo/core/render_math.h"
 
 namespace rayneo::win {

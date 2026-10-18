@@ -1144,6 +1144,24 @@ void test_recenter_takes_roll_as_upright() {
     CHECK(near(std::atan2(f.y, f.x) / d2r, 40.0f, 0.05f) && near(std::asin(f.z) / d2r, -10.0f, 0.05f));
 }
 
+// Horizon lock: a head pitched up and down with a constant roll (crooked glasses): the camera
+// looks the same way, its horizon stays level, and pitch moves the gaze straight up / down.
+void test_horizon_lock_pitch() {
+    const float d2r = 0.0174533f;
+    const Quat yaw = Quat::from_axis_angle({0, 0, 1}, 30 * d2r), roll = Quat::from_axis_angle({1, 0, 0}, 8 * d2r);
+    float last_yaw = 0.0f;
+    for (int k = -3; k <= 3; ++k) {
+        const Quat head = yaw * Quat::from_axis_angle({0, -1, 0}, static_cast<float>(k) * 10 * d2r) * roll;
+        const Quat cam = level_head(head);
+        const Vec3 f = cam.rotate({1, 0, 0}), g = head.rotate({1, 0, 0});
+        CHECK(near(f.x, g.x, 1e-4f) && near(f.y, g.y, 1e-4f) && near(f.z, g.z, 1e-4f));  // same gaze
+        CHECK(std::fabs(cam.rotate({0, 1, 0}).z) < 1e-4f);                                 // level horizon
+        const float y = std::atan2(f.y, f.x);
+        if (k > -3) CHECK(near(y, last_yaw, 1e-4f));                                       // straight up / down
+        last_yaw = y;
+    }
+}
+
 void test_rest_lock_releases_at_turn_start() {
     PoseStabilizerConfig cfg = stationary_lock_stabilizer();
     cfg.lock_on_rest = true;
@@ -1514,6 +1532,7 @@ int main() {
     test_level_reference_heading_only();
     test_rest_lock_releases_at_turn_start();
     test_recenter_takes_roll_as_upright();
+    test_horizon_lock_pitch();
     test_level_reference();
     test_world_locked_madgwick();
     test_world_locked_anchor();
