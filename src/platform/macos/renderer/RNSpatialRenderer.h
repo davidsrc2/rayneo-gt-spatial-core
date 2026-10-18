@@ -154,6 +154,13 @@ NS_ASSUME_NONNULL_BEGIN
           angularVelocity:(simd_float3)angularVelocity
              sampleHostNs:(uint64_t)sampleHostNs
              targetHostNs:(uint64_t)targetHostNs;
+// The same; gpuDone gets the frame's GPUEndTime (CACurrentMediaTime clock) once the GPU is done.
+- (float)renderToDrawable:(id<CAMetalDrawable>)drawable
+              orientation:(simd_quatf)orientation
+          angularVelocity:(simd_float3)angularVelocity
+             sampleHostNs:(uint64_t)sampleHostNs
+             targetHostNs:(uint64_t)targetHostNs
+                  gpuDone:(nullable void (^)(double gpuEndTime))gpuDone;
 @end
 
 NS_ASSUME_NONNULL_END

@@ -19,7 +19,8 @@ typedef struct {
 } rayneo_latch;
 
 rayneo_latch rayneo_latch_start(float frame_period_ms);
-/* One presented frame: missed its refresh?, CPU time from the wake-up to the commit (measured).
+/* One presented frame: missed its refresh?, its work from the wake-up until ready (GPU end, or
+ * the commit when the GPU's end is not known; measured).
  * Returns whether the latch caused the miss (the margin then grew). */
 bool rayneo_latch_presented(rayneo_latch* latch, bool missed, float cpu_ms, float frame_period_ms);
 float rayneo_latch_cap_ms(float frame_period_ms);

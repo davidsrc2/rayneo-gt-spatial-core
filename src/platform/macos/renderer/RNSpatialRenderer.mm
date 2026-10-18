@@ -905,6 +905,16 @@ static float effective_curvature(RNRenderOptions* o) {
           angularVelocity:(simd_float3)angularVelocity
              sampleHostNs:(uint64_t)sampleHostNs
              targetHostNs:(uint64_t)targetHostNs {
+    return [self renderToDrawable:drawable orientation:orientation angularVelocity:angularVelocity
+                     sampleHostNs:sampleHostNs targetHostNs:targetHostNs gpuDone:nil];
+}
+
+- (float)renderToDrawable:(id<CAMetalDrawable>)drawable
+              orientation:(simd_quatf)orientation
+          angularVelocity:(simd_float3)angularVelocity
+             sampleHostNs:(uint64_t)sampleHostNs
+             targetHostNs:(uint64_t)targetHostNs
+                  gpuDone:(void (^)(double))gpuDone {
     RNRenderOptions* o = _options;
 
     // Pose prediction to the photon time.
@@ -1171,6 +1181,7 @@ static float effective_curvature(RNRenderOptions* o) {
     [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
       RNSpatialRenderer* strong = weakSelf;
       if (strong != nil && done.GPUEndTime > done.GPUStartTime) strong->_lastGPUMs = (done.GPUEndTime - done.GPUStartTime) * 1e3;
+      if (gpuDone != nil && done.GPUEndTime > 0) gpuDone(done.GPUEndTime);
     }];
     [cb commit];
     return horizon_s * 1e3f;

@@ -30,6 +30,7 @@ FIELDS = {
     "latch": re.compile(r"latch " + NUM + " ms"),
     "latch_applied": re.compile(r"applied " + NUM),
     "cpu": re.compile(r"cpu " + NUM + "/" + NUM),
+    "ready": re.compile(r"ready " + NUM + r"\)"),
     "jitter": re.compile(r"moving jitter " + NUM),
     "wobble": re.compile(r"still wobble " + NUM),
     "gpu": re.compile(r"gpu " + NUM + " ms"),
@@ -115,8 +116,9 @@ def in_window(t, since, until):
 def table(rows):
     out = ["| mode | lines | missed mean | missed p95 | lines > 30 | missed/s while moving | late mean | late p95 | "
            "latch mean | latch p95 | applied mean | applied p95 | s->presented mean | s->presented p95 | "
-           "predicted mean | jitter mean | jitter p95 | wobble mean | missed by latch | cpu mean | cpu max |",
-           "|" + "---|" * 21]
+           "predicted mean | jitter mean | jitter p95 | wobble mean | missed by latch | cpu mean | cpu max | "
+           "GPU done before deadline |",
+           "|" + "---|" * 22]
     for mode in ("TRACK", "CALIB"):
         for label, sel in (("all", lambda r: True), ("moving", lambda r: r["moving"]), ("still", lambda r: not r["moving"])):
             rs = [r for r in rows if r["mode"] == mode and sel(r)]
@@ -134,7 +136,8 @@ def table(rows):
                 fmt(mean(g("presented"))), fmt(p95(g("presented"))), fmt(mean(g("predicted"))),
                 fmt(mean(g("jitter")), 3), fmt(p95(g("jitter")), 3), fmt(mean(g("wobble")), 4),
                 str(sum(g("missed_latch", rs))) if g("missed_latch", rs) else "–",
-                fmt(mean(g("cpu"))), fmt(max(g("cpu_max")) if g("cpu_max") else float("nan"))]) + " |")
+                fmt(mean(g("cpu"))), fmt(max(g("cpu_max")) if g("cpu_max") else float("nan")),
+                fmt(mean(g("ready")))]) + " |")
     return "\n".join(out)
 
 

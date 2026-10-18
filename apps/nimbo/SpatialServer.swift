@@ -13,14 +13,21 @@ final class MetalView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer = metalLayer
+        // Opaque, or WindowServer blends the layer over what is behind it: composited, never
+        // flipped straight to the display (see docs/DIRECT_TO_DISPLAY.md).
+        metalLayer.isOpaque = true
     }
+
+    override var isOpaque: Bool { true }
 
     required init?(coder: NSCoder) { fatalError("unused") }
 }
 
-// A frame's CPU time from the wake-up to the commit (ms), read when it is presented.
+// A frame's work from the wake-up: to the commit (CPU, ms) and the GPU's end (CACurrentMediaTime),
+// read when it is presented.
 final class FrameCPU {
     var ms = -1.0
+    var gpuEnd = 0.0
 }
 
 // Rolling latency statistics, printed once per second.
@@ -40,6 +47,8 @@ struct LatencyStats {
     var missedMoving = 0, missedStill = 0       // of those, drawn with the head moving / still (< 1 deg/s)
     var missedLatch = 0                         // of those, the latch's (CPU past the margin)
     var cpuSum = 0.0, cpuMax = 0.0              // wake-up (pose read) to commit (ms), display link frames
+    var readyN = 0
+    var readySum = 0.0                          // GPU end before the deadline (ms; < 0: after it)
     // Late latching as applied: from the pose read to the frame's deadline (ms), display link frames only.
     var latchN = 0
     var latchSum = 0.0
@@ -376,6 +385,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // being captured, logs 17-10-2026), with one queued frame as with two.
         layer.maximumDrawableCount = 3
         layer.displaySyncEnabled = true  // without vsync the scanout time does not move, only the estimate
+        layer.wantsExtendedDynamicRangeContent = false  // EDR is composited
+        layer.colorspace = nil  // no colour matching pass
 
         renderer = try RNSpatialRenderer(device: device, pixelFormat: .bgra8Unorm_srgb)
         // One image per eye when the glasses are in their 3D mode (nothing to switch in Nimbo).
@@ -448,6 +459,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         try Task.checkCancellation()
         startRenderLoop(layer: layer)
+        if !options.windowed {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.logDirectConditions() }
+        }
         startMonitoring()
     }
 
@@ -1937,7 +1951,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             plan.removeAll { $0.0 == glassesID }
             if plan.count != before { log("capture: the glasses' display was among the panels, left out") }
         }
-        let fps = desktop != nil ? 60 : 120
+        // 60 per source in every mode: each frame captured is WindowServer GPU work competing with
+        // the glasses' frames (120 for a captured display gave nothing the panels could show).
+        let fps = 60
         let virtualIDs = Set(desktop?.ids ?? [])
         let hiDPI = options.hiDPI
         // With virtual monitors the renderer draws the cursor itself, every frame.
@@ -2119,7 +2135,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let sampleMedia = nowMedia - Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e9
         let target = targetMedia
         let still = simd_length(p.angularVelocity) < 0.0175
-        let cpu = FrameCPU()  // wake-up (pose read) to commit, set once the frame is committed
+        let cpu = FrameCPU()  // wake-up (pose read) to commit and GPU end, set as they happen
+        let wake = nowMedia
         drawable.addPresentedHandler { [weak self] d in
             guard let self, d.presentedTime > 0 else { return }
             self.statsLock.lock()
@@ -2129,9 +2146,18 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 self.stats.missed += 1
                 if still { self.stats.missedStill += 1 } else { self.stats.missedMoving += 1 }
             }
-            if deadline != nil, cpu.ms >= 0 {  // display link frames: the latch's
+            if let deadline, cpu.ms >= 0 {  // display link frames: the latch's
+                // Ready when the GPU is done (the compositor takes nothing earlier): the work the
+                // margin must cover, measured from the wake-up. Committed 0.4 ms before the
+                // deadline with 1.5-2.5 ms of GPU left, the frames went a refresh late for seconds.
+                var work = cpu.ms
+                if cpu.gpuEnd > 0 {
+                    work = max(work, (cpu.gpuEnd - wake) * 1e3)
+                    self.stats.readySum += (deadline - cpu.gpuEnd) * 1e3
+                    self.stats.readyN += 1
+                }
                 let missed = lateMs > self.framePeriodS * 500
-                if rayneo_latch_presented(&self.latch, missed, Float(cpu.ms), Float(self.framePeriodS * 1e3)) {
+                if rayneo_latch_presented(&self.latch, missed, Float(work), Float(self.framePeriodS * 1e3)) {
                     self.stats.missedLatch += 1
                 }
             }
@@ -2149,7 +2175,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         renderer.options.sampleAgeMs = Float(max(0, Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6))
         let prediction = renderer.render(to: drawable, orientation: p.orientation,
                                          angularVelocity: p.angularVelocity,
-                                         sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))
+                                         sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost))) { [weak self] end in
+            guard let self else { return }
+            self.statsLock.lock()
+            cpu.gpuEnd = end
+            self.statsLock.unlock()
+        }
         let cpuMs = (CACurrentMediaTime() - nowMedia) * 1e3
         let poseAge = Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6
         let photon = Double(targetHost - Int64(p.hostTimeNs)) / 1e6
@@ -2314,10 +2345,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let inN = Double(max(1, s.intervalN))
         let inMean = s.intervalSum / inN
         let inStd = (max(0, s.intervalSq / inN - inMean * inMean)).squareRoot()
-        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d (moving %d, still %d, latch %d) | latch %.1f ms (applied %.1f, cpu %.1f/%.1f)%@",
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d (moving %d, still %d, latch %d) | latch %.1f ms (applied %.1f, cpu %.1f/%.1f, ready %.1f)%@",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
                    s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, s.missedMoving, s.missedStill, s.missedLatch, latchMs,
                    s.latchN > 0 ? s.latchSum / Double(s.latchN) : 0, s.latchN > 0 ? s.cpuSum / Double(s.latchN) : 0, s.cpuMax,
+                   s.readyN > 0 ? s.readySum / Double(s.readyN) : 0,
                    (s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) : "")
                    + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "")
                    + String(format: " | gpu %.1f ms", renderer.lastGPUMs) as NSString))
@@ -2381,6 +2413,50 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // Diagnostics for cursor problems: every warp with its reason, and changes of the front
     // app and of the hardware cursor's visibility.
     private var lastCursorState = ""
+
+    // What WindowServer needs to flip the glasses surface straight to the display instead of
+    // compositing it (docs/DIRECT_TO_DISPLAY.md): logged once at start, every mismatch named.
+    private func logDirectConditions() {
+        guard let window, let view, let id = glassesID else { return }
+        let layer = view.metalLayer
+        var bad: [String] = []
+        if !layer.isOpaque { bad.append("layer not opaque") }
+        if !window.isOpaque { bad.append("window not opaque") }
+        if let mode = CGDisplayCopyDisplayMode(id),
+           Int(layer.drawableSize.width) != mode.pixelWidth || Int(layer.drawableSize.height) != mode.pixelHeight {
+            bad.append(String(format: "drawable %.0fx%.0f, display %dx%d px", layer.drawableSize.width, layer.drawableSize.height,
+                              mode.pixelWidth, mode.pixelHeight))
+        }
+        let bounds = CGDisplayBounds(id)
+        if window.frame.size != bounds.size { bad.append("window not the display's size") }
+        if layer.wantsExtendedDynamicRangeContent { bad.append("EDR") }
+        if layer.colorspace != nil { bad.append("colour space set") }
+        if !layer.displaySyncEnabled { bad.append("no display sync") }
+        if CGDisplayIsInMirrorSet(id) != 0 { bad.append("mirrored") }
+        // On-screen windows over the glasses display other than ours (front to back, so the
+        // ones listed before ours are above it).
+        let mine = CGWindowID(window.windowNumber)
+        var cursors = 0
+        if let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+            for w in list {
+                guard let n = w[kCGWindowNumber as String] as? CGWindowID else { continue }
+                if n == mine { break }
+                guard let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                      let r = Optional(CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)),
+                      r.intersects(bounds), (w[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0 else { continue }
+                // WindowServer's cursor windows (one per display) sit above everything: the
+                // hardware cursor plane, named apart (not proven to force compositing).
+                if (w[kCGWindowLayer as String] as? Int) == Int(CGWindowLevelForKey(.cursorWindow)) { cursors += 1; continue }
+                bad.append("window above: \(w[kCGWindowOwnerName as String] as? String ?? "?") \(Int(r.width))x\(Int(r.height))")
+            }
+        }
+        if cursors > 0 { bad.append("\(cursors) cursor window(s) over it") }
+        if NSScreen.screens.first(where: { Displays.id(of: $0) == id })?.frame.contains(NSEvent.mouseLocation) == true {
+            bad.append("system cursor on the glasses display")
+        }
+        log("surface: direct to display " + (bad.isEmpty ? "possible (opaque, native size, no EDR / colour space, vsync, nothing above)"
+                                                         : "prevented: " + bad.joined(separator: "; ")))
+    }
 
     private func logCursorState() {
         let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
