@@ -2081,6 +2081,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         displayLink = link
         let thread = Thread {
+            Self.makeRenderThreadRealTime(periodS: 1.0 / 120)
             link.add(to: .current, forMode: .default)
             while !Thread.current.isCancelled {
                 RunLoop.current.run(until: Date(timeIntervalSinceNow: 1))
@@ -2101,9 +2102,44 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             // targetTimestamp: when the frame must be done. Sleep until just before it, then
             // read the freshest pose (the IMU thread keeps it at ~457 Hz).
             let wait = update.targetTimestamp - margin - CACurrentMediaTime()
-            if wait > 0.0003 && wait < 0.03 { Thread.sleep(forTimeInterval: wait) }
+            if wait > 0.0003 && wait < 0.03 { waitUntilMedia(update.targetTimestamp - margin) }
         }
         drawFrame(update.drawable, targetMedia: update.targetPresentationTimestamp, deadline: update.targetTimestamp)
+    }
+
+    // Sleeps until the CACurrentMediaTime `t`: mach_wait_until to 0.3 ms before it, then spins.
+    // Thread.sleep woke ~0.7 ms late, so the pose was read that much later than the margin
+    // said (applied 0.3 ms for a 1 ms margin) and frames risked their deadline.
+    private func waitUntilMedia(_ t: CFTimeInterval) {
+        let coarse = t - 0.0003
+        if coarse > CACurrentMediaTime() { mach_wait_until(Self.machTicks(fromMedia: coarse)) }
+        while CACurrentMediaTime() < t {}
+    }
+
+    private static let timebase: mach_timebase_info_data_t = {
+        var tb = mach_timebase_info_data_t()
+        mach_timebase_info(&tb)
+        return tb
+    }()
+
+    // CACurrentMediaTime is mach_absolute_time in seconds.
+    private static func machTicks(fromMedia t: CFTimeInterval) -> UInt64 {
+        UInt64(max(0, t) * 1e9 * Double(timebase.denom) / Double(timebase.numer))
+    }
+
+    // The render thread in the Mach real-time band, as the IMU reader: woken once a refresh for
+    // up to a few ms of work. The scheduler demotes a thread that overruns; refused, the
+    // userInteractive QoS stays.
+    private static func makeRenderThreadRealTime(periodS: Double) {
+        let ticks = { (s: Double) in UInt32(min(Double(UInt32.max), s * 1e9 * Double(timebase.denom) / Double(timebase.numer))) }
+        var policy = thread_time_constraint_policy_data_t(period: ticks(periodS), computation: ticks(0.003),
+                                                         constraint: ticks(periodS * 0.9), preemptible: 1)
+        let count = mach_msg_type_number_t(MemoryLayout<thread_time_constraint_policy_data_t>.size / MemoryLayout<integer_t>.size)
+        _ = withUnsafeMutablePointer(to: &policy) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                thread_policy_set(pthread_mach_thread_np(pthread_self()), thread_policy_flavor_t(THREAD_TIME_CONSTRAINT_POLICY), $0, count)
+            }
+        }
     }
 
     // One frame into `drawable`, for presentation at `targetMedia` (CACurrentMediaTime clock).
