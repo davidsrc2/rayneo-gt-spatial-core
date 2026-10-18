@@ -54,6 +54,36 @@ std::optional<Vec3> BiasMap::lookup(float temp_c, float max_gap_c) const {
     return a + (b - a) * std::clamp(t, 0.0f, 1.0f);
 }
 
+std::optional<Vec3> BiasMap::trend(float temp_c, float min_span_c, float max_reach_c) const {
+    double sw = 0, st = 0, stt = 0, nearest = 1e9, lo = 1e9, hi = -1e9;
+    double sb[3] = {0, 0, 0}, stb[3] = {0, 0, 0};
+    for (size_t i = 0; i < bins_.size(); ++i) {
+        const Bin& b = bins_[i];
+        if (b.weight < kUsableS) continue;
+        const double t = kMinC + static_cast<double>(i) * kStepC, w = b.weight;
+        const double v[3] = {b.bias.x, b.bias.y, b.bias.z};
+        sw += w;
+        st += w * t;
+        stt += w * t * t;
+        for (int k = 0; k < 3; ++k) {
+            sb[k] += w * v[k];
+            stb[k] += w * t * v[k];
+        }
+        nearest = std::min(nearest, std::fabs(t - temp_c));
+        lo = std::min(lo, t);
+        hi = std::max(hi, t);
+    }
+    const double det = sw * stt - st * st;
+    if (sw <= 0 || hi - lo < min_span_c || nearest > max_reach_c || std::fabs(det) < 1e-9) return std::nullopt;
+    float out[3];
+    for (int k = 0; k < 3; ++k) {
+        const double slope = (sw * stb[k] - st * sb[k]) / det;
+        const double icpt = (sb[k] - slope * st) / sw;
+        out[k] = static_cast<float>(icpt + slope * temp_c);
+    }
+    return Vec3{out[0], out[1], out[2]};
+}
+
 bool BiasMap::empty() const {
     return std::none_of(bins_.begin(), bins_.end(), [](const Bin& b) { return b.weight >= kUsableS; });
 }

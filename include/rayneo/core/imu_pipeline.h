@@ -28,6 +28,10 @@ struct ImuPipelineConfig {
     // until VQF's own estimate settles (bias_convergence) or bias_settle_max_s go by, and the
     // settled bias is taught to the map as trusted for the next start.
     float bias_map_seed_gap_c = 1.5f;
+    // Nothing learned that close: the map's linear trend over temperature starts VQF instead of
+    // the start-up calibration, less trusted (bias_trend_std_degs), and tracking still waits for
+    // the bias to settle.
+    float bias_trend_std_degs = 0.15f;
     bool hold_until_bias_settles = false;
     BiasConvergenceConfig bias_convergence;
     float bias_settle_max_s = 12.0f;

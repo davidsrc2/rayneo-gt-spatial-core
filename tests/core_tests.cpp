@@ -1420,6 +1420,23 @@ void test_pipeline_bias_seed_or_settle() {
     CHECK(!far.bias_seeded_from_map());
 }
 
+// The map's linear trend over temperature: through the trusted bins, for temperatures with
+// nothing learned near them; not from one bin, not from untrusted ones, not too far out.
+void test_bias_map_trend() {
+    BiasMap m;
+    CHECK(!m.trend(30.0f));
+    m.learn_settled(34.0f, {0.40f, 0.10f, 0.0f});
+    CHECK(!m.trend(30.0f));  // one bin: no line
+    m.learn_settled(38.0f, {0.20f, 0.10f, 0.0f});
+    const auto t = m.trend(30.0f);  // -0.05 deg/s per C on X
+    CHECK(t && near(t->x, 0.60f, 0.01f) && near(t->y, 0.10f, 0.01f));
+    CHECK(!m.trend(20.0f));  // 14 C from the nearest learned
+    BiasMap u;  // untrusted bins only
+    for (int i = 0; i < 457 * 3; ++i) u.learn(34.0f, {0.4f, 0, 0}, kRefDt);
+    for (int i = 0; i < 457 * 3; ++i) u.learn(38.0f, {0.2f, 0, 0}, kRefDt);
+    CHECK(!u.trend(30.0f));
+}
+
 void test_bias_map() {
     BiasMap m;
     CHECK(m.empty() && !m.lookup(25.0f));
@@ -1737,6 +1754,7 @@ int main() {
     test_bias_map();
     test_vqf_start_keeps_good_bias();
     test_bias_convergence();
+    test_bias_map_trend();
     test_pipeline_bias_seed_or_settle();
     test_prediction_gain();
     test_yaw_only();

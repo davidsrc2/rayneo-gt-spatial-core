@@ -25,6 +25,10 @@ public:
     void learn_settled(float temp_c, const Vec3& bias_degs);
     // Interpolated from the learned bins within max_gap_c of temp_c; nullopt when none.
     std::optional<Vec3> lookup(float temp_c, float max_gap_c = 3.0f) const;
+    // A straight line per axis through the trusted bins (weighted least squares), at temp_c:
+    // for a temperature with nothing learned near it (a cold start). Needs two trusted bins at
+    // least min_span_c apart, and temp_c within max_reach_c of the nearest one; nullopt otherwise.
+    std::optional<Vec3> trend(float temp_c, float min_span_c = 2.0f, float max_reach_c = 8.0f) const;
     bool empty() const;
     bool dirty() const { return dirty_; }
     void clear_dirty() { dirty_ = false; }
