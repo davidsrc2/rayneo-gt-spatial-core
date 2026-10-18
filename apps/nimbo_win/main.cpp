@@ -343,6 +343,44 @@ int device_problem(const std::wstring& id) {
     return (status & DN_HAS_PROBLEM) != 0 ? static_cast<int>(problem) : 0;
 }
 
+// Enables a disabled device the way Device Manager does (DIF_PROPERTYCHANGE, globally and for
+// this hardware profile), for when pnputil refuses (1167 on a disabled root device). Returns
+// the Win32 error (0 = done); *reboot: Windows wants a restart for it to take effect.
+DWORD enable_device_setupapi(const std::wstring& id, bool* reboot) {
+    *reboot = false;
+    HDEVINFO set = SetupDiCreateDeviceInfoList(nullptr, nullptr);
+    if (set == INVALID_HANDLE_VALUE) return GetLastError();
+    SP_DEVINFO_DATA d{};
+    d.cbSize = sizeof(d);
+    DWORD err = 0;
+    if (!SetupDiOpenDeviceInfoW(set, id.c_str(), nullptr, 0, &d)) {
+        err = GetLastError();
+        SetupDiDestroyDeviceInfoList(set);
+        return err;
+    }
+    for (const DWORD scope : {static_cast<DWORD>(DICS_FLAG_GLOBAL), static_cast<DWORD>(DICS_FLAG_CONFIGSPECIFIC)}) {
+        SP_PROPCHANGE_PARAMS pc{};
+        pc.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+        pc.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE;
+        pc.StateChange = DICS_ENABLE;
+        pc.Scope = scope;
+        pc.HwProfile = 0;
+        if (!SetupDiSetClassInstallParamsW(set, &d, &pc.ClassInstallHeader, sizeof(pc)) ||
+            !SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, set, &d)) {
+            err = GetLastError();
+            continue;
+        }
+        err = 0;
+        SP_DEVINSTALL_PARAMS_W ip{};
+        ip.cbSize = sizeof(ip);
+        if (SetupDiGetDeviceInstallParamsW(set, &d, &ip) && (ip.Flags & (DI_NEEDREBOOT | DI_NEEDRESTART)) != 0) {
+            *reboot = true;
+        }
+    }
+    SetupDiDestroyDeviceInfoList(set);
+    return err;
+}
+
 // pnputil: 3010 / 1641 = done, takes effect after a restart.
 bool pnputil_ok(int code) { return code == 0 || code == 3010 || code == 1641; }
 
@@ -603,6 +641,13 @@ int setup_displays() {
     if (device_problem(dev) == CM_PROB_DISABLED) {
         code = run_quiet(L"pnputil /enable-device \"" + dev + L"\"");
         std::printf("setup: enable -> %d\n", code);
+        if (!pnputil_ok(code) || device_problem(dev) == CM_PROB_DISABLED) {
+            bool reboot = false;
+            const DWORD err = enable_device_setupapi(dev, &reboot);
+            std::printf("setup: enable (Device Manager's way) -> %lu%s, problem code now %d\n",
+                        static_cast<unsigned long>(err), reboot ? ", restart needed" : "", device_problem(dev));
+            if (err == 0) code = reboot ? 3010 : 0;
+        }
     } else {
         code = run_quiet(L"pnputil /restart-device \"" + dev + L"\"");
         std::printf("setup: restart -> %d\n", code);
