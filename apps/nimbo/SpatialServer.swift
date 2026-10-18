@@ -97,7 +97,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // Floating windows' captures, by window, with the size each was started at.
     // `current` is `original` unless the window left the screen (a video put full screen) and its
     // app's largest window on screen is shown instead.
-    private var floatingSizes: [(capture: ScreenCapture, original: CGWindowID, current: CGWindowID, pid: pid_t, size: CGSize)] = []
+    private var floatingSizes: [(capture: ScreenCapture, original: CGWindowID, current: CGWindowID, pid: pid_t, size: CGSize,
+                                  display: CGDirectDisplayID, title: String, lastFix: Date)] = []
     private var physicalDisplay: CGDirectDisplayID?  // glasses surface when it is not a panel
     private var glassesID: CGDirectDisplayID?        // render target (nil in --windowed)
     private var lastPoseNs: UInt64 = 0
@@ -1062,7 +1063,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 // new monitor (the Terminal in front showed instead of the Safari picked).
                 let (pw, ph) = try await cap.start(windowID: CGWindowID(w.windowID), fps: 60)
                 if let info = Self.windowInfo(CGWindowID(w.windowID)) {
-                    floatingSizes.append((cap, CGWindowID(w.windowID), CGWindowID(w.windowID), info.pid, info.frame.size))
+                    floatingSizes.append((cap, CGWindowID(w.windowID), CGWindowID(w.windowID), info.pid, info.frame.size,
+                                          displays[i]?.displayID ?? 0, w.windowTitle, .distantPast))
                 }
                 floatingCaptures.append(cap)
                 log("window: panel \(Int(panel) + 1) <- \(w.title) \(pw)x\(ph)" + (displays[i].map { " on monitor \($0.displayID)" } ?? ""))
@@ -1158,6 +1160,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func refreshFloatingSizes() {
         for (i, f) in floatingSizes.enumerated() {
             let original = Self.windowInfo(f.original)
+            keepOnItsMonitor(i, original?.frame)
             var target = f.current
             if original?.onScreen == true {
                 target = f.original
@@ -1179,6 +1182,29 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             floatingSizes[i].size = frame.size
             let cap = f.capture
             Task { await cap.updateWindowSize(frame.size) }
+        }
+    }
+
+    // A floating window belongs on its own monitor (the cursor reaches it there, above the
+    // others). Found elsewhere (macOS put it back, or a video made it full screen in a Space of
+    // its own on another monitor: the panel showed it, the cursor met an empty monitor): out of
+    // full screen first, then back on its monitor. At most every 3 s per window.
+    private func keepOnItsMonitor(_ i: Int, _ frame: CGRect?) {
+        let f = floatingSizes[i]
+        guard f.display != 0, let frame, Date().timeIntervalSince(f.lastFix) > 3 else { return }
+        let bounds = CGDisplayBounds(f.display)
+        guard bounds.width > 0, !frame.intersects(bounds.insetBy(dx: 8, dy: 8)) else { return }
+        floatingSizes[i].lastFix = Date()
+        if WindowGatherer.isFullScreen(windowID: f.original, title: f.title) {
+            WindowGatherer.exitFullScreen(windowID: f.original, title: f.title)
+            log("window: \(f.original) was full screen off its monitor; full screen left")
+            return  // moved on the next check, once macOS has brought it out
+        }
+        let target = Displays.visibleBounds(f.display) ?? bounds
+        if WindowGatherer.move(windowID: f.original, title: f.title, to: target) {
+            log("window: \(f.original) was off its monitor; back on monitor \(f.display)")
+        } else {
+            log("window: \(f.original) is off its monitor and could not be moved back")
         }
     }
 
