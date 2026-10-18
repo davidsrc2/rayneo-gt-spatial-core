@@ -21,6 +21,17 @@ public sealed partial class SettingsWindow : Window
     private bool _destroying;
 
     public event Action? RecalibrateRequested;
+    // "Buscar actualizaciones" / "Actualizar a …": the app checks or installs.
+    public event Action? UpdateRequested;
+
+    public void ShowUpdate(string text, string button, bool enabled = true)
+    {
+        UpdateText.Text = text;
+        UpdateButton.Content = button;
+        UpdateButton.IsEnabled = enabled;
+    }
+
+    private void Update_Click(object sender, RoutedEventArgs e) => UpdateRequested?.Invoke();
 
     internal SettingsWindow(AppModel model, ServerController server)
     {

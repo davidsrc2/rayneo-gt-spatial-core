@@ -3,6 +3,7 @@ name: build
 on:
   push:
     branches: [main, "feat/**", "fix/**"]
+    tags: ["v*"]  # a release: the installer goes to GitHub Releases (the app's updates)
   pull_request:
   workflow_dispatch:
 
@@ -21,6 +22,8 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write  # gh release create on tags
     strategy:
       fail-fast: false
       matrix:
@@ -78,8 +81,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '' }
+          $versionArg = if ($v) { "-p:Version=$v" } else { "-p:NimboNoVersion=1" }
           dotnet publish apps/NimboApp/NimboApp.csproj -c Release -o build/NimboApp `
-            -p:NimboNativeDir="$PWD/build/Release/"
+            -p:NimboNativeDir="$PWD/build/Release/" $versionArg
           if (-not (Test-Path build/NimboApp/Nimbo.exe)) { throw "Nimbo.exe missing" }
           if (-not (Test-Path build/NimboApp/nimbo_server.dll)) { throw "nimbo_server.dll not copied next to the app" }
           if (-not (Test-Path build/NimboApp/nimbo_win.exe)) { throw "nimbo_win.exe not copied next to the app" }
@@ -89,7 +94,16 @@ jobs:
       - name: Windows installer (Inno Setup)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/windows/make_installer.ps1 -AppDir build/NimboApp -OutDir build/installer
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '' }
+          ./scripts/windows/make_installer.ps1 -AppDir build/NimboApp -OutDir build/installer -Version $v
+
+      - name: GitHub release (tags)
+        if: runner.os == 'Windows' && github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$env:GITHUB_REF_NAME" (Get-ChildItem build/installer/Nimbo-Setup-*.exe).FullName --title "Nimbo $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes
 
       - name: Upload Windows installer
         if: runner.os == 'Windows'

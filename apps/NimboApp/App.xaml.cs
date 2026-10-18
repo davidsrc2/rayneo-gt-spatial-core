@@ -21,6 +21,9 @@ public partial class App : Application
     private PanelWindow? _panel;
     private SettingsWindow? _settings;
     private OnboardingWindow? _onboarding;
+    private UpdateInfo? _update;
+    private MenuFlyoutItem? _updateItem;
+    private DispatcherQueueTimer? _updateTimer;
 
     public App()
     {
@@ -166,6 +169,19 @@ public partial class App : Application
         _tray.ForceCreate();
         Trace("launch: tray icon ok");
 
+        // Updates: a look 20 s after start, then every 12 h.
+        _updateItem = new MenuFlyoutItem { Text = "Actualizar Nimbo", Visibility = Visibility.Collapsed,
+                                           Command = new RelayCommand(() => _ = InstallUpdateAsync()) };
+        menu.Items.Insert(0, _updateItem);
+        _updateTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _updateTimer.Interval = TimeSpan.FromSeconds(20);
+        _updateTimer.Tick += (t, _) =>
+        {
+            t.Interval = TimeSpan.FromHours(12);
+            _ = CheckUpdateAsync(quiet: true);
+        };
+        _updateTimer.Start();
+
         bool background = Environment.GetCommandLineArgs().Contains(Startup.BackgroundArg);
         if (!_model.OnboardingDone) OpenOnboarding(OnboardingWindow.Step.Welcome, singleStep: false);
         else if (!background) _panel.ShowNearTray();
@@ -204,12 +220,62 @@ public partial class App : Application
         {
             _settings = new SettingsWindow(_model, _server);
             _settings.RecalibrateRequested += () => OpenOnboarding(OnboardingWindow.Step.Calibration, singleStep: true);
+            _settings.UpdateRequested += () => _ = _update != null ? InstallUpdateAsync() : CheckUpdateAsync(quiet: false);
         }
         _settings.ShowCentered();
+        ShowUpdateState();
+    }
+
+    private void ShowUpdateState(string? message = null)
+    {
+        var current = $"Versión {Updater.CurrentText}";
+        if (_update != null)
+        {
+            var v = $"{_update.Version.Major}.{_update.Version.Minor}.{_update.Version.Build}";
+            _settings?.ShowUpdate(message ?? $"{current}. Hay una nueva: {v}.", $"Actualizar a {v}");
+        }
+        else
+        {
+            _settings?.ShowUpdate(message ?? current, "Buscar actualizaciones");
+        }
+    }
+
+    private async Task CheckUpdateAsync(bool quiet)
+    {
+        if (!quiet) _settings?.ShowUpdate("Buscando…", "Buscar actualizaciones", enabled: false);
+        var found = await Updater.CheckAsync();
+        bool fresh = found != null && (_update == null || found.Version != _update.Version);
+        _update = found ?? _update;
+        if (_update != null && _updateItem != null)
+        {
+            _updateItem.Text = $"Actualizar a {_update.Version.Major}.{_update.Version.Minor}.{_update.Version.Build}";
+            _updateItem.Visibility = Visibility.Visible;
+        }
+        if (fresh && _update != null)
+        {
+            _tray?.ShowNotification("Actualización de Nimbo disponible",
+                                    $"Versión {_update.Version.Major}.{_update.Version.Minor}.{_update.Version.Build}: clic derecho en el icono > Actualizar");
+        }
+        ShowUpdateState(found == null && !quiet ? $"Versión {Updater.CurrentText}: es la última." : null);
+    }
+
+    private async Task InstallUpdateAsync()
+    {
+        if (_update == null) return;
+        _settings?.ShowUpdate("Descargando la actualización…", "Actualizar", enabled: false);
+        var error = await Updater.InstallAsync(_update);
+        if (error != null)
+        {
+            ShowUpdateState(error);
+            _tray?.ShowNotification("No se pudo actualizar Nimbo", error);
+            return;
+        }
+        Quit();  // the installer replaces the files and opens Nimbo again
     }
 
     private void Quit()
     {
+        _updateTimer?.Stop();
         _hotKeys?.Dispose();
         _server?.Dispose();  // stops the server: displays restored
         _tray?.Dispose();

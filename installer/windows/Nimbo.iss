@@ -83,6 +83,8 @@ Filename: "{tmp}\parsec-vdd.exe"; Parameters: "/S"; StatusMsg: "{cm:InstallingPa
 Filename: "{app}\nimbo_win.exe"; Parameters: "--setup-displays"; StatusMsg: "{cm:InstallingDriver}"; \
   Flags: runhidden waituntilterminated
 Filename: "{app}\Nimbo.exe"; Description: "{cm:Launch}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+; An update from the app (silent): Nimbo opens again by itself.
+Filename: "{app}\Nimbo.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{app}\nimbo_win.exe"; Parameters: "--restore"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreDisplays"
