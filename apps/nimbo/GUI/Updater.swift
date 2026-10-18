@@ -92,8 +92,15 @@ final class Updater: ObservableObject {
     @MainActor
     private func relaunchInto(_ app: URL) throws {
         let dest = Bundle.main.bundlePath
+        // Waits for Nimbo to quit; if it has not in 10 s (stuck restoring the displays, a sheet
+        // that would not close), asks it to (TERM), then forces it after 5 s more.
         let script = """
-        while kill -0 \(getpid()) 2>/dev/null; do sleep 0.2; done
+        pid=\(getpid()); n=0
+        while kill -0 $pid 2>/dev/null; do
+          sleep 0.2; n=$((n+1))
+          [ $n -eq 50 ] && kill -TERM $pid 2>/dev/null
+          [ $n -eq 75 ] && kill -KILL $pid 2>/dev/null
+        done
         rm -rf "$1.old" && mv "$1" "$1.old" && /usr/bin/ditto "$2" "$1" && rm -rf "$1.old" || { [ -d "$1.old" ] && [ ! -d "$1" ] && mv "$1.old" "$1"; }
         /usr/bin/xattr -dr com.apple.quarantine "$1" 2>/dev/null
         /usr/bin/open "$1"
