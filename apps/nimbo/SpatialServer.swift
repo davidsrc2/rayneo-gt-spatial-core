@@ -46,6 +46,7 @@ struct LatencyStats {
     var missed = 0                              // frames shown a refresh (or more) after their target
     var missedMoving = 0, missedStill = 0       // of those, drawn with the head moving / still (< 1 deg/s)
     var missedLatch = 0                         // of those, the latch's (CPU past the margin)
+    var lateSwitches = 0                        // on time <-> a refresh late: each one a visible step
     var cpuSum = 0.0, cpuMax = 0.0              // wake-up (pose read) to commit (ms), display link frames
     var readyN = 0
     var readySum = 0.0                          // GPU end before the deadline (ms; < 0: after it)
@@ -164,6 +165,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // How much later than its target a frame actually reaches the glasses (ms, smoothed): the
     // head pose is predicted for that real moment, or the panels lag and jerk while turning.
     private var presentLateMs = 0.0  // guarded by statsLock
+    private var lastLate = false     // guarded by statsLock: the last presented frame was a refresh late
+    private var lastMovingMedia = 0.0  // render thread: the last frame drawn with the head moving
     private var lastDrawn: simd_quatf?  // render thread
     private var lastPredicted: simd_quatf?, lastStep: simd_float3?  // render thread: moving jitter
     private let drawLock = NSLock()     // one frame at a time: display link or fallback loop
@@ -1479,6 +1482,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     private func nothingChanged(_ p: PoseSample) -> Bool {
+        if continueAfterMotionS > 0 && CACurrentMediaTime() - lastMovingMedia < continueAfterMotionS {
+            renderer.invalidateSkippedFrame()
+            return false
+        }
         statsLock.lock()
         let forced = redrawRequested
         redrawRequested = false
@@ -2112,6 +2119,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // Sleeps until the CACurrentMediaTime `t`: mach_wait_until to 0.3 ms before it, then spins.
     // Thread.sleep woke ~0.7 ms late, so the pose was read that much later than the margin
     // said (applied 0.3 ms for a 1 ms margin) and frames risked their deadline.
+    // Frames keep being drawn this long after the head stops. The glasses take frames on time or
+    // a refresh late in states that end at the first idle frames; every switch between the two
+    // is a visible step. Drawing on through the short pauses of a turn kept them in one state:
+    // 113 -> 10 switches in a 150 s replay where the late state appeared (17 -> 1 while moving).
+    private let continueAfterMotionS = 0.5
+
     private func waitUntilMedia(_ t: CFTimeInterval) {
         let coarse = t - 0.0003
         if coarse > CACurrentMediaTime() { mach_wait_until(Self.machTicks(fromMedia: coarse)) }
@@ -2179,6 +2192,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let sampleMedia = nowMedia - Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e9
         let target = targetMedia
         let still = simd_length(p.angularVelocity) < 0.0175
+        if !still { lastMovingMedia = nowMedia }
         let cpu = FrameCPU()  // wake-up (pose read) to commit and GPU end, set as they happen
         let wake = nowMedia
         drawable.addPresentedHandler { [weak self] d in
@@ -2186,7 +2200,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             self.statsLock.lock()
             let lateMs = (d.presentedTime - target) * 1e3
             self.stats.addPresented(latency: (d.presentedTime - sampleMedia) * 1e3, targetError: lateMs)
-            if lateMs > self.framePeriodS * 500 {
+            let isLate = lateMs > self.framePeriodS * 500
+            if isLate != self.lastLate { self.stats.lateSwitches += 1 }
+            self.lastLate = isLate
+            if isLate {
                 self.stats.missed += 1
                 if still { self.stats.missedStill += 1 } else { self.stats.missedMoving += 1 }
             }
@@ -2409,9 +2426,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let inN = Double(max(1, s.intervalN))
         let inMean = s.intervalSum / inN
         let inStd = (max(0, s.intervalSq / inN - inMean * inMean)).squareRoot()
-        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d (moving %d, still %d, latch %d) | latch %.1f ms (applied %.1f, cpu %.1f/%.1f, ready %.1f)%@",
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d (moving %d, still %d, latch %d, switches %d) | latch %.1f ms (applied %.1f, cpu %.1f/%.1f, ready %.1f)%@",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
-                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, s.missedMoving, s.missedStill, s.missedLatch, latchMs,
+                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, s.missedMoving, s.missedStill, s.missedLatch, s.lateSwitches, latchMs,
                    s.latchN > 0 ? s.latchSum / Double(s.latchN) : 0, s.latchN > 0 ? s.cpuSum / Double(s.latchN) : 0, s.cpuMax,
                    s.readyN > 0 ? s.readySum / Double(s.readyN) : 0,
                    (s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) : "")
