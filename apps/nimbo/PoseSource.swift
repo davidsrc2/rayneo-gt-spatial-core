@@ -24,10 +24,13 @@ final class ImuPoseSource: PoseSource {
     private let calibrationRequired: Bool
     private(set) var calibrationLoaded = false
 
-    init(calibrationPath: String, calibrationRequired: Bool, deadZoneDeg: Float = 0) {
+    init(calibrationPath: String, calibrationRequired: Bool, deadZoneDeg: Float = 0,
+         recordPath: String? = nil, replayPath: String? = nil) {
         self.calibrationPath = calibrationPath
         self.calibrationRequired = calibrationRequired
         engine = RNSpatialEngine(deadZoneDegrees: deadZoneDeg)
+        engine.setRecordPath(recordPath)
+        engine.setReplayPath(replayPath)
     }
 
     func start() throws {

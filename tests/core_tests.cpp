@@ -11,6 +11,7 @@
 #include "rayneo/core/gyro_bias_estimator.h"
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/imu_pipeline.h"
+#include "rayneo/core/imu_recording.h"
 #include "rayneo/core/madgwick.h"
 #include "rayneo/core/panel_dimmer.h"
 #include "rayneo/core/pose_stabilizer.h"
@@ -1480,6 +1481,27 @@ void test_frame_skipper() {
     CHECK(!s.skip(in));
 }
 
+void test_imu_recording_roundtrip() {
+    std::vector<uint8_t> buf;
+    append_imu_recording_header(buf);
+    uint8_t a[64], b[2] = {0x99, 0xc8};
+    for (int i = 0; i < 64; ++i) a[i] = static_cast<uint8_t>(i * 3);
+    append_imu_record(buf, 0x0123456789abcdefull, a, sizeof(a));
+    append_imu_record(buf, 42, b, sizeof(b));
+    auto r = parse_imu_recording(buf.data(), buf.size());
+    CHECK(r && r->size() == 2);
+    if (r && r->size() == 2) {
+        CHECK((*r)[0].host_ns == 0x0123456789abcdefull && (*r)[0].length == 64 && (*r)[0].data[63] == 189);
+        CHECK((*r)[1].host_ns == 42 && (*r)[1].length == 2 && (*r)[1].data[1] == 0xc8);
+    }
+    // Cut short in the last report: the complete ones survive.
+    auto cut = parse_imu_recording(buf.data(), buf.size() - 1);
+    CHECK(cut && cut->size() == 1);
+    // Not a recording.
+    buf[0] = 'X';
+    CHECK(!parse_imu_recording(buf.data(), buf.size()));
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -1551,6 +1573,7 @@ int main() {
     test_fit_panels();
     test_grid_layout();
     test_bent_panels();
+    test_imu_recording_roundtrip();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

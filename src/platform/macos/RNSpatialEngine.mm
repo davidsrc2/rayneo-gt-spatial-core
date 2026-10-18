@@ -73,6 +73,9 @@
 - (void)setGlassesMode:(NSInteger)mode { rayneo_engine_set_glasses_mode(_engine, static_cast<int>(mode)); }
 - (void)setGlassesBrightness:(NSInteger)level { rayneo_engine_set_glasses_brightness(_engine, static_cast<int>(level)); }
 
+- (void)setRecordPath:(NSString*)path { rayneo_engine_set_record_path(_engine, path != nil ? path.UTF8String : ""); }
+- (void)setReplayPath:(NSString*)path { rayneo_engine_set_replay_path(_engine, path != nil ? path.UTF8String : ""); }
+
 - (BOOL)loadCalibrationFromFile:(NSString*)path error:(NSError**)error {
     std::ifstream f(path.fileSystemRepresentation);
     std::stringstream ss;

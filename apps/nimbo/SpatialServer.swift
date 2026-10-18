@@ -32,6 +32,10 @@ struct LatencyStats {
     var intervalSum = 0.0, intervalSq = 0.0, intervalMax = 0.0  // ms
     var targetErrSum = 0.0                      // presentedTime - targetPresentationTimestamp (ms)
     var missed = 0                              // frames shown a refresh (or more) after their target
+    var missedMoving = 0, missedStill = 0       // of those, drawn with the head moving / still (< 1 deg/s)
+    // Late latching as applied: from the pose read to the frame's deadline (ms), display link frames only.
+    var latchN = 0
+    var latchSum = 0.0
     var tracking = false
     var idle = 0                                // frames skipped: nothing changed
     // With the head still (< 1 deg/s): frame-to-frame change of the pose drawn, i.e. how much
@@ -207,8 +211,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         } else {
             let imu = ImuPoseSource(calibrationPath: options.calibrationPath,
                                     calibrationRequired: options.calibrationRequired,
-                                    deadZoneDeg: options.deadZoneDeg)
+                                    deadZoneDeg: options.deadZoneDeg,
+                                    recordPath: options.recordImuPath, replayPath: options.replayImuPath)
             pose = imu
+            if let r = options.recordImuPath { log("imu: recording raw reports to \(r)") }
+            if let r = options.replayImuPath { log("imu: replaying \(r) instead of the glasses") }
         }
         try pose.start()
         if let imu = pose as? ImuPoseSource {
@@ -2064,14 +2071,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let wait = update.targetTimestamp - margin - CACurrentMediaTime()
             if wait > 0.0003 && wait < 0.03 { Thread.sleep(forTimeInterval: wait) }
         }
-        drawFrame(update.drawable, targetMedia: update.targetPresentationTimestamp)
+        drawFrame(update.drawable, targetMedia: update.targetPresentationTimestamp, deadline: update.targetTimestamp)
     }
 
     // One frame into `drawable`, for presentation at `targetMedia` (CACurrentMediaTime clock).
     // From the display link, or from the fallback loop while it is stalled. false: skipped
     // (nothing changed), not presented.
     @discardableResult
-    private func drawFrame(_ drawable: CAMetalDrawable, targetMedia: CFTimeInterval) -> Bool {
+    private func drawFrame(_ drawable: CAMetalDrawable, targetMedia: CFTimeInterval, deadline: CFTimeInterval? = nil) -> Bool {
         drawLock.lock()
         defer { drawLock.unlock() }
         // Map CACurrentMediaTime (display link base) onto the engine's steady clock.
@@ -2100,12 +2107,16 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // Ground truth: when the frame actually reached the display (same media clock).
         let sampleMedia = nowMedia - Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e9
         let target = targetMedia
+        let still = simd_length(p.angularVelocity) < 0.0175
         drawable.addPresentedHandler { [weak self] d in
             guard let self, d.presentedTime > 0 else { return }
             self.statsLock.lock()
             let lateMs = (d.presentedTime - target) * 1e3
             self.stats.addPresented(latency: (d.presentedTime - sampleMedia) * 1e3, targetError: lateMs)
-            if lateMs > self.framePeriodS * 500 { self.stats.missed += 1 }
+            if lateMs > self.framePeriodS * 500 {
+                self.stats.missed += 1
+                if still { self.stats.missedStill += 1 } else { self.stats.missedMoving += 1 }
+            }
             if lateMs > max(3, self.framePeriodS * 500) {  // missed its frame: read earlier
                 self.latchMarginS = min(0.012, self.latchMarginS + 0.001)
                 self.latchOnTime = 0
@@ -2130,7 +2141,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                                          sampleHostNs: p.hostTimeNs, targetHostNs: UInt64(max(0, targetHost)))
         let poseAge = Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6
         let photon = Double(targetHost - Int64(p.hostTimeNs)) / 1e6
-        let still = simd_length(p.angularVelocity) < 0.0175
         // From the relative rotation's vector part: acos of a dot product near 1 rounds every
         // step under ~0.02 deg to 0 in Float (the log read 0 while the panels trembled).
         var step = 0.0
@@ -2160,6 +2170,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             stats.movingSq += jitter * jitter
         }
         stats.add(poseAge: poseAge, photon: photon, prediction: Double(prediction))
+        if let deadline {
+            stats.latchN += 1
+            stats.latchSum += (deadline - nowMedia) * 1e3
+        }
         stats.tracking = p.tracking
         if still && step < 1 {
             stats.stillN += 1
@@ -2285,9 +2299,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let inN = Double(max(1, s.intervalN))
         let inMean = s.intervalSum / inN
         let inStd = (max(0, s.intervalSq / inN - inMean * inMean)).squareRoot()
-        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d | latch %.1f ms%@",
+        log(String(format: "%@ render %3d fps%@ | capture %3llu fps (%d src) | pose age %.1f/%.1f ms | sample->presented %.1f/%.1f ms | predicted %.1f ms (late %.1f) | frame interval %.1f±%.1f max %.1f ms | missed %d (moving %d, still %d) | latch %.1f ms (applied %.1f)%@",
                    s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? " (\(s.idle) idle)" as NSString : "" as NSString, capFps, captures.count, s.poseAgeSum / n, s.poseAgeMax,
-                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, latchMs,
+                   s.presentedSum / pn, s.presentedMax, s.predSum / n, s.targetErrSum / pn, inMean, inStd, s.intervalMax, s.missed, s.missedMoving, s.missedStill, latchMs,
+                   s.latchN > 0 ? s.latchSum / Double(s.latchN) : 0,
                    (s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) : "")
                    + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "")
                    + String(format: " | gpu %.1f ms", renderer.lastGPUMs) as NSString))

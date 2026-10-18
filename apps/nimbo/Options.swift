@@ -102,6 +102,8 @@ struct ServerOptions {
     var sim = false               // simulated head instead of the IMU
     var simSweepDeg: Float = 0    // automatic yaw sweep amplitude (sim)
     var durationS: Double = 0     // 0 = until Ctrl+C
+    var recordImuPath: String?    // the session's raw IMU reports to this file
+    var replayImuPath: String?    // a recording instead of the glasses' IMU
 
     var panelArcDeg: Float { arcDeg ?? (displays > 0 ? 38 : 50) }  // 38: a whole panel fits the ~42° horizontal FOV
 
@@ -165,6 +167,10 @@ struct ServerOptions {
       --unmirror           extend instead of mirror while running (reverted on exit)
       --60hz               keep the glasses' current refresh rate (default: 120 Hz)
       --duration S         exit after S seconds
+      --supersample N      eye images drawn N times larger and mipmapped down (the app: 2)
+      --record-imu FILE    write the session's raw IMU reports to FILE (for --replay-imu)
+      --replay-imu FILE    play a recording back instead of the glasses' IMU (same head motion
+                           through tracking and rendering: before / after comparisons)
     menu bar: "◎ Nimbo" -> Recentrar / Salir
     hotkeys: Cmd+Opt+C recenter (and bring the cursor to the panel in front), Cmd+Opt+Q quit,
              Cmd+Opt+- / Cmd+Opt+= field of view (tune until the panels stay put when turning),
@@ -266,6 +272,9 @@ struct ServerOptions {
             case "--unmirror": o.unmirror = true
             case "--60hz": o.refresh120 = false
             case "--duration": guard let v = value().flatMap({ Double($0) }) else { return nil }; o.durationS = v
+            case "--supersample": guard let v = value().flatMap({ Int($0) }), (1...4).contains(v) else { return nil }; o.supersample = v
+            case "--record-imu": guard let v = value() else { return nil }; o.recordImuPath = v
+            case "--replay-imu": guard let v = value() else { return nil }; o.replayImuPath = v
             default: return nil
             }
             i += 1

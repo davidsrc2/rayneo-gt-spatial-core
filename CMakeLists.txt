@@ -74,6 +74,7 @@ add_library(rayneo_core STATIC
   src/core/panel_dimmer.cpp
   src/core/frame_skip.cpp
   src/core/settings.cpp
+  src/core/imu_recording.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
 target_include_directories(rayneo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

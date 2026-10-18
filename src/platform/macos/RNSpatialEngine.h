@@ -31,6 +31,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setGlassesBrightness:(NSInteger)level;
 - (nullable RNPose*)latestPose;
 
+// Before start: the session's raw IMU reports written to this file / a recording played back
+// instead of the glasses (core/imu_recording.h). nil: off.
+- (void)setRecordPath:(nullable NSString*)path;
+- (void)setReplayPath:(nullable NSString*)path;
+
 // Loads calibration.json (sensor_to_head). Applied immediately, implies a recenter.
 - (BOOL)loadCalibrationFromFile:(NSString*)path error:(NSError* _Nullable* _Nullable)error;
 

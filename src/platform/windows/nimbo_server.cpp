@@ -394,6 +394,16 @@ struct LatencyStats {
     int presented_n = 0;
     double presented_sum = 0, presented_max = 0;  // sample -> scanout (DXGI frame statistics)
     double target_err_sum = 0;                    // scanout - predicted target (ms)
+    // As on macOS: frames shown a refresh (or more) after their target, split by the head moving
+    // or still when drawn; the scanout rhythm; the pose read to vsync as applied (late latching).
+    int missed = 0, missed_moving = 0, missed_still = 0;
+    int interval_n = 0;
+    double interval_sum = 0, interval_sq = 0, interval_max = 0;  // ms
+    int latch_n = 0;
+    double latch_sum = 0;  // ms
+    // With the head moving (> 1 deg/s): frame-to-frame change of the drawn pose's step (deg).
+    int moving_n = 0;
+    double moving_sq = 0;
     bool tracking = false;
     // With the head still (< 1 deg/s): frame-to-frame change of the pose drawn, i.e. how much
     // the panels wobble in the room (deg rms), as on macOS.
@@ -576,7 +586,13 @@ private:
 
     struct Sent {
         uint64_t sample_ns = 0, target_ns = 0;
+        bool still = false;
     };
+    uint64_t last_shown_ns_ = 0;  // scanout of the last frame statistics collected
+    UINT last_shown_count_ = 0;
+    core::Quat last_predicted_{};
+    core::Vec3 last_step_{};
+    bool have_last_predicted_ = false, have_last_step_ = false;
     Sent sent_[128];
     UINT last_stats_present_ = 0;
 
@@ -1143,6 +1159,22 @@ void Server::collect_presented() {
     stats_.presented_max = std::max(stats_.presented_max, latency);
     const double late = (static_cast<double>(shown) - static_cast<double>(s.target_ns)) / 1e6;
     stats_.target_err_sum += late;
+    if (late > 500.0 / std::max(1, refresh_hz_)) {
+        stats_.missed += 1;
+        (s.still ? stats_.missed_still : stats_.missed_moving) += 1;
+    }
+    // Consecutive presents only: a gap of skipped (idle) frames is not the rhythm.
+    if (last_shown_ns_ != 0 && fs.PresentCount == last_shown_count_ + 1 && shown > last_shown_ns_) {
+        const double gap = static_cast<double>(shown - last_shown_ns_) / 1e6;
+        if (gap < 50.0) {
+            stats_.interval_n += 1;
+            stats_.interval_sum += gap;
+            stats_.interval_sq += gap * gap;
+            stats_.interval_max = std::max(stats_.interval_max, gap);
+        }
+    }
+    last_shown_ns_ = shown;
+    last_shown_count_ = fs.PresentCount;
     // Late latching: a frame that missed its refresh (a period later than usual) reads the pose
     // earlier from now on; a long run on time narrows the margin again.
     const double period = 1000.0 / std::max(1, refresh_hz_);
@@ -1184,6 +1216,7 @@ bool Server::frame() {
         while (steady_ns() < wake) YieldProcessor();
     }
     update_cursor();
+    const uint64_t read_ns = steady_ns();
     const auto p = pose_->latest();
     float prediction = 0;
     if (!p) {
@@ -1207,7 +1240,8 @@ bool Server::frame() {
         return true;
     }
     UINT id = 0;
-    if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) sent_[id % 128] = {p->host_ns, vsync};
+    const bool still = p && p->angular_velocity.norm() < 0.0175f;
+    if (p && SUCCEEDED(swap_chain_->GetLastPresentCount(&id))) sent_[id % 128] = {p->host_ns, vsync, still};
     if (p) {
         // Still head: how much the drawn pose changes frame to frame (the panels' wobble).
         if (p->angular_velocity.norm() < 0.0175f && have_last_drawn_) {
@@ -1224,6 +1258,28 @@ bool Server::frame() {
         }
         last_drawn_ = p->orientation;
         have_last_drawn_ = true;
+        // The pose as drawn (the renderer's prediction redone along the gyro, its horizon), as on macOS.
+        const core::Quat drawn = core::predict_orientation(p->orientation, p->angular_velocity, prediction * 1e-3f);
+        if (have_last_predicted_) {
+            core::Quat r = last_predicted_.conjugate() * drawn;
+            if (r.w < 0) r = core::Quat{-r.w, -r.x, -r.y, -r.z};
+            const core::Vec3 step{2.0f * r.x * 57.29578f, 2.0f * r.y * 57.29578f, 2.0f * r.z * 57.29578f};
+            if (!still && have_last_step_) {
+                const double j = (step - last_step_).norm();
+                if (j < 2.0) {
+                    stats_.moving_n += 1;
+                    stats_.moving_sq += j * j;
+                }
+            }
+            last_step_ = step;
+            have_last_step_ = true;
+        }
+        last_predicted_ = drawn;
+        have_last_predicted_ = true;
+        if (vsync > read_ns) {
+            stats_.latch_n += 1;
+            stats_.latch_sum += static_cast<double>(vsync - read_ns) / 1e6;
+        }
         const double age = static_cast<double>(static_cast<int64_t>(steady_ns() - p->host_ns)) / 1e6;
         stats_.frames += 1;
         stats_.pose_age_sum += age;
@@ -1346,11 +1402,22 @@ void Server::periodic() {
         std::snprintf(buf, sizeof(buf), " | still wobble %.4f deg/frame", std::sqrt(s.still_sq / s.still_n));
         wobble = buf;
     }
+    if (s.moving_n > 30) {
+        char buf[48];
+        std::snprintf(buf, sizeof(buf), " | moving jitter %.3f deg", std::sqrt(s.moving_sq / s.moving_n));
+        wobble += buf;
+    }
+    const double in_n = std::max(1, s.interval_n);
+    const double in_mean = s.interval_sum / in_n;
+    const double in_std = std::sqrt(std::max(0.0, s.interval_sq / in_n - in_mean * in_mean));
+    // Same fields and order as macOS (scripts/log_stats.py reads both).
     logln("%s render %3d fps%s | capture %3llu fps (%zu src) | pose age %.1f/%.1f ms | sample->scanout %.1f/%.1f ms"
-        " (target err %+.1f) | predicted %.1f ms | latch %.1f ms%s%s",
+        " | predicted %.1f ms (late %.1f) | frame interval %.1f+-%.1f max %.1f ms | missed %d (moving %d, still %d)"
+        " | latch %.1f ms (applied %.1f)%s%s",
         s.tracking ? "TRACK" : "CALIB", s.frames, s.idle > 0 ? (" (" + std::to_string(s.idle) + " idle)").c_str() : "",
         static_cast<unsigned long long>(cap_fps), captures_.size(), s.pose_age_sum / n, s.pose_age_max, s.presented_sum / pn,
-        s.presented_max, s.target_err_sum / pn, s.pred_sum / n, latch_margin_ms_, imu.c_str(), wobble.c_str());
+        s.presented_max, s.pred_sum / n, s.target_err_sum / pn, in_mean, in_std, s.interval_max, s.missed, s.missed_moving,
+        s.missed_still, latch_margin_ms_, s.latch_n > 0 ? s.latch_sum / s.latch_n : 0.0, imu.c_str(), wobble.c_str());
     if (renderer_.options.depth_panel >= 0) {
         if (depth_.state() == win::DepthEngine::State::Failed) {
             if (!depth_failed_logged_) logln("3d: unavailable (%s); the panel stays flat", depth_.error().c_str());

@@ -82,6 +82,14 @@ void rayneo_engine_set_sensor_to_head(rayneo_engine* e, float qw, float qx, floa
  * real size). Loaded at start, saved every 30 s while it changes and at stop. Before start. */
 void rayneo_engine_set_bias_map_path(rayneo_engine* e, const char* path);
 
+/* Raw HID reports of the session, with their arrival times, written to this file (UTF-8 path;
+ * core/imu_recording.h). Before start; empty: off. */
+void rayneo_engine_set_record_path(rayneo_engine* e, const char* path);
+
+/* A recording played back in real time instead of the glasses' IMU (no HID device opened;
+ * the bias map is read, not saved). Before start; empty: the glasses. */
+void rayneo_engine_set_replay_path(rayneo_engine* e, const char* path);
+
 /* Last error message, valid until the next call on this engine. */
 const char* rayneo_engine_last_error(rayneo_engine* e);
 

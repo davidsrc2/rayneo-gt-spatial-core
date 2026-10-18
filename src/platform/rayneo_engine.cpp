@@ -1,6 +1,9 @@
 #include "rayneo/platform/rayneo_engine.h"
 
 #include <atomic>
+#include <cstring>
+#include <iterator>
+#include <vector>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +21,7 @@
 
 #include "rayneo/core/gt_protocol.h"
 #include "rayneo/core/imu_pipeline.h"
+#include "rayneo/core/imu_recording.h"
 #include "rayneo/core/tick_monitor.h"
 #include "rayneo/hal/hid_transport.h"
 #include "rayneo/hal/imu_stream_reader.h"
@@ -50,6 +54,12 @@ struct rayneo_engine {
     std::string error;
     bool hal_ready = false;
     std::string bias_map_path;  // set before start
+
+    // Recording (raw reports to a file) and replay (a recording instead of the glasses).
+    std::string record_path, replay_path;  // set before start
+    std::ofstream record_file;             // fusion thread
+    std::vector<uint8_t> record_buf;       // fusion thread: flushed about once a second
+    std::vector<rayneo::core::ImuRecord> replay;
 };
 
 namespace {
@@ -79,6 +89,22 @@ void load_bias_map(rayneo_engine* e) {
     if (auto map = rayneo::core::BiasMap::from_json(ss.str())) e->pipeline->set_bias_map(*map);
 }
 
+uint64_t now_ns() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                     std::chrono::steady_clock::now().time_since_epoch())
+                                     .count());
+}
+
+bool load_replay(rayneo_engine* e) {
+    std::ifstream f(std::filesystem::u8path(e->replay_path), std::ios::binary);
+    const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    auto records = rayneo::core::parse_imu_recording(bytes.data(), bytes.size());
+    if (!f.good() && !f.eof()) return false;
+    if (!records || records->empty()) return false;
+    e->replay = std::move(*records);
+    return true;
+}
+
 void fusion_loop(rayneo_engine* e) {
 #if defined(__APPLE__)
     // Same class as the reader: in a background app, timer coalescing would otherwise stretch
@@ -91,9 +117,33 @@ void fusion_loop(rayneo_engine* e) {
     RawReport rr;
     uint64_t seq = 0;
     uint64_t seq_since_save = 0;
+    // Replay: each recorded report when its time comes, on today's clock.
+    size_t replay_next = 0;
+    const uint64_t replay_start = now_ns();
+    const auto next_report = [&](RawReport& out) {
+        if (e->replay.empty()) return e->reader->pop(out);
+        if (replay_next >= e->replay.size()) return false;
+        const auto& r = e->replay[replay_next];
+        const uint64_t at = replay_start + (r.host_ns - e->replay.front().host_ns);
+        if (now_ns() < at) return false;
+        std::memcpy(out.data, r.data, r.length);
+        out.length = r.length;
+        out.host_time_ns = at;
+        ++replay_next;
+        return true;
+    };
     while (e->running.load(std::memory_order_acquire)) {
         bool drained = false;
-        while (e->reader->pop(rr)) {
+        while (next_report(rr)) {
+            if (e->record_file.is_open()) {
+                rayneo::core::append_imu_record(e->record_buf, rr.host_time_ns, rr.data, rr.length);
+                if (e->record_buf.size() >= 457 * 73) {
+                    e->record_file.write(reinterpret_cast<const char*>(e->record_buf.data()),
+                                         static_cast<std::streamsize>(e->record_buf.size()));
+                    e->record_file.flush();
+                    e->record_buf.clear();
+                }
+            }
             drained = true;
             {
                 std::lock_guard<std::mutex> lock(e->calib_mutex);
@@ -139,7 +189,7 @@ void fusion_loop(rayneo_engine* e) {
             e->ticks.update(p.device_tick_100us);
         }
         if (!drained) {
-            if (!e->reader->running()) break;  // device lost
+            if (e->reader && !e->reader->running()) break;  // device lost
             std::this_thread::sleep_for(std::chrono::microseconds(500));
         }
     }
@@ -198,18 +248,44 @@ rayneo_status rayneo_engine_start(rayneo_engine* e) {
         e->ticks.reset();
         e->other_reports = 0;
     }
-    e->reader = std::make_unique<ImuStreamReader>();
     e->pipeline = std::make_unique<ImuPipeline>(e->cfg);
+    // A recording keeps the bias map it started with, and its replay starts from that one, so
+    // every replay of it begins as the session did.
+    const std::string map_path = e->bias_map_path;
+    if (!e->replay_path.empty() && std::filesystem::exists(std::filesystem::u8path(e->replay_path + ".biasmap.json"))) {
+        e->bias_map_path = e->replay_path + ".biasmap.json";
+    }
     load_bias_map(e);
+    e->bias_map_path = map_path;
+    if (!e->record_path.empty() && !map_path.empty()) {
+        std::error_code ec;
+        std::filesystem::copy_file(std::filesystem::u8path(map_path), std::filesystem::u8path(e->record_path + ".biasmap.json"),
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+    }
     {
         std::lock_guard<std::mutex> lock(e->calib_mutex);
         e->pipeline->set_sensor_to_head(e->sensor_to_head);
         e->calib_pending = false;
     }
-    if (!e->reader->open_device(&e->error)) return RAYNEO_ERR_NOT_FOUND;
-    if (!e->reader->start()) {
-        e->error = "reader start failed";
-        return RAYNEO_ERR_STATE;
+    e->replay.clear();
+    if (!e->replay_path.empty()) {
+        e->reader.reset();
+        if (!load_replay(e)) {
+            e->error = "not an IMU recording: " + e->replay_path;
+            return RAYNEO_ERR_NOT_FOUND;
+        }
+    } else {
+        e->reader = std::make_unique<ImuStreamReader>();
+        if (!e->reader->open_device(&e->error)) return RAYNEO_ERR_NOT_FOUND;
+        if (!e->reader->start()) {
+            e->error = "reader start failed";
+            return RAYNEO_ERR_STATE;
+        }
+    }
+    if (!e->record_path.empty()) {
+        e->record_file.open(std::filesystem::u8path(e->record_path), std::ios::binary | std::ios::trunc);
+        e->record_buf.clear();
+        rayneo::core::append_imu_recording_header(e->record_buf);
     }
     e->running.store(true, std::memory_order_release);
     e->fusion_thread = std::thread(fusion_loop, e);
@@ -220,7 +296,13 @@ void rayneo_engine_stop(rayneo_engine* e) {
     if (e == nullptr) return;
     e->running.store(false, std::memory_order_release);
     if (e->fusion_thread.joinable()) e->fusion_thread.join();
-    save_bias_map(e);
+    if (e->record_file.is_open()) {
+        e->record_file.write(reinterpret_cast<const char*>(e->record_buf.data()),
+                             static_cast<std::streamsize>(e->record_buf.size()));
+        e->record_file.close();
+        e->record_buf.clear();
+    }
+    if (e->replay.empty()) save_bias_map(e);  // a replay teaches nothing new
     if (e->reader) e->reader->stop();
 }
 
@@ -273,6 +355,14 @@ void rayneo_engine_set_sensor_to_head(rayneo_engine* e, float qw, float qx, floa
 
 void rayneo_engine_set_bias_map_path(rayneo_engine* e, const char* path) {
     if (e != nullptr) e->bias_map_path = path != nullptr ? path : "";
+}
+
+void rayneo_engine_set_record_path(rayneo_engine* e, const char* path) {
+    if (e != nullptr) e->record_path = path != nullptr ? path : "";
+}
+
+void rayneo_engine_set_replay_path(rayneo_engine* e, const char* path) {
+    if (e != nullptr) e->replay_path = path != nullptr ? path : "";
 }
 
 const char* rayneo_engine_last_error(rayneo_engine* e) {
