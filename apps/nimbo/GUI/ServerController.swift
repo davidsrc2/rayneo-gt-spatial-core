@@ -48,6 +48,16 @@ final class ServerController: ObservableObject {
 
     func start() {
         guard let model, server == nil, pending == nil else { return }
+        // Screen Recording not granted to this build (a new signing certificate, a reset, or a
+        // first run): ask now and say where, instead of setting the displays up and failing.
+        if !CGPreflightScreenCaptureAccess() {
+            _ = CGRequestScreenCaptureAccess()
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                NSWorkspace.shared.open(url)
+            }
+            say("Nimbo necesita permiso de Grabación de pantalla: actívalo en Ajustes del Sistema y vuelve a empezar")
+            return
+        }
         let options = model.serverOptions()
         guard options.windowed || Displays.glassesConnected else {
             say("Conecta las gafas para empezar")
