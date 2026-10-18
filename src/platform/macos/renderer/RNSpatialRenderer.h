@@ -41,6 +41,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) BOOL cinema;            // with focusPanel: centred straight ahead and large
 @property(nonatomic) float cinemaYawRadians;   // where the cinema panel is centred (yaw right; 0 = straight ahead)
 @property(nonatomic) float cinemaPitchRadians; // (pitch up)
+// The arrangement lifted to this elevation (rad, up > 0; the recentre's, RNPose.panelsPitch).
+@property(nonatomic) float panelsPitchRadians;
 @property(nonatomic) float zoom;             // every panel this much larger (and the arrangement with them), 1 = off
 // AI 3D: panels given a depth map (setSourcePixelBuffer:depth:...) are drawn in depth when side by side.
 @property(nonatomic) float depthStrength;    // parallax between the eyes at the nearest depth, in panel widths (0.03)

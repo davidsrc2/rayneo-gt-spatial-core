@@ -184,6 +184,10 @@ void pitch_mesh(ScreenMesh& mesh, float pitch_rad);
 void place_pitched(ScreenMesh& mesh, float pitch_rad, float tilt, float distance_m);
 
 // Panel whose cell (panel plus half the gap on each side) contains the view direction, or -1.
+// The whole arrangement lifted (pitch_rad > 0) or lowered to an elevation: every panel's pitch
+// moved by it (the recentre's elevation, Pose::panels_pitch_rad).
+void lift_placements(std::vector<PanelPlacement>& panels, float pitch_rad);
+
 // Where the head looks, as a panel placement (yaw right, pitch up; scale 1).
 PanelPlacement gaze_placement(const Quat& head_rel);
 

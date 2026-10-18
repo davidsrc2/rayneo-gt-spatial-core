@@ -497,6 +497,7 @@ static float panel_arc(RNRenderOptions* o) {
         }
         core::separate_floating(out, w, h, count - floats, o.gapDegrees * kDegToRad);
     }
+    if (!o.staticHead) core::lift_placements(out, o.panelsPitchRadians);  // the recentre's elevation
     // Cinema: the focused panel straight ahead, large (the others are not drawn), but never
     // larger than the glasses' image: at real size a panel nearly fills it already, and 1.6x
     // left the film cut on every side.

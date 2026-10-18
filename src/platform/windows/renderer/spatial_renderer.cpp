@@ -265,6 +265,7 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
         }
         core::separate_floating(out, w, h, static_cast<size_t>(monitors), options.gap_deg * kDegToRad);
     }
+    if (!options.static_head) core::lift_placements(out, options.panels_pitch_rad);  // the recentre's elevation
     // Cinema: the focused panel straight ahead, large (the others are not drawn), but never
     // larger than the glasses' image (at real size a panel nearly fills it already).
     if (options.cinema && options.focus_panel >= 0 && options.focus_panel < static_cast<int>(out.size())) {

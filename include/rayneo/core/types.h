@@ -114,6 +114,9 @@ struct Pose {
     Vec3 accel_mps2;           // sensor frame
     uint32_t tick_100us = 0;
     bool tracking = false;  // false until the startup bias calibration completes
+    // recenter_pitch: the elevation (rad, up positive) the arrangement of panels is lifted to:
+    // where the head looked at the last user recentre, eased in with the recentre's glide.
+    float panels_pitch_rad = 0.0f;
 };
 
 }  // namespace rayneo::core

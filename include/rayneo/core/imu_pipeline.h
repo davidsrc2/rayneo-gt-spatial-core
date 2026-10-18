@@ -50,6 +50,12 @@ struct ImuPipelineConfig {
     // pitch at the recenter. Recentered looking down, the panels were laid on a tilted circle
     // and swept diagonally when turning about the vertical.
     bool level_reference = false;
+    // With level_reference: a user recentre (recenter(true)) also takes the head's elevation:
+    // Pose::panels_pitch_rad lifts the arrangement there (the reference stays level, so turning
+    // still sweeps the panels level instead of on a tilted circle). Clamped to
+    // +-max_recenter_pitch_rad. The start-up recentre keeps 0 (the glasses may lie on a table).
+    bool recenter_pitch = false;
+    float max_recenter_pitch_rad = 1.05f;  // 60 deg
     // Right after the attitude is initialised (from one accelerometer sample, maybe while the
     // head moves) a low gain takes many seconds to settle it: start at this gain and ease down
     // to madgwick_beta between startup_beta_hold_s and startup_beta_end_s.
@@ -142,6 +148,8 @@ private:
     bool glide_requested_ = false;
     Quat glide_from_;          // output offset at the recenter, eased to identity
     float glide_t_ = 1.0f;     // 0..1 progress; 1 = no glide
+    float pitch_from_ = 0.0f, pitch_to_ = 0.0f, pitch_now_ = 0.0f;  // recenter_pitch, rad
+    bool pitch_pending_ = false;  // the recentre's elevation, read from this sample's pose
     Quat last_relative_;       // last output, the glide's starting point
     Quat reference_;
     Quat heading_ref_;  // pure yaw: level frame aligned with the head's forward at recenter

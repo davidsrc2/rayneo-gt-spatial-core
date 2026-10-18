@@ -1708,6 +1708,47 @@ void test_stream_watchdog() {
     CHECK(!s.should_resend(400 * ms) && s.should_resend(520 * ms));
 }
 
+// The recentre button takes the head's elevation too: the panels are lifted there (eased in),
+// while the reference stays level (turning still sweeps them level). The start keeps 0.
+void test_recenter_lifts_panels_to_gaze() {
+    ImuPipelineConfig cfg = real_size_pipeline_config();
+    cfg.hold_until_bias_settles = false;
+    ImuPipeline p(cfg);
+    uint32_t tick = 0;
+    Vec3 accel{0, 0, 9.81f};
+    auto feed = [&](Vec3 g, int n) {
+        Pose last;
+        for (int i = 0; i < n; ++i) {
+            tick += 22;
+            const auto r = make_imu_report(accel, g, tick);
+            last = *p.process_report(r.data(), r.size());
+        }
+        return last;
+    };
+    Pose start = feed({0, 0, 0}, 457 * 8);
+    CHECK(start.tracking && near(start.panels_pitch_rad, 0.0f, 1e-4f));
+    // Nod 20 deg about the sensor's Y (identity mounting): the recentre lifts the panels to where
+    // the head then looks, whichever way that is.
+    const Pose nodded = feed({0, 20.0f, 0}, 457);
+    const float gaze = gaze_placement(nodded.relative).pitch_rad;
+    CHECK(std::fabs(gaze) > 0.25f);
+    // Gravity seen tilted now (the head stays nodded).
+    const Quat nod = Quat::from_axis_angle({0, 1, 0}, 20.0f * 0.0174533f);
+    accel = nod.conjugate().rotate({0, 0, 9.81f});
+    feed({0, 0, 0}, 457);
+    p.recenter(true);
+    const Pose mid = feed({0, 0, 0}, 40);  // glide under way (0.3 s)
+    const Pose after = feed({0, 0, 0}, 457);
+    CHECK(near(after.panels_pitch_rad, gaze, 0.05f));
+    CHECK(std::fabs(mid.panels_pitch_rad) < std::fabs(after.panels_pitch_rad));  // eased in
+    // Looking straight at the lifted panels: the relative pose itself keeps the nod (level reference).
+    CHECK(near(gaze_placement(after.relative).pitch_rad, gaze, 0.05f));
+    // lift_placements moves every panel by the same elevation.
+    std::vector<PanelPlacement> pl{{0.0f, 0.0f, 1.0f}, {0.5f, 0.3f, 1.0f}};
+    lift_placements(pl, -0.2f);
+    CHECK(near(pl[0].pitch_rad, -0.2f, 1e-6f) && near(pl[1].pitch_rad, 0.1f, 1e-6f) && near(pl[1].yaw_rad, 0.5f, 1e-6f));
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -1791,6 +1832,7 @@ int main() {
     test_latch_period_change_reclamps();
     test_fixed_prediction_horizon();
     test_stream_watchdog();
+    test_recenter_lifts_panels_to_gaze();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

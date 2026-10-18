@@ -240,6 +240,7 @@ struct PoseSample {
     core::Vec3 angular_velocity;
     uint64_t host_ns = 0;
     bool tracking = false;
+    float panels_pitch_rad = 0.0f;  // the panels lifted to the last recentre's elevation
 };
 
 class PoseSource {
@@ -300,7 +301,7 @@ public:
     std::optional<PoseSample> latest() override {
         rayneo_pose p;
         if (!rayneo_engine_latest_pose(engine_, &p)) return std::nullopt;
-        return PoseSample{{p.qw, p.qx, p.qy, p.qz}, {p.wx, p.wy, p.wz}, p.host_time_ns, p.tracking};
+        return PoseSample{{p.qw, p.qx, p.qy, p.qz}, {p.wx, p.wy, p.wz}, p.host_time_ns, p.tracking, p.panels_pitch_rad};
     }
 
 private:
@@ -1304,6 +1305,7 @@ bool Server::frame() {
             stats_.idle += 1;
             return false;
         }
+        renderer_.options.panels_pitch_rad = p->panels_pitch_rad;
         renderer_.options.present_late_ms = static_cast<float>(present_late_ms_);  // the fixed prediction follows it too
         renderer_.options.frame_period_ms = 1000.0f / static_cast<float>(std::max(1, refresh_hz_));
         renderer_.options.sample_age_ms = read_ns > p->host_ns ? static_cast<float>(read_ns - p->host_ns) / 1e6f : 0.0f;

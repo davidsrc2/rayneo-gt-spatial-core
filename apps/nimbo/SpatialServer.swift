@@ -2231,6 +2231,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             self.lastPresentedTime = d.presentedTime
             self.statsLock.unlock()
         }
+        renderer.options.panelsPitchRadians = p.panelsPitch  // the recentre's elevation (eased in)
         renderer.options.presentLateMs = Float(late)  // the fixed prediction follows the lateness too
         renderer.options.framePeriodMs = Float(periodMs)
         renderer.options.sampleAgeMs = Float(max(0, Double(Int64(nowHost) - Int64(p.hostTimeNs)) / 1e6))

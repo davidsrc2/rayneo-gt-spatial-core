@@ -32,6 +32,7 @@ typedef struct {
     uint64_t sequence;         /* increments per fused sample */
     bool tracking;
     bool stale;                /* no sample for 0.5 s (stream stalled): w zeroed, the pose held */
+    float panels_pitch_rad;    /* elevation to lift the panels to: the last user recentre's (up > 0) */
 } rayneo_pose;
 
 /* Transport and device-clock health counters, cumulative since start. */

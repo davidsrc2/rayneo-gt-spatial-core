@@ -7,6 +7,7 @@ struct PoseSample {
     var hostTimeNs: UInt64           // RNSpatialEngine.hostNowNs clock
     var tracking: Bool
     var stale = false                // no sample for 0.5 s (stream stalled): held, angular velocity zeroed
+    var panelsPitch: Float = 0       // rad, up > 0: the panels lifted to the last recentre's elevation
 }
 
 protocol PoseSource: AnyObject {
@@ -61,7 +62,8 @@ final class ImuPoseSource: PoseSource {
     func latest() -> PoseSample? {
         guard let p = engine.latestPose() else { return nil }
         return PoseSample(orientation: p.orientation, angularVelocity: p.angularVelocity,
-                          hostTimeNs: p.hostTimeNs, tracking: p.isTracking, stale: p.isStale)
+                          hostTimeNs: p.hostTimeNs, tracking: p.isTracking, stale: p.isStale,
+                          panelsPitch: p.panelsPitch)
     }
 }
 

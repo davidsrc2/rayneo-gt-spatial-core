@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "rayneo/core/gt_protocol.h"
+#include "rayneo/core/render_math.h"
 
 namespace rayneo::core {
 namespace {
@@ -35,6 +36,8 @@ void ImuPipeline::reset() {
     recenter_pending_ = true;
     glide_requested_ = false;
     glide_t_ = 1.0f;
+    pitch_from_ = pitch_to_ = pitch_now_ = 0.0f;
+    pitch_pending_ = false;
     last_relative_ = Quat{};
     reference_ = Quat{};
     heading_ref_ = Quat{};
@@ -49,6 +52,7 @@ ImuPipelineConfig real_size_pipeline_config(ImuPipelineConfig c) {
     c.body_frame_relative = true;  // exact on both axes whatever the posture at the recenter
     c.level_reference = true;      // the room's vertical is "up": panels on the horizon, level
     c.hold_until_bias_settles = true;  // no start with a rough gyro bias (yaw drift)
+    c.recenter_pitch = true;           // the recentre button takes up / down too
     return c;
 }
 
@@ -169,6 +173,10 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
             glide_from_ = last_relative_;  // relative is ~identity now: offset = previous output
             glide_t_ = 0.0f;
         }
+        if (glide_requested_ && cfg_.recenter_pitch && cfg_.level_reference) {
+            pitch_from_ = pitch_now_;
+            pitch_pending_ = true;  // the head's elevation: the relative pose below, levelled
+        }
         glide_requested_ = false;
     }
     // Earth-frame delta (q_ref^-1 * q would leak yaw into pitch/roll when recentered with a
@@ -189,6 +197,14 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
         p.angular_velocity_rads = p.tracking ? heading_ref_.conjugate().rotate(w_earth) : Vec3{};
     }
     p.relative_raw = p.relative;
+    if (pitch_pending_) {
+        // Right after a level recentre the relative pose is the head's pitch (and the roll taken
+        // as upright): its gaze elevation is where to lift the panels.
+        pitch_to_ = std::clamp(gaze_placement(p.relative).pitch_rad, -cfg_.max_recenter_pitch_rad,
+                               cfg_.max_recenter_pitch_rad);
+        pitch_pending_ = false;
+        if (glide_t_ >= 1.0f) pitch_now_ = pitch_to_;
+    }
     if (cfg_.stabilize && p.tracking) {
         p.relative = stabilizer_.update(p.relative, p.angular_velocity_rads, dt);
         p.angular_velocity_rads = stabilizer_.omega();
@@ -202,7 +218,11 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
         glide_t_ = std::min(1.0f, glide_t_ + dt / cfg_.recenter_glide_s);
         const float k = 1.0f - (1.0f - glide_t_) * (1.0f - glide_t_) * (1.0f - glide_t_);  // ease-out
         p.relative = (slerp(glide_from_, Quat{}, k) * p.relative).normalized();
+        pitch_now_ = pitch_from_ + (pitch_to_ - pitch_from_) * k;
+    } else {
+        pitch_now_ = pitch_to_;
     }
+    p.panels_pitch_rad = pitch_now_;
     last_relative_ = p.relative;
     p.euler = to_euler_deg(p.relative);
     return p;

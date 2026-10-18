@@ -28,6 +28,7 @@
 - (uint64_t)sequence { return _p.sequence; }
 - (BOOL)isTracking { return _p.tracking ? YES : NO; }
 - (BOOL)isStale { return _p.stale ? YES : NO; }
+- (float)panelsPitch { return _p.panels_pitch_rad; }
 
 @end
 
