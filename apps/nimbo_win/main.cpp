@@ -11,6 +11,7 @@
 #include <devguid.h>
 #include <setupapi.h>
 #include <newdev.h>  // after setupapi.h
+#include <cfgmgr32.h>
 #include <wincrypt.h>
 
 #include <atomic>
@@ -332,6 +333,19 @@ std::vector<std::wstring> vdd_devices() {
     return out;
 }
 
+// The device's state as Device Manager shows it: its problem code (22 disabled, 14 waiting for
+// a restart, 10 / 43 failed to start, 52 signature), or -1 when it is not there.
+int device_problem(const std::wstring& id) {
+    DEVINST dn = 0;
+    if (CM_Locate_DevNodeW(&dn, const_cast<wchar_t*>(id.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) return -1;
+    ULONG status = 0, problem = 0;
+    if (CM_Get_DevNode_Status(&status, &problem, dn, 0) != CR_SUCCESS) return -1;
+    return (status & DN_HAS_PROBLEM) != 0 ? static_cast<int>(problem) : 0;
+}
+
+// pnputil: 3010 / 1641 = done, takes effect after a restart.
+bool pnputil_ok(int code) { return code == 0 || code == 3010 || code == 1641; }
+
 int live_vdd_monitors() {
     int n = 0;
     DISPLAY_DEVICEW dev{};
@@ -581,20 +595,42 @@ int setup_displays() {
         run_quiet(L"pnputil /remove-device \"" + devices[i] + L"\"");
         std::printf("setup: removed a duplicate driver device\n");
     }
-    if (run_quiet(L"pnputil /restart-device \"" + devices[0] + L"\"") != 0) {
-        run_quiet(L"pnputil /disable-device \"" + devices[0] + L"\"");
-        Sleep(1500);
-        if (run_quiet(L"pnputil /enable-device \"" + devices[0] + L"\"") != 0) {
-            std::printf("setup: could not restart the driver (restart Windows once)\n");
-            return 6;
+    const std::wstring& dev = devices[0];
+    std::printf("setup: driver device %ls, problem code %d (0 working, 22 disabled, 14 waiting for a restart)\n",
+                dev.c_str(), device_problem(dev));
+    // A disabled device (switched off by an earlier Nimbo) only needs enabling.
+    int code = 0;
+    if (device_problem(dev) == CM_PROB_DISABLED) {
+        code = run_quiet(L"pnputil /enable-device \"" + dev + L"\"");
+        std::printf("setup: enable -> %d\n", code);
+    } else {
+        code = run_quiet(L"pnputil /restart-device \"" + dev + L"\"");
+        std::printf("setup: restart -> %d\n", code);
+        if (!pnputil_ok(code)) {
+            std::printf("setup: disable -> %d\n", run_quiet(L"pnputil /disable-device \"" + dev + L"\""));
+            Sleep(1500);
+            code = run_quiet(L"pnputil /enable-device \"" + dev + L"\"");
+            std::printf("setup: enable -> %d\n", code);
         }
     }
     for (int waited = 0; waited < 15000 && live_vdd_monitors() < 6; waited += 500) Sleep(500);
-    std::printf("setup: the driver has %d monitors\n", live_vdd_monitors());
+    const int problem = device_problem(dev);
+    std::printf("setup: the driver has %d monitors, problem code %d\n", live_vdd_monitors(), problem);
+    // On this PC the driver may not come back from a disable until Windows restarts: then it
+    // stays on for good (no task to switch it off) and Nimbo only takes its monitors off the
+    // desktop when it stops.
+    if (!pnputil_ok(code) || code == 3010 || code == 1641 || problem != 0 || live_vdd_monitors() == 0) {
+        run_quiet(L"schtasks /Delete /F /TN \"Nimbo\\DisplaysOn\"");
+        run_quiet(L"schtasks /Delete /F /TN \"Nimbo\\DisplaysOff\"");
+        if (device_problem(dev) == CM_PROB_DISABLED) run_quiet(L"pnputil /enable-device \"" + dev + L"\"");
+        std::printf("setup: the driver stays on (it does not come back from being switched off without a restart);\n"
+                    "       restart Windows once, then start Nimbo\n");
+        return 0;
+    }
 
     // Tasks that switch the driver on and off as administrator without a prompt, so its
     // monitors only exist while Nimbo runs (Nimbo starts them; they slowed the PC otherwise).
-    const std::wstring& id = devices[0];
+    const std::wstring& id = dev;
     const int on = run_quiet(L"schtasks /Create /F /TN \"Nimbo\\DisplaysOn\" /SC ONCE /ST 00:00 /RL HIGHEST /TR "
                              L"\"pnputil /enable-device " + id + L"\"");
     const int off = run_quiet(L"schtasks /Create /F /TN \"Nimbo\\DisplaysOff\" /SC ONCE /ST 00:00 /RL HIGHEST /TR "

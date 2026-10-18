@@ -342,7 +342,7 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
     COMMENT "AI 3D: onnxruntime.dll and DirectML.dll next to nimbo_server.dll")
 
   add_executable(nimbo_win apps/nimbo_win/main.cpp)
-  target_link_libraries(nimbo_win PRIVATE nimbo setupapi newdev crypt32)
+  target_link_libraries(nimbo_win PRIVATE nimbo setupapi newdev crypt32 cfgmgr32)
   rayneo_warnings(nimbo_win)
 
   if(RAYNEO_BUILD_TESTS)
