@@ -138,7 +138,8 @@ Quat PoseStabilizer::update_lock(const Quat& q, const Vec3& omega, float dt) {
     const float off_deg = 2.0f * std::asin(std::fmin(1.0f, std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z))) * 57.29578f;
     switch (lock_) {
     case Lock::Locked:
-        if (cfg_.lock_on_rest ? (!rest_hint_ || off_deg > cfg_.lock_max_deg)
+        if (cfg_.lock_on_rest ? (!rest_hint_ || off_deg > cfg_.lock_max_deg ||
+                                 (off_deg > cfg_.lock_motion_deg && omega.norm() > cfg_.lock_motion_rads))
                               : (speed_ > cfg_.unlock_rads || off_deg > cfg_.unlock_deg)) {
             lock_ = Lock::Unlocking;
             ramp_t_ = 0.0f;

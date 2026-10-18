@@ -68,7 +68,7 @@ struct PoseStabilizerConfig {
     bool stationary_lock = false;
     float unlock_rads = 0.025f;
     float unlock_deg = 0.15f;
-    float unlock_ramp_s = 0.040f;
+    float unlock_ramp_s = 0.012f;  // 40 ms let the panels lag up to 0.4 deg into a turn; released early, 12 ms is enough
     float relock_rads = 0.012f;
     float relock_s = 0.150f;
     // Locked and unlocked by an outside rest detector instead (set_rest: the orientation
@@ -76,6 +76,13 @@ struct PoseStabilizerConfig {
     // from the anchor still unlocks (a very slow turn reads as rest).
     bool lock_on_rest = false;
     float lock_max_deg = 1.0f;
+    // ...and the start of a turn unlocks at once, before the rest detector (low-passed, ~0.1 s
+    // late) notices: the gyro itself past lock_motion_rads with the head already lock_motion_deg
+    // off the anchor. Waiting for the detector, the frozen panels went along with the head for
+    // the first fraction of a degree of every turn and then caught up: a small slide each time
+    // the gaze moved to another monitor. The offset condition keeps tremor at rest locked.
+    float lock_motion_rads = 0.07f;  // 4 deg/s
+    float lock_motion_deg = 0.05f;
 };
 
 // The space at real size: the stationary lock (see PoseStabilizerConfig::stationary_lock).

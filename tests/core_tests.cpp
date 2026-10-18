@@ -1121,6 +1121,28 @@ void test_level_reference_heading_only() {
     CHECK(std::fabs(left.z) < 1e-4f);                                  // no roll from the recenter
 }
 
+// Locked by the rest detector, then a turn starts (accelerating to 60 deg/s in 0.1 s) while
+// the detector still says rest: the lock lets go within a fraction of a degree, not after 1.
+void test_rest_lock_releases_at_turn_start() {
+    PoseStabilizerConfig cfg = stationary_lock_stabilizer();
+    cfg.lock_on_rest = true;
+    PoseStabilizer s(cfg);
+    const float dt = kRefDt, d2r = 0.0174533f;
+    s.set_rest(true);
+    Quat q;
+    for (int i = 0; i < 200; ++i) s.update(q, {0, 0, 0}, dt);
+    float worst = 0.0f, rate = 0.0f;
+    for (int i = 0; i < 46; ++i) {  // ~0.1 s, the detector not caught up yet
+        rate = std::fmin(60.0f, rate + 60.0f / 46.0f);
+        q = (Quat::from_axis_angle({0, 0, 1}, rate * d2r * dt) * q).normalized();
+        const Quat out = s.update(q, {0, 0, rate * d2r}, dt);
+        const Quat r = out.conjugate() * q;
+        worst = std::fmax(worst, 2.0f * std::asin(std::fmin(1.0f, std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z))) / d2r);
+    }
+    // Behind the head by at most the release offset plus the short smoothstep.
+    CHECK(worst < 0.25f);  // was 1.1 deg waiting for the detector with a 40 ms ramp
+}
+
 void test_stabilizer_follows_turns() {
     PoseStabilizer s;
     const float dt = kRefDt, rate = 60.0f * 0.0174533f;
@@ -1462,6 +1484,7 @@ int main() {
     test_stabilizer_world_locked();
     test_body_frame_delta();
     test_level_reference_heading_only();
+    test_rest_lock_releases_at_turn_start();
     test_level_reference();
     test_world_locked_madgwick();
     test_world_locked_anchor();
