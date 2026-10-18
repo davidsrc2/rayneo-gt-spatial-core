@@ -11,6 +11,7 @@ namespace rayneo::core {
 // through the whole pipeline (and the renderers) again: before / after comparisons with one
 // input. Layout: the 8-byte magic, then per report its host time (u64, little endian, ns), its
 // length (u8, <= 65) and its bytes. A truncated last report (recording cut short) is dropped.
+// A record of length 0 marks a user recentre at that time (replays recentre there too).
 inline constexpr uint8_t kImuRecordingMagic[8] = {'N', 'I', 'M', 'B', 'O', 'I', 'M', '1'};
 
 struct ImuRecord {

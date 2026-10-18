@@ -136,8 +136,11 @@ void fusion_loop(rayneo_engine* e) {
     while (e->running.load(std::memory_order_acquire)) {
         bool drained = false;
         while (next_report(rr)) {
+            // A user recentre: recorded as its marker, so a replay recentres where the session did.
+            const bool recenter = e->recenter.exchange(false) || rr.length == 0;  // 0: a replayed marker
             if (e->record_file.is_open()) {
-                rayneo::core::append_imu_record(e->record_buf, rr.host_time_ns, rr.data, rr.length);
+                if (recenter && rr.length > 0) rayneo::core::append_imu_record(e->record_buf, rr.host_time_ns, nullptr, 0);
+                if (rr.length > 0) rayneo::core::append_imu_record(e->record_buf, rr.host_time_ns, rr.data, rr.length);
                 if (e->record_buf.size() >= 457 * 73) {
                     e->record_file.write(reinterpret_cast<const char*>(e->record_buf.data()),
                                          static_cast<std::streamsize>(e->record_buf.size()));
@@ -153,7 +156,8 @@ void fusion_loop(rayneo_engine* e) {
                     e->calib_pending = false;
                 }
             }
-            if (e->recenter.exchange(false)) e->pipeline->recenter(true);
+            if (recenter) e->pipeline->recenter(true);
+            if (rr.length == 0) continue;  // the marker carries no sample
             const auto pose = e->pipeline->process_report(rr.data, rr.length);
             if (++seq_since_save >= 457 * 30) {  // ~30 s of samples: the temperature map, if it changed
                 seq_since_save = 0;

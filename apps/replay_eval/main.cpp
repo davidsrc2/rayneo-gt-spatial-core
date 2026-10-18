@@ -108,8 +108,14 @@ int main(int argc, char** argv) {
         if (auto m = BiasMap::from_json(read_file(map_path))) pipeline.set_bias_map(*m);
     }
     std::vector<Sample> s;
+    std::vector<uint64_t> recentres;
     s.reserve(rec->size());
     for (const auto& r : *rec) {
+        if (r.length == 0) {  // a user recentre in the session
+            pipeline.recenter(true);
+            recentres.push_back(r.host_ns);
+            continue;
+        }
         if (const auto p = pipeline.process_report(r.data, r.length)) {
             s.push_back({r.host_ns, p->relative, p->angular_velocity_rads, p->tracking});
         }
@@ -133,6 +139,13 @@ int main(int argc, char** argv) {
                 while (k + 1 < s.size() && s[k + 1].t <= read) ++k;
                 const Sample& x = s[k];
                 if (!x.tracking) continue;
+                // A recentre jumps the truth: frames from before it to the end of its glide left out.
+                bool near_recentre = false;
+                for (const uint64_t rc : recentres) near_recentre |= read + photon >= rc && read < rc + 600000000ull;
+                if (near_recentre) {
+                    have_drawn = have_step = false;
+                    continue;
+                }
                 const float age_ms = static_cast<float>(double(read - x.t) / 1e6);
                 const float horizon_s = fixed_prediction_horizon_ms(h, 0.0f, 1000.0f / static_cast<float>(hz), age_ms) * 1e-3f;
                 Vec3 w = without_roll(x.q, x.w);  // as the renderer (PredXY)

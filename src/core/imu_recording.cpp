@@ -12,7 +12,7 @@ void append_imu_record(std::vector<uint8_t>& out, uint64_t host_ns, const uint8_
     if (length > sizeof(ImuRecord::data)) length = sizeof(ImuRecord::data);
     for (int i = 0; i < 8; ++i) out.push_back(static_cast<uint8_t>(host_ns >> (8 * i)));
     out.push_back(static_cast<uint8_t>(length));
-    out.insert(out.end(), data, data + length);
+    if (length > 0) out.insert(out.end(), data, data + length);
 }
 
 std::optional<std::vector<ImuRecord>> parse_imu_recording(const uint8_t* bytes, size_t size) {

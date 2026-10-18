@@ -104,6 +104,7 @@ struct ServerOptions {
     var durationS: Double = 0     // 0 = until Ctrl+C
     var recordImuPath: String?    // the session's raw IMU reports to this file
     var replayImuPath: String?    // a recording instead of the glasses' IMU
+    var capturable = false        // the glasses window visible to screen capture (scripts/optical_motion.swift)
     var simulateStallAtS: Double = 0  // > 0: the IMU stream stalls for 1 s this long after start (test)
 
     var panelArcDeg: Float { arcDeg ?? (displays > 0 ? 38 : 50) }  // 38: a whole panel fits the ~42° horizontal FOV
@@ -170,6 +171,7 @@ struct ServerOptions {
       --duration S         exit after S seconds
       --supersample N      eye images drawn N times larger and mipmapped down (the app: 2)
       --record-imu FILE    write the session's raw IMU reports to FILE (for --replay-imu)
+      --capturable         the glasses window visible to screen capture (optical measurements)
       --simulate-imu-stall S  S seconds after start the IMU stream stops for 1 s (stream-off,
                            samples dropped): the pose is held and stream-on sent again
       --replay-imu FILE    play a recording back instead of the glasses' IMU (same head motion
@@ -278,6 +280,7 @@ struct ServerOptions {
             case "--supersample": guard let v = value().flatMap({ Int($0) }), (1...4).contains(v) else { return nil }; o.supersample = v
             case "--record-imu": guard let v = value() else { return nil }; o.recordImuPath = v
             case "--replay-imu": guard let v = value() else { return nil }; o.replayImuPath = v
+            case "--capturable": o.capturable = true
             case "--simulate-imu-stall": guard let v = value().flatMap({ Double($0) }), v > 0 else { return nil }; o.simulateStallAtS = v
             default: return nil
             }

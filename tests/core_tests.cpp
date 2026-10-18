@@ -1598,6 +1598,12 @@ void test_imu_recording_roundtrip() {
     append_imu_record(buf, 42, b, sizeof(b));
     auto r = parse_imu_recording(buf.data(), buf.size());
     CHECK(r && r->size() == 2);
+    // A recentre marker: a record without bytes.
+    std::vector<uint8_t> m;
+    append_imu_recording_header(m);
+    append_imu_record(m, 7, nullptr, 0);
+    const auto mr = parse_imu_recording(m.data(), m.size());
+    CHECK(mr && mr->size() == 1 && (*mr)[0].length == 0 && (*mr)[0].host_ns == 7);
     if (r && r->size() == 2) {
         CHECK((*r)[0].host_ns == 0x0123456789abcdefull && (*r)[0].length == 64 && (*r)[0].data[63] == 189);
         CHECK((*r)[1].host_ns == 42 && (*r)[1].length == 2 && (*r)[1].data[1] == 0xc8);

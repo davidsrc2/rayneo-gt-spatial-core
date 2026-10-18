@@ -362,7 +362,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         window.isReleasedWhenClosed = false
         if !options.windowed {
             // Above everything, click-through, invisible to capture (no feedback loop).
-            window.sharingType = .none
+            window.sharingType = options.capturable ? .readOnly : .none
             window.level = .screenSaver
             window.ignoresMouseEvents = true
             window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
