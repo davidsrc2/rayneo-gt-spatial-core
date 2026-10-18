@@ -38,6 +38,16 @@ Get-ChildItem (Join-Path $Deps "vdd") -Recurse -File | Where-Object { $_.Name -m
     Copy-Item -Destination $Driver
 if (-not (Test-Path (Join-Path $Driver "MttVDD.inf"))) { throw "MttVDD.inf not found in the driver package" }
 
+# Parsec VDD 0.45 (Parsec's virtual display driver, what Nimbo uses first): its own installer,
+# pinned by SHA-256 and signed by Parsec. Redistributing it needs Parsec's permission.
+$Parsec = Join-Path $Deps "parsec-vdd-0.45.0.0.exe"
+$ParsecSha = "E23332448FDAF5AA017CB308DB5EF6855FAC526A7DED05D80C039404126D5362"
+if (-not (Test-Path $Parsec) -or (Get-FileHash $Parsec -Algorithm SHA256).Hash -ne $ParsecSha) {
+    Invoke-WebRequest "https://builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe" -OutFile $Parsec
+}
+if ((Get-FileHash $Parsec -Algorithm SHA256).Hash -ne $ParsecSha) { throw "Parsec VDD download does not match its SHA-256" }
+if ((Get-AuthenticodeSignature $Parsec).Status -ne "Valid") { throw "Parsec VDD installer signature is not valid" }
+
 # Visual C++ 2015-2022 runtime (x64): nimbo_server.dll and ONNX Runtime need it. Microsoft-signed.
 $Redist = Join-Path $Deps "vc_redist.x64.exe"
 if (-not (Test-Path $Redist)) { Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $Redist }
@@ -50,7 +60,7 @@ if (-not (Test-Path $Iscc)) {
     choco install innosetup -y --no-progress | Out-Null
     $Iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 }
-& $Iscc /Q "/DAppDir=$AppDir" "/DDriverDir=$Driver" "/DRedist=$Redist" "/DVersion=$Version" "/DOutputDir=$OutDir" `
+& $Iscc /Q "/DAppDir=$AppDir" "/DDriverDir=$Driver" "/DRedist=$Redist" "/DParsecVdd=$Parsec" "/DVersion=$Version" "/DOutputDir=$OutDir" `
     "$Root\installer\windows\Nimbo.iss"
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
 Write-Host "Installer: $OutDir\Nimbo-Setup-$Version.exe"

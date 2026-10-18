@@ -3,6 +3,7 @@
 ;   AppDir     published app (dotnet publish: Nimbo.exe, nimbo_server.dll, nimbo_win.exe, ONNX DLLs)
 ;   DriverDir  Virtual Display Driver files (MttVDD.inf / .cat / .dll, vdd_settings.xml)
 ;   Redist     vc_redist.x64.exe
+;   ParsecVdd  parsec-vdd-0.45.0.0.exe (Parsec's virtual display driver installer, signed by Parsec)
 ;   Version, OutputDir
 
 #ifndef Version
@@ -45,6 +46,8 @@ es.Extras=Opciones:
 en.Extras=Options:
 es.InstallingRuntime=Instalando Visual C++ Runtime…
 en.InstallingRuntime=Installing the Visual C++ Runtime…
+es.InstallingParsec=Instalando el driver de pantallas virtuales (Parsec VDD)…
+en.InstallingParsec=Installing the virtual display driver (Parsec VDD)…
 es.InstallingDriver=Instalando y preparando las pantallas virtuales…
 en.InstallingDriver=Installing and preparing the virtual displays…
 es.RemovingDriver=Quitando las pantallas virtuales…
@@ -60,6 +63,7 @@ Name: "startup"; Description: "{cm:StartWithWindows}"; GroupDescription: "{cm:Ex
 Source: "{#AppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#DriverDir}\*"; DestDir: "{app}\driver"; Flags: ignoreversion
 Source: "{#Redist}"; DestDir: "{tmp}"; DestName: "vc_redist.x64.exe"; Flags: deleteafterinstall; Check: NeedsVCRedist
+Source: "{#ParsecVdd}"; DestDir: "{tmp}"; DestName: "parsec-vdd.exe"; Flags: deleteafterinstall
 
 [Icons]
 Name: "{autoprograms}\Nimbo"; Filename: "{app}\Nimbo.exe"
@@ -73,8 +77,9 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "{cm:InstallingRuntime}"; \
   Flags: waituntilterminated; Check: NeedsVCRedist
-; Installs the shipped driver if there is none, a pool of 6 monitors, switched on only while
-; Nimbo runs (scheduled tasks), no restart.
+; Parsec VDD, silently (its displays are added by Nimbo only while it runs). Then the setup:
+; with Parsec answering it is done; otherwise the shipped Virtual Display Driver as before.
+Filename: "{tmp}\parsec-vdd.exe"; Parameters: "/S"; StatusMsg: "{cm:InstallingParsec}"; Flags: waituntilterminated
 Filename: "{app}\nimbo_win.exe"; Parameters: "--setup-displays"; StatusMsg: "{cm:InstallingDriver}"; \
   Flags: runhidden waituntilterminated
 Filename: "{app}\Nimbo.exe"; Description: "{cm:Launch}"; Flags: nowait postinstall skipifsilent runasoriginaluser

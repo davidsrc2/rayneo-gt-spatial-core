@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "rayneo/platform/nimbo_win.h"
+#include "virtual_displays.h"
 
 namespace {
 
@@ -600,6 +601,13 @@ int setup_displays() {
         std::printf("setup: run as administrator\n");
         return 2;
     }
+    // Parsec VDD (the installer puts it in): nothing to prepare, Nimbo adds its displays itself.
+    for (int waited = 0; waited < 10000 && !rayneo::win::parsec_vdd_available(); waited += 500) Sleep(500);
+    if (rayneo::win::parsec_vdd_available()) {
+        std::printf("setup: Parsec VDD answers; nothing else to prepare\n");
+        return 0;
+    }
+    std::printf("setup: no Parsec VDD, preparing the Virtual Display Driver\n");
     // No driver yet and one shipped next to this program (the installer): install it first.
     const std::wstring shipped = exe_dir() + L"\\driver";
     if (vdd_devices().empty() && exists(shipped + L"\\MttVDD.inf")) {

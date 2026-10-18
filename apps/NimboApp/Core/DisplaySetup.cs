@@ -18,7 +18,8 @@ internal static class DisplaySetup
     public static async Task<(bool Ok, string Message)> RunAsync()
     {
         var exe = Path.Combine(AppContext.BaseDirectory, "nimbo_win.exe");
-        if (!DriverInstalled && !DriverShipped) return (false, "El driver Virtual Display Driver no está instalado: instala Nimbo con su instalador, que lo trae.");
+        if (!DriverInstalled && !DriverShipped && Nimbo.Native.NimboNative.nimbo_virtual_driver_available() == 0)
+            return (false, "No hay driver de pantallas virtuales: instala Nimbo con su instalador, que trae Parsec VDD.");
         if (!File.Exists(exe)) return (false, "Falta nimbo_win.exe junto a la app.");
         try
         {
@@ -32,7 +33,7 @@ internal static class DisplaySetup
             await p.WaitForExitAsync();
             return p.ExitCode switch
             {
-                0 => (true, "Listo: 6 monitores preparados, solo existen mientras Nimbo está abierto. No hace falta reiniciar Windows."),
+                0 => (true, "Listo: las pantallas virtuales solo existen mientras Nimbo está abierto. No hace falta reiniciar Windows."),
                 7 => (false, "Driver preparado, pero no se pudieron crear las tareas para encenderlo y apagarlo con Nimbo."),
                 8 => (false, "No se pudo instalar el driver de pantallas virtuales; el registro de Nimbo dice por qué."),
                 3 => (false, "El driver Virtual Display Driver no está instalado."),
