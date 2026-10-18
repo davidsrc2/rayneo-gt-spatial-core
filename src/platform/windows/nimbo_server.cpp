@@ -1561,7 +1561,7 @@ void Server::update_grow(uint64_t now) {
             }
         }
     }
-    if (!opt_.grow_by_gaze) {  // mouse only (Ctrl+Alt+M)
+    if (!opt_.grow_by_gaze) {  // mouse only (Settings)
         grow_candidate_ = -2;
         return;
     }

@@ -79,7 +79,7 @@ struct SettingsView: View {
                 .font(Theme.body).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Modo fijo (⌘⌥G): cambiar de pantalla mirándola", isOn: $model.growByGaze)
-                    Text("En el modo fijo de las gafas, la pantalla que miras pasa a primer plano. Desactivado: solo la que eliges con el ratón.)
+                    Text("En el modo fijo de las gafas, la pantalla que miras pasa a primer plano. Desactivado: solo la que eliges con el ratón.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 .font(Theme.body).foregroundStyle(Theme.text)
