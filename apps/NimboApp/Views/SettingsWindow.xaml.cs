@@ -96,7 +96,7 @@ public sealed partial class SettingsWindow : Window
         K2Slider.Value = _model.K2;
         DiagnosticsText.Text =
             $"Gafas: {(NimboNative.nimbo_glasses_connected() != 0 ? "conectadas" : "no detectadas")}\n" +
-            $"Driver de monitores virtuales: {(NimboNative.nimbo_virtual_driver_available() != 0 ? "instalado" : "no instalado (se muestra una pantalla existente)")}\n" +
+            $"Driver de monitores virtuales: {(NimboNative.nimbo_virtual_driver_available() != 0 ? "listo" : "no responde (instala Parsec VDD: builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe)")}\n" +
             $"Ajustes: {AppModel.SettingsPath}";
         _updating = false;
     }

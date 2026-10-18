@@ -1,14 +1,20 @@
 #include "virtual_displays.h"
 
 #include <shlobj.h>
+#include <setupapi.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <sstream>
+#include <thread>
 
 #include "rayneo/core/presets.h"
 
@@ -112,8 +118,14 @@ constexpr int kScaleSteps[] = {100, 125, 150, 175, 200, 225, 250, 300, 350, 400,
 
 bool is_virtual_panel(const OutputInfo& o) {
     return std::any_of(o.monitors.begin(), o.monitors.end(), [](const std::wstring& m) {
-        return m.rfind(L"VDD by MTT", 0) == 0 || m.rfind(L"VirtuDisplay", 0) == 0;
+        return m.rfind(L"VDD by MTT", 0) == 0 || m.rfind(L"VirtuDisplay", 0) == 0 || m.rfind(L"ParsecVDA", 0) == 0;
     });
+}
+
+// Adapter names of the drivers (EnumDisplayDevices' DeviceString), for monitors off the desktop.
+bool is_virtual_adapter(const std::wstring& kind) {
+    return kind.find(L"Virtual Display Driver") != std::wstring::npos || kind.find(L"VirtuDisplay") != std::wstring::npos ||
+           kind.find(L"Parsec Virtual Display") != std::wstring::npos;
 }
 
 namespace {
@@ -146,6 +158,122 @@ public:
         return false;
     }
     void remove_monitors() override {}
+};
+
+// --- Parsec VDD -----------------------------------------------------------------------------
+// Parsec's virtual display adapter (Root\Parsec\VDA, installed by Parsec or by apps that ship
+// it). Monitors are added and removed one at a time by IOCTL on the adapter's device interface,
+// with no driver reload, and live only while their owner keeps pinging (UPDATE at least every
+// second): when Nimbo stops or crashes they go by themselves. The IOCTLs are the ones
+// documented by github.com/nomi-san/parsec-vdd (BSD-2); this is our own code.
+
+constexpr GUID kParsecAdapter = {0x00b41627, 0x04c4, 0x429e, {0xa2, 0x6e, 0x02, 0x65, 0xcf, 0x50, 0xc8, 0xfa}};
+constexpr DWORD kParsecAdd = 0x0022e004, kParsecRemove = 0x0022a008, kParsecUpdate = 0x0022a00c,
+                kParsecVersion = 0x0022e010;
+constexpr int kParsecMax = 8;  // the driver's limit
+
+HANDLE open_parsec() {
+    HDEVINFO set = SetupDiGetClassDevsW(&kParsecAdapter, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (set == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+    HANDLE h = INVALID_HANDLE_VALUE;
+    SP_DEVICE_INTERFACE_DATA iface{};
+    iface.cbSize = sizeof(iface);
+    for (DWORD i = 0; h == INVALID_HANDLE_VALUE && SetupDiEnumDeviceInterfaces(set, nullptr, &kParsecAdapter, i, &iface); ++i) {
+        DWORD need = 0;
+        SetupDiGetDeviceInterfaceDetailW(set, &iface, nullptr, 0, &need, nullptr);
+        if (need == 0) continue;
+        std::vector<uint8_t> buf(need);
+        auto* detail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W*>(buf.data());
+        detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
+        if (!SetupDiGetDeviceInterfaceDetailW(set, &iface, detail, need, nullptr, nullptr)) continue;
+        h = CreateFileW(detail->DevicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED | FILE_FLAG_WRITE_THROUGH,
+                        nullptr);
+    }
+    SetupDiDestroyDeviceInfoList(set);
+    return h;
+}
+
+// One IOCTL: a 32-byte input, a DWORD back (-1 on failure or after 5 s).
+long parsec_ioctl(HANDLE h, DWORD code, const void* data = nullptr, size_t size = 0) {
+    uint8_t in[32] = {};
+    if (data != nullptr && size > 0) std::memcpy(in, data, std::min<size_t>(size, sizeof(in)));
+    DWORD out = 0, got = 0;
+    OVERLAPPED ov{};
+    ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (ov.hEvent == nullptr) return -1;
+    DeviceIoControl(h, code, in, sizeof(in), &out, sizeof(out), nullptr, &ov);
+    const BOOL ok = GetOverlappedResultEx(h, &ov, &got, 5000, FALSE);
+    CloseHandle(ov.hEvent);
+    return ok ? static_cast<long>(out) : -1;
+}
+
+class ParsecBackend final : public VirtualDisplayBackend {
+public:
+    explicit ParsecBackend(HANDLE h) : h_(h) {
+        version_ = parsec_ioctl(h_, kParsecVersion);
+        keepalive_ = std::thread([this] {
+            while (!stop_.load()) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    parsec_ioctl(h_, kParsecUpdate);
+                }
+                Sleep(100);
+            }
+        });
+    }
+    ~ParsecBackend() override {
+        remove_monitors();
+        stop_ = true;
+        if (keepalive_.joinable()) keepalive_.join();
+        CloseHandle(h_);
+    }
+    const char* name() const override { return "Parsec VDD"; }
+
+    // Added or removed to make `count`; the size is set afterwards by the arrangement (the
+    // driver offers the usual modes, 1920x1080 among them).
+    bool set_monitors(int count, int, int, std::string* error) override {
+        count = std::clamp(count, 0, kParsecMax);
+        std::lock_guard<std::mutex> lock(mutex_);
+        while (static_cast<int>(ours_.size()) > count) {
+            remove_locked(ours_.back());
+            ours_.pop_back();
+        }
+        while (static_cast<int>(ours_.size()) < count) {
+            const long index = parsec_ioctl(h_, kParsecAdd);
+            parsec_ioctl(h_, kParsecUpdate);
+            if (index < 0) {
+                if (error != nullptr) *error = "Parsec VDD did not add a display (" + std::to_string(ours_.size()) + " added)";
+                return false;
+            }
+            ours_.push_back(static_cast<int>(index));
+        }
+        return true;
+    }
+
+    void remove_monitors() override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const int index : ours_) remove_locked(index);
+        ours_.clear();
+    }
+
+    std::string state() const override {
+        return "Parsec VDD version " + std::to_string(version_) + ", " + std::to_string(ours_.size()) + " display(s) added";
+    }
+
+private:
+    void remove_locked(int index) {
+        const uint16_t be = static_cast<uint16_t>(((index & 0xFF) << 8) | ((index >> 8) & 0xFF));  // big-endian index
+        parsec_ioctl(h_, kParsecRemove, &be, sizeof(be));
+        parsec_ioctl(h_, kParsecUpdate);
+    }
+
+    HANDLE h_;
+    long version_ = -1;
+    std::mutex mutex_;
+    std::vector<int> ours_;
+    std::atomic<bool> stop_{false};
+    std::thread keepalive_;
 };
 
 // --- virtual-display-rs ---------------------------------------------------------------------
@@ -319,7 +447,16 @@ bool virtual_driver_on(int wait_ms) {
 
 bool virtual_driver_off() { return run_task(L"Nimbo\\DisplaysOff"); }
 
+bool parsec_vdd_available() {
+    HANDLE h = open_parsec();
+    if (h == INVALID_HANDLE_VALUE) return false;
+    CloseHandle(h);
+    return true;
+}
+
 std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend(bool wait_for_pipe) {
+    // Parsec VDD first: no reload, no administrator, its displays go away with us.
+    if (HANDLE h = open_parsec(); h != INVALID_HANDLE_VALUE) return std::make_unique<ParsecBackend>(h);
     if (VirtualDisplayDriver::available()) return std::make_unique<VddBackend>();
     // After a reload (Nimbo's last exit, the device switched back on) its pipe takes a while
     // to come back: wait up to 12 s before falling back to another driver or none.
@@ -562,7 +699,7 @@ int attach_detached_virtual(int width, int height, int limit) {
             if (EnumDisplaySettingsW(name.c_str(), ENUM_CURRENT_SETTINGS, &dm)) {
                 right = std::max(right, static_cast<int>(dm.dmPosition.x + static_cast<LONG>(dm.dmPelsWidth)));
             }
-        } else if (kind.find(L"Virtual Display Driver") != std::wstring::npos || kind.find(L"VirtuDisplay") != std::wstring::npos) {
+        } else if (is_virtual_adapter(kind)) {
             DISPLAY_DEVICEW mon{};
             mon.cb = sizeof(mon);
             if (EnumDisplayDevicesW(name.c_str(), 0, &mon, 0)) loose.push_back(name);  // has a monitor

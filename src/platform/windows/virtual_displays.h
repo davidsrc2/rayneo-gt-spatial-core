@@ -47,6 +47,8 @@ bool virtual_driver_off();
 std::unique_ptr<VirtualDisplayBackend> find_virtual_display_backend(bool wait_for_pipe = true);
 // A driver is installed, answering or not (for the message when none answers).
 bool virtual_display_driver_installed();
+// Parsec's virtual display adapter answers (monitors added by IOCTL, no reload, no admin).
+bool parsec_vdd_available();
 
 class VirtualDisplayDriver {
 public:

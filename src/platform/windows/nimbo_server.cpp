@@ -706,7 +706,7 @@ bool Server::start() {
     // Virtual monitors first: arranging displays resets temporary modes such as the glasses'
     // native mode below.
     // The driver is kept off while Nimbo is closed (its monitors slowed the PC): switch it on.
-    if (opt_.displays > 0 && !opt_.windowed && win::virtual_display_driver_installed() &&
+    if (opt_.displays > 0 && !opt_.windowed && !win::parsec_vdd_available() && win::virtual_display_driver_installed() &&
         win::VirtualDisplayDriver::live_monitors() == 0) {
         driver_switched_on_ = win::virtual_driver_on(15000);
         driver_needs_setup_ = !driver_switched_on_;
@@ -719,8 +719,8 @@ bool Server::start() {
             logln("virtual monitors: the Virtual Display Driver is installed but does not answer on its control pipe"
                   " (update to 25.7.23 or newer, or restart Windows); showing an existing display instead");
         } else {
-            logln("virtual monitors: the Virtual Display Driver is not installed, showing an existing display instead"
-                  " (install it to get --displays: see docs/WINDOWS_PLAN.md, W3)");
+            logln("virtual monitors: no virtual display driver, showing an existing display instead"
+                  " (install Parsec VDD: builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe)");
         }
         opt_.displays = 0;
     }
@@ -971,8 +971,8 @@ bool Server::start() {
     render_adapter_ = first->adapter;
     start_floating(opt_.floating);
     if (no_virtual_) {
-        flash(driver_needs_setup_ ? L"Sin monitores virtuales: driver apagado\nAjustes > Diagnóstico > Preparar pantallas virtuales"
-                                  : L"Sin monitores virtuales: solo tu pantalla\nReinicia Windows para recuperarlos",
+        flash(driver_needs_setup_ ? L"Sin monitores virtuales: driver apagado\nInstala Parsec VDD (ver Ajustes > Diagnóstico)"
+                                  : L"Sin monitores virtuales: solo tu pantalla\nInstala Parsec VDD (ver Ajustes > Diagnóstico)",
               8.0);
     }
 
@@ -2249,7 +2249,9 @@ void Server::shutdown() {
         if (backend_) backend_->remove_monitors();  // VDD keeps one, detached above
     }
     // Its monitors only exist while Nimbo runs (they slowed the PC otherwise).
-    if (win::virtual_display_driver_installed() && win::virtual_driver_off()) {
+    const bool parsec = backend_ && std::string(backend_->name()) == "Parsec VDD";
+    backend_.reset();  // Parsec VDD: its displays end with the keepalive
+    if (!parsec && win::virtual_display_driver_installed() && win::virtual_driver_off()) {
         logln("virtual monitors: driver switched off");
     }
     if (saved_topology_) {
@@ -2645,7 +2647,9 @@ bool nimbo_glasses_connected(void) {
 }
 
 // Instant (the app asks from its UI thread): no waiting for a reloading driver's pipe.
-bool nimbo_virtual_driver_available(void) { return win::find_virtual_display_backend(false) != nullptr; }
+bool nimbo_virtual_driver_available(void) {
+    return win::parsec_vdd_available() || win::find_virtual_display_backend(false) != nullptr;
+}
 
 bool nimbo_restore_displays(void) {
     DpiScope dpi;
