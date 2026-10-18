@@ -94,6 +94,7 @@ public partial class App : Application
         // Ctrl+Alt+1 / 2 / 3: the one-click layouts without opening the panel. Ctrl+Alt+N: the panel.
         _hotKeys = new HotKeys();
         _hotKeys.Register('N', () => _panel.Toggle());
+        _hotKeys.Register('H', ShortcutsWindow.ShowShared);  // Ctrl+Alt+H: the shortcuts window
         // Ctrl+Alt+Down / Up: the glasses' own screen brightness, 8 steps (8 = factory).
         foreach (var (vk, step) in new[] { (0x28u, -1), (0x26u, 1) })
         {
@@ -153,6 +154,7 @@ public partial class App : Application
         menu.Items.Add(new MenuFlyoutItem { Text = "Empezar / parar", Command = new RelayCommand(() => _ = _server.ToggleAsync()) });
         menu.Items.Add(new MenuFlyoutItem { Text = "Recentrar vista", Command = new RelayCommand(() => _server.Recenter()) });
         menu.Items.Add(new MenuFlyoutItem { Text = "Más opciones…", Command = new RelayCommand(OpenSettings) });
+        menu.Items.Add(new MenuFlyoutItem { Text = "Atajos de teclado", Command = new RelayCommand(ShortcutsWindow.ShowShared) });
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(new MenuFlyoutItem { Text = "Salir", Command = new RelayCommand(Quit) });
 
@@ -282,6 +284,7 @@ public partial class App : Application
         _panel?.Destroy();
         _settings?.Destroy();
         _onboarding?.Destroy();
+        ShortcutsWindow.DestroyShared();
         _single?.ReleaseMutex();
         Exit();
     }

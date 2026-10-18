@@ -1,6 +1,7 @@
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace Nimbo.Core;
 
@@ -11,6 +12,7 @@ internal static class Shortcuts
     public static readonly (string Win, string Mac, string What)[] Rows =
     {
         ("Ctrl+Alt+N", "⌘⌥N", "Abrir o cerrar el panel de Nimbo"),
+        ("Ctrl+Alt+H", "—", "Esta lista de atajos, en grande"),
         ("Ctrl+Alt+1", "⌘⌥1", "Disposición «1 Pantalla Curva»"),
         ("Ctrl+Alt+2", "⌘⌥2", "Disposición «Doble Monitor»"),
         ("Ctrl+Alt+3", "⌘⌥3", "Disposición «Triple Ultrawide»"),
@@ -32,21 +34,36 @@ internal static class Shortcuts
         ("Ctrl+Alt+Q", "⌘⌥Q", "Parar Nimbo (todo vuelve a la normalidad)"),
     };
 
-    // A three-column table: Windows key, macOS key, what it does.
-    public static UIElement Sheet()
+    // A three-column table: Windows key, macOS key, what it does. large: the shortcuts window
+    // (bigger text, the Windows keys as key caps).
+    public static UIElement Sheet(bool large = false)
     {
-        var grid = new Grid { ColumnSpacing = 16, RowSpacing = 6, MaxWidth = 560 };
+        double size = large ? 17 : 13;
+        var grid = new Grid { ColumnSpacing = large ? 28 : 16, RowSpacing = large ? 14 : 6, MaxWidth = large ? double.PositiveInfinity : 560 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         void Add(int row, int col, string text, bool strong = false, double opacity = 1, bool wrap = false)
         {
-            var t = new TextBlock { Text = text, Opacity = opacity, FontSize = 13 };
+            var t = new TextBlock { Text = text, Opacity = opacity, FontSize = size, VerticalAlignment = VerticalAlignment.Center };
             if (strong) t.FontWeight = FontWeights.SemiBold;
             if (wrap) t.TextWrapping = TextWrapping.Wrap;
-            Grid.SetRow(t, row);
-            Grid.SetColumn(t, col);
-            grid.Children.Add(t);
+            UIElement e = t;
+            if (strong && large)  // a key cap
+            {
+                e = new Border
+                {
+                    Child = t,
+                    Padding = new Thickness(12, 6, 12, 6),
+                    CornerRadius = new CornerRadius(8),
+                    Background = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(0x26, 0x80, 0x80, 0x80)),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
+            Grid.SetRow((FrameworkElement)e, row);
+            Grid.SetColumn((FrameworkElement)e, col);
+            grid.Children.Add(e);
         }
         for (int i = 0; i <= Rows.Length; ++i) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Add(0, 0, "Windows", opacity: 0.6);

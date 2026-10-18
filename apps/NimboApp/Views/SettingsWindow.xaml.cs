@@ -33,6 +33,8 @@ public sealed partial class SettingsWindow : Window
 
     private void Update_Click(object sender, RoutedEventArgs e) => UpdateRequested?.Invoke();
 
+    private void Shortcuts_Click(object sender, RoutedEventArgs e) => ShortcutsWindow.ShowShared();
+
     internal SettingsWindow(AppModel model, ServerController server)
     {
         _model = model;
@@ -82,7 +84,6 @@ public sealed partial class SettingsWindow : Window
         DrawLayout();
         DrawPlacement();
         DrawFloating();
-        ShortcutHost.Content = Shortcuts.Sheet();
         DimToggle.IsOn = _model.DimOthers;
         AnchorToggle.IsOn = _model.AnchorAtRest;
         LaptopToggle.IsOn = _model.LaptopScreen;

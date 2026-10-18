@@ -117,9 +117,7 @@
 
             <StackPanel Spacing="8">
                 <TextBlock Text="Atajos de teclado" FontSize="13" Opacity="0.7" />
-                <ContentPresenter x:Name="ShortcutHost" />
-                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
-                           Text="Funcionan con cualquier app delante mientras Nimbo está en marcha; el panel, el brillo y las disposiciones, también con Nimbo parado." />
+                <Button Content="Ver todos los atajos (Ctrl+Alt+H)" Click="Shortcuts_Click" />
             </StackPanel>
 
             <Expander Header="Avanzado" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">

@@ -237,15 +237,7 @@ public sealed partial class PanelWindow : Window
 
     private void Recenter_Click(object sender, RoutedEventArgs e) => _server.Recenter();
 
-    private void Shortcuts_Click(object sender, RoutedEventArgs e)
-    {
-        var flyout = new Flyout
-        {
-            Content = new ScrollViewer { Content = Shortcuts.Sheet(), MaxHeight = 480, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
-            Placement = FlyoutPlacementMode.Top,
-        };
-        flyout.ShowAt(ShortcutsButton);
-    }
+    private void Shortcuts_Click(object sender, RoutedEventArgs e) => ShortcutsWindow.ShowShared();
 
     private void Slider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
