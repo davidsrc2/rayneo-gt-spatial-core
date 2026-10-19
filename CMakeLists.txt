@@ -80,6 +80,7 @@ add_library(rayneo_core STATIC
   src/core/stream_watchdog.cpp
   src/core/gyro_noise_monitor.cpp
   src/core/wear_detector.cpp
+  src/core/supersample_policy.cpp
 )
 add_library(rayneo::core ALIAS rayneo_core)
 target_include_directories(rayneo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

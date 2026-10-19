@@ -34,6 +34,7 @@
 #include "displays.h"
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/latch_controller.h"
+#include "rayneo/core/supersample_policy.h"
 #include "rayneo/core/presets.h"
 #include "rayneo/core/settings.h"
 #include "rayneo/platform/guided_calibration.h"
@@ -622,6 +623,7 @@ private:
     bool last_late_ = false;
     bool gyro_noise_warned_ = false;  // said once a run (as macOS)
     bool paused_off_ = false;         // glasses taken off: captures stopped until they move
+    core::SupersamplePolicy supersample_policy_;  // 1 while frames go a refresh late, as macOS
     uint64_t last_motion_ns_ = 0;  // the last frame drawn with the head moving
     uint64_t last_shown_ns_ = 0;  // scanout of the last frame statistics collected
     UINT last_shown_count_ = 0;
@@ -1495,6 +1497,15 @@ void Server::periodic() {
 
     const LatencyStats s = stats_;
     stats_ = LatencyStats{};
+    if (s.tracking && s.frames > 0 && opt_.real_size && !opt_.glasses_pinned) {  // the space at real size draws at 2
+        const int ss = supersample_policy_.update(s.missed, static_cast<double>(now) / 1e9, 2);
+        if (ss != renderer_.options.supersample) {
+            renderer_.options.supersample = ss;
+            redraw_ = true;
+            logln(ss < 2 ? "render: frames a refresh late (%d missed): supersample 1 for a while" : "render: supersample %d again",
+                  ss < 2 ? s.missed : ss);
+        }
+    }
     stats_.tracking = s.tracking;
     uint64_t cap = 0;
     for (const auto& c : captures_) cap += c->frames();

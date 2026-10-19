@@ -1,6 +1,7 @@
 #include "rayneo/platform/rayneo_timing.h"
 
 #include "rayneo/core/latch_controller.h"
+#include "rayneo/core/supersample_policy.h"
 
 namespace core = rayneo::core;
 
@@ -22,5 +23,15 @@ bool rayneo_latch_presented(rayneo_latch* latch, bool missed, float cpu_ms, floa
 }
 
 float rayneo_latch_cap_ms(float frame_period_ms) { return core::latch_cap_ms(frame_period_ms); }
+
+struct rayneo_supersample {
+    core::SupersamplePolicy policy;
+};
+
+rayneo_supersample* rayneo_supersample_create(void) { return new rayneo_supersample(); }
+void rayneo_supersample_destroy(rayneo_supersample* p) { delete p; }
+int rayneo_supersample_update(rayneo_supersample* p, int missed, double now_s, int wanted) {
+    return p != nullptr ? p->policy.update(missed, now_s, wanted) : wanted;
+}
 
 }  // extern "C"

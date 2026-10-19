@@ -25,6 +25,14 @@ rayneo_latch rayneo_latch_start(float frame_period_ms);
 bool rayneo_latch_presented(rayneo_latch* latch, bool missed, float cpu_ms, float frame_period_ms);
 float rayneo_latch_cap_ms(float frame_period_ms);
 
+/* Supersampling lowered to 1 while the glasses show frames a refresh late
+ * (core/supersample_policy.h). Once a second: missed refreshes in it, the time (s), the factor
+ * wanted; returns the factor to draw with. */
+typedef struct rayneo_supersample rayneo_supersample;
+rayneo_supersample* rayneo_supersample_create(void);
+void rayneo_supersample_destroy(rayneo_supersample* p);
+int rayneo_supersample_update(rayneo_supersample* p, int missed, double now_s, int wanted);
+
 #ifdef __cplusplus
 }
 #endif

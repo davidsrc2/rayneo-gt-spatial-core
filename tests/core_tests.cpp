@@ -20,6 +20,7 @@
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/vqf.h"
 #include "rayneo/core/wear_detector.h"
+#include "rayneo/core/supersample_policy.h"
 #include "rayneo/core/bias_map.h"
 #include "rayneo/core/bias_convergence.h"
 #include "rayneo/core/presets.h"
@@ -1916,6 +1917,29 @@ void test_wear_detector() {
     CHECK(w.worn());
 }
 
+void test_supersample_policy() {
+    SupersamplePolicy p;
+    double t = 0;
+    CHECK(p.update(0, t, 2) == 2 && p.update(29, t += 1, 2) == 2);   // fine, or a few misses
+    CHECK(p.update(80, t += 1, 2) == 1 && p.lowered());              // the late state: 1
+    for (int i = 0; i < 18; ++i) CHECK(p.update(0, t += 1, 2) == 1); // held 20 s (lowered at 2, until 22)
+    t += 2.5;
+    CHECK(p.update(0, t, 2) == 2 && !p.lowered());                   // tried again
+    CHECK(p.update(90, t += 5, 2) == 1 && near(p.hold_s(), 40.0f, 1e-3f));  // relapse: twice as long
+    double end = t + 40;
+    while (t < end - 1) CHECK(p.update(0, t += 1, 2) == 1);
+    CHECK(p.update(0, t += 2, 2) == 2);
+    for (int k = 0; k < 6; ++k) {  // repeated relapses: capped at 120 s
+        p.update(100, t += 1, 2);
+        t += p.hold_s() + 1;
+        p.update(0, t, 2);
+    }
+    CHECK(near(p.hold_s(), 120.0f, 1e-3f));
+    CHECK(p.update(100, t += 60, 2) == 1 && near(p.hold_s(), 20.0f, 1e-3f));  // long after: back to 20 s
+    SupersamplePolicy one;
+    CHECK(one.update(100, 0, 1) == 1 && !one.lowered());  // nothing to lower
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -2005,6 +2029,7 @@ int main() {
     test_vehicle_mode();
     test_wall_layout();
     test_wear_detector();
+    test_supersample_policy();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

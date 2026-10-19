@@ -2403,6 +2403,19 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         pendingFlash.append("Gafas frías: la imagen se estabiliza\nen 2-3 minutos, al calentarse")
     }
 
+    // Supersampling (crisper text) down to 1 while the glasses show frames a refresh late, then
+    // tried again (core/supersample_policy.h: 20 s, doubling on relapses up to 2 min).
+    private let supersamplePolicy = rayneo_supersample_create()
+    private func adaptSupersample(missed: Int) {
+        guard let ro = renderer?.options, options.supersample > 1 else { return }
+        let ss = Int(rayneo_supersample_update(supersamplePolicy, Int32(missed), CACurrentMediaTime(), Int32(options.supersample)))
+        guard UInt(ss) != ro.supersample else { return }
+        ro.supersample = UInt(ss)
+        renderer.invalidateSkippedFrame()
+        log(ss < options.supersample ? "render: frames a refresh late (\(missed) missed): supersample 1 for a while"
+                                     : "render: supersample \(ss) again")
+    }
+
     // Glasses taken off (core/wear_detector.h: 30 s lying still): the monitors' captures stop
     // and a message stays on the glasses; nothing changes on screen, so no frame is drawn
     // either. The first motion (picked up, put on) starts the captures again.
@@ -2507,6 +2520,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         logStreamStalls()
         warnIfGyroNoisy()
         pauseWhileOff()
+        if s.tracking && s.frames > 0 { adaptSupersample(missed: s.missed) }
         // Every 10 s: the gyro bias in use (a drift of the panels shows here as a bias that moves).
         biasLogSeconds += 1
         if biasLogSeconds >= 10, s.tracking, let b = (pose as? ImuPoseSource)?.gyroBias {
