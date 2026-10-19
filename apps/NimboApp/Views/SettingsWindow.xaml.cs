@@ -152,7 +152,7 @@ public sealed partial class SettingsWindow : Window
     private void Changed(object sender, RoutedEventArgs e)
     {
         Save();
-        if (sender == FlatWallToggle) DrawLayout();  // the preview shows the wall or the gaps
+        if (ReferenceEquals(sender, FlatWallToggle)) DrawLayout();  // the preview shows the wall or the gaps
     }
 
     private void BackgroundChanged(object sender, SelectionChangedEventArgs e)

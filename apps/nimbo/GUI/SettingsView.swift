@@ -28,23 +28,7 @@ struct SettingsView: View {
         .background(Theme.background)
         .preferredColorScheme(.dark)
         .animation(Theme.ease, value: advanced)
-        .onChange(of: model.fov) { server.settingsChanged() }
-        .onChange(of: model.ipd) { server.settingsChanged() }
-        .onChange(of: model.deadZone) { server.settingsChanged() }
-        .onChange(of: model.gazeCursor) { server.settingsChanged() }
-        .onChange(of: model.dimOthers) { server.settingsChanged() }
-        .onChange(of: model.tracking) { server.settingsChanged() }
-        .onChange(of: model.focusWindows) { server.settingsChanged() }
-        .onChange(of: model.growByGaze) { server.settingsChanged() }
-        .onChange(of: model.macScreen) { server.settingsChanged() }
-        .onChange(of: model.anchorAtRest) { server.settingsChanged() }
-        .onChange(of: model.vehicleMode) { server.settingsChanged() }
-        .onChange(of: model.flatWall) { server.settingsChanged() }
-        .onChange(of: model.keyHighlight) { server.settingsChanged() }
-        .onChange(of: model.depthStrength) { server.settingsChanged() }
-        .onChange(of: model.depthPlane) { server.settingsChanged() }
-        .onChange(of: model.k1) { server.settingsChanged() }
-        .onChange(of: model.k2) { server.settingsChanged() }
+        .modifier(ApplyOnChange(model: model, server: server))
     }
 
     // Height the sheet may take: the screen with the key window, less room for its title bar.
@@ -345,5 +329,47 @@ struct DiagnosticsView: View {
         case .poor: return Color(red: 0.88, green: 0.42, blue: 0.40)
         case .info: return Color(white: 0.55)
         }
+    }
+}
+
+
+// Every setting that applies live: the server told when it changes. Split in two groups (and out
+// of SettingsView.body): one long modifier chain was more than older Swift compilers could
+// type-check in reasonable time.
+@available(macOS 14.0, *)
+private struct ApplyOnChange: ViewModifier {
+    @ObservedObject var model: AppModel
+    let server: ServerController
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: model.fov) { server.settingsChanged() }
+            .onChange(of: model.ipd) { server.settingsChanged() }
+            .onChange(of: model.deadZone) { server.settingsChanged() }
+            .onChange(of: model.gazeCursor) { server.settingsChanged() }
+            .onChange(of: model.dimOthers) { server.settingsChanged() }
+            .onChange(of: model.tracking) { server.settingsChanged() }
+            .onChange(of: model.focusWindows) { server.settingsChanged() }
+            .onChange(of: model.growByGaze) { server.settingsChanged() }
+            .modifier(ApplyOnChangeMore(model: model, server: server))
+    }
+}
+
+@available(macOS 14.0, *)
+private struct ApplyOnChangeMore: ViewModifier {
+    @ObservedObject var model: AppModel
+    let server: ServerController
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: model.macScreen) { server.settingsChanged() }
+            .onChange(of: model.anchorAtRest) { server.settingsChanged() }
+            .onChange(of: model.vehicleMode) { server.settingsChanged() }
+            .onChange(of: model.flatWall) { server.settingsChanged() }
+            .onChange(of: model.keyHighlight) { server.settingsChanged() }
+            .onChange(of: model.depthStrength) { server.settingsChanged() }
+            .onChange(of: model.depthPlane) { server.settingsChanged() }
+            .onChange(of: model.k1) { server.settingsChanged() }
+            .onChange(of: model.k2) { server.settingsChanged() }
     }
 }
