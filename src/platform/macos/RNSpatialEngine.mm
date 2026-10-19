@@ -32,6 +32,7 @@
 - (float)gyroNoise { return _p.gyro_noise_degs; }
 - (BOOL)isGyroNoisy { return _p.gyro_noisy ? YES : NO; }
 - (float)temperature { return _p.temp_c; }
+- (BOOL)isWorn { return _p.worn ? YES : NO; }
 
 @end
 

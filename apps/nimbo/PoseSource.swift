@@ -54,6 +54,7 @@ final class ImuPoseSource: PoseSource {
     // The gyro's white noise at rest (deg/s per axis) and whether it is far above normal.
     var gyroNoise: (degs: Float, noisy: Bool)? { engine.latestPose().map { ($0.gyroNoise, $0.isGyroNoisy) } }
     var temperature: Float? { engine.latestPose()?.temperature }
+    var worn: Bool { engine.latestPose()?.isWorn ?? true }
     // Stream stalls so far: stream-on resent / acknowledged / stalls ended, the last one (ms).
     var stalls: (resent: UInt64, acked: UInt64, recovered: UInt64, lastMs: Double) {
         var r: UInt64 = 0, a: UInt64 = 0, v: UInt64 = 0, ms = 0.0

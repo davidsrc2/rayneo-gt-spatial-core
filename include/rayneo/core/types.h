@@ -122,6 +122,7 @@ struct Pose {
     float gyro_noise_degs = 0.0f;
     bool gyro_noisy = false;
     float temp_c = 0.0f;  // the sensor's temperature (C)
+    bool worn = true;     // on a head (WearDetector): false after 30 s lying still
 };
 
 }  // namespace rayneo::core

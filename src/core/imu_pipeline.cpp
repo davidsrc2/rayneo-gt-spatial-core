@@ -22,7 +22,7 @@ Quat heading_of(const Vec3& forward) {
 
 ImuPipeline::ImuPipeline(ImuPipelineConfig cfg)
     : cfg_(cfg), filter_(cfg.madgwick_beta), bias_(cfg.bias), stabilizer_(cfg.stabilizer), vqf_(cfg.vqf),
-      convergence_(cfg.bias_convergence), noise_(cfg.gyro_noise) {}
+      convergence_(cfg.bias_convergence), noise_(cfg.gyro_noise), wear_(cfg.wear) {}
 
 void ImuPipeline::reset() {
     filter_.reset();
@@ -30,6 +30,7 @@ void ImuPipeline::reset() {
     bias_.reset();
     convergence_.reset();
     noise_.reset();
+    wear_.reset();
     bias_seeded_ = false;
     bias_settled_ = false;
     have_prev_tick_ = false;
@@ -95,6 +96,7 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     have_prev_tick_ = true;
 
     Vec3 gyro_corr_degs = bias_.update(s.gyro_degs, s.accel_mps2, dt);
+    wear_.update(s.gyro_degs, dt);
 
     if (cfg_.use_vqf && bias_.tracking()) {
         if (!attitude_init_) {
@@ -159,6 +161,7 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     p.gyro_noise_degs = noise_.noise_degs();
     p.gyro_noisy = noise_.noisy();
     p.temp_c = s.temp_c;
+    p.worn = wear_.worn();
     if (cfg_.use_vqf && cfg_.hold_until_bias_settles && p.tracking) {
         p.tracking = attitude_init_ && (bias_seeded_ || bias_settled_ || attitude_s_ >= cfg_.bias_settle_max_s);
     }

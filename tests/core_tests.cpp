@@ -19,6 +19,7 @@
 #include "rayneo/core/panel_dimmer.h"
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/vqf.h"
+#include "rayneo/core/wear_detector.h"
 #include "rayneo/core/bias_map.h"
 #include "rayneo/core/bias_convergence.h"
 #include "rayneo/core/presets.h"
@@ -1882,6 +1883,39 @@ void test_wall_layout() {
     CHECK(near(a.vertices[0].py - a0.vertices[0].py, d * std::tan(0.2f), 1e-4f));
 }
 
+// Worn: a head's slow micro-motion; on the table only the sensor's white noise. Off after 30 s
+// still, on again at once.
+void test_wear_detector() {
+    const float dt = kRefDt;
+    uint64_t rng = 7;
+    auto noise = [&](float sigma) {
+        float s = 0;
+        for (int k = 0; k < 6; ++k) {
+            rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+            s += static_cast<float>(rng >> 40) / static_cast<float>(1 << 24) - 0.5f;
+        }
+        return s * sigma;
+    };
+    const Vec3 bias{0.37f, 0.40f, 0.01f};
+    WearDetector w;
+    CHECK(w.worn());  // until shown otherwise
+    // A still head: breathing (0.25 Hz) and pulse (1.2 Hz) micro-rotations, 0.15 deg/s, plus noise.
+    for (int i = 0; i < 457 * 40; ++i) {
+        const float t = i * dt;
+        const float m = 0.15f * std::sin(2 * 3.14159f * 0.25f * t) + 0.08f * std::sin(2 * 3.14159f * 1.2f * t);
+        w.update(bias + Vec3{m + noise(0.1f), 0.5f * m + noise(0.1f), noise(0.1f)}, dt);
+    }
+    CHECK(w.worn() && w.last_micro_degs() > 0.055f);
+    // On the table: white noise only (0.1 deg/s per axis): off after 30 s, not before.
+    for (int i = 0; i < 457 * 25; ++i) w.update(bias + Vec3{noise(0.1f), noise(0.1f), noise(0.1f)}, dt);
+    CHECK(w.worn() && w.last_micro_degs() < 0.055f);
+    for (int i = 0; i < 457 * 7; ++i) w.update(bias + Vec3{noise(0.1f), noise(0.1f), noise(0.1f)}, dt);
+    CHECK(!w.worn());
+    // Picked up: on again within a window.
+    for (int i = 0; i < 457 * 1.2; ++i) w.update(bias + Vec3{20.0f * std::sin(i * dt * 6.0f), 0, 0}, dt);
+    CHECK(w.worn());
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -1970,6 +2004,7 @@ int main() {
     test_gyro_noise_monitor();
     test_vehicle_mode();
     test_wall_layout();
+    test_wear_detector();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

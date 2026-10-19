@@ -248,6 +248,7 @@ struct PoseSample {
     float gyro_noise_degs = 0.0f;   // gyro white noise at rest (deg/s per axis)
     bool gyro_noisy = false;        // far above normal: a poor cable or USB port
     float temp_c = 0.0f;            // the IMU's temperature (C)
+    bool worn = true;               // on a head (false after 30 s lying still)
 };
 
 class PoseSource {
@@ -309,7 +310,7 @@ public:
         rayneo_pose p;
         if (!rayneo_engine_latest_pose(engine_, &p)) return std::nullopt;
         return PoseSample{{p.qw, p.qx, p.qy, p.qz}, {p.wx, p.wy, p.wz}, p.host_time_ns, p.tracking, p.panels_pitch_rad,
-                          p.gyro_noise_degs, p.gyro_noisy, p.temp_c};
+                          p.gyro_noise_degs, p.gyro_noisy, p.temp_c, p.worn};
     }
 
 private:
@@ -620,6 +621,7 @@ private:
     ComPtr<IDXGISwapChainMedia> swap_media_;  // how each frame was presented (composed or not)
     bool last_late_ = false;
     bool gyro_noise_warned_ = false;  // said once a run (as macOS)
+    bool paused_off_ = false;         // glasses taken off: captures stopped until they move
     uint64_t last_motion_ns_ = 0;  // the last frame drawn with the head moving
     uint64_t last_shown_ns_ = 0;  // scanout of the last frame statistics collected
     UINT last_shown_count_ = 0;
@@ -1467,6 +1469,27 @@ void Server::periodic() {
             logln("imu: gyro noise %.2f deg/s at rest, far above normal (0.05-0.16): try another cable or USB port",
                   g->gyro_noise_degs);
             flash(L"Mucho ruido en el sensor de las gafas\nPrueba otro cable o puerto USB", 6.0);
+        }
+    }
+
+    // Glasses taken off (30 s lying still, core/wear_detector.h): the monitors' captures stop
+    // and a message stays on the glasses, as macOS; the first motion starts them again.
+    if (imu_) {
+        if (const auto g = pose_->latest()) {
+            if (!g->worn && !paused_off_) {
+                paused_off_ = true;
+                logln("glasses off (30 s lying still): captures paused until they move");
+                for (auto& c : captures_) c->stop();
+                renderer_.set_overlay_text(L"Nimbo en pausa\nPonte las gafas para seguir");
+                redraw_ = true;
+            } else if (g->worn && paused_off_) {
+                paused_off_ = false;
+                logln("glasses on again: captures restarting");
+                renderer_.set_overlay_text(L"");
+                redraw_ = true;
+                std::string error;
+                if (!start_captures(&error)) logln("capture: %s", error.c_str());
+            }
         }
     }
 

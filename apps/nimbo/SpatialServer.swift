@@ -2403,6 +2403,28 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         pendingFlash.append("Gafas frías: la imagen se estabiliza\nen 2-3 minutos, al calentarse")
     }
 
+    // Glasses taken off (core/wear_detector.h: 30 s lying still): the monitors' captures stop
+    // and a message stays on the glasses; nothing changes on screen, so no frame is drawn
+    // either. The first motion (picked up, put on) starts the captures again.
+    private var pausedOff = false
+    private func pauseWhileOff() {
+        guard let imu = pose as? ImuPoseSource, !stopped else { return }
+        let worn = imu.worn
+        if !worn && !pausedOff {
+            pausedOff = true
+            log("glasses off (30 s lying still): captures paused until they move")
+            renderer.setOverlayText("Nimbo en pausa\nPonte las gafas para seguir")
+            let caps = captures
+            captures = []
+            Task { for c in caps { await c.stop() } }
+        } else if worn && pausedOff {
+            pausedOff = false
+            log("glasses on again: captures restarting")
+            renderer.setOverlayText(nil)
+            Task { @MainActor in await self.restartMonitorCaptures("glasses on again") }
+        }
+    }
+
     // A gyro far noisier than normal at rest (core/gyro_noise_monitor.h): the bias is learned
     // badly and the panels drift. Usually the cable or the USB port (a hub): said once a run.
     private var gyroNoiseWarned = false
@@ -2484,6 +2506,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         adaptFrameLatency(s)
         logStreamStalls()
         warnIfGyroNoisy()
+        pauseWhileOff()
         // Every 10 s: the gyro bias in use (a drift of the panels shows here as a bias that moves).
         biasLogSeconds += 1
         if biasLogSeconds >= 10, s.tracking, let b = (pose as? ImuPoseSource)?.gyroBias {

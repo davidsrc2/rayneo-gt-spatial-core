@@ -36,6 +36,7 @@ typedef struct {
     float gyro_noise_degs;     /* gyro white noise at rest, deg/s per axis */
     bool gyro_noisy;           /* far above normal: a poor cable or USB port, drift likely */
     float temp_c;              /* the IMU's temperature, C */
+    bool worn;                 /* on a head; false after 30 s lying still (core/wear_detector.h) */
 } rayneo_pose;
 
 /* Transport and device-clock health counters, cumulative since start. */

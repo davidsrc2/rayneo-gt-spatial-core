@@ -12,6 +12,7 @@
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/types.h"
 #include "rayneo/core/vqf.h"
+#include "rayneo/core/wear_detector.h"
 
 namespace rayneo::core {
 
@@ -36,6 +37,7 @@ struct ImuPipelineConfig {
     bool hold_until_bias_settles = false;
     BiasConvergenceConfig bias_convergence;
     GyroNoiseConfig gyro_noise;
+    WearConfig wear;
     float bias_settle_max_s = 12.0f;
     bool use_magnetometer = false;  // Off: desk/laptop interference spins yaw.
     bool stabilize = true;          // PoseStabilizer on `relative` and its angular velocity
@@ -140,6 +142,7 @@ private:
     BiasMap bias_map_;
     BiasConvergence convergence_;
     GyroNoiseMonitor noise_;
+    WearDetector wear_;
     bool bias_seeded_ = false;
     bool bias_settled_ = false;
 
