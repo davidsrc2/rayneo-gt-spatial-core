@@ -1654,9 +1654,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: input
 
-    // ⌘⌥F: the optics assistant (core/fov_tuner.h). Turning the head slowly while looking at a
+    // ⌘⌥L: the optics assistant (core/fov_tuner.h). Turning the head slowly while looking at a
     // panel's edge, the wearer answers with ⌘⌥⇧- (the panels drift WITH the head: FOV too large)
     // or ⌘⌥⇧+ (AGAINST it: too small); each flip halves the step, done at 0.05 deg, saved.
+    // ⌘⌥L again ends it where it is.
     // Space at real size only (the optics' range); outside it ⌘⌥⇧± keep their fixed steps.
     private var opticsWizard: rayneo_fov_tuner?
 
@@ -1681,7 +1682,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private func opticsWizardText() -> String? {
         guard let t = opticsWizard else { return nil }
         return String(format: "Ajuste de la óptica · %.2f°\nGira la cabeza despacio mirando el borde de una pantalla\n"
-                      + "Se mueve CON la cabeza: ⌘⌥⇧−   ·   EN CONTRA: ⌘⌥⇧+\nQuieta en su sitio: ⌘⌥F", t.fov)
+                      + "Se mueve CON la cabeza: ⌘⌥⇧−   ·   EN CONTRA: ⌘⌥⇧+\nQuieta en su sitio: ⌘⌥L", t.fov)
     }
 
     private func fovKey(grow: Bool) {
@@ -1949,7 +1950,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                "⌘⌥O enfocar   ·   ⌘⌥P cine   ·   ⌘⌥T 3D",
                "⌘⌥K modo código   ·   ⌘⌥J cursor aquí",
                "⌘⌥1  ⌘⌥2  ⌘⌥3 plantillas   ·   ⌘⌥G modo fijo",
-               "⌘⌥V vehículo   ·   ⌘⌥F óptica   ·   ⌘⌥R grabar",
+               "⌘⌥V vehículo   ·   ⌘⌥L óptica   ·   ⌘⌥F fondo",
+               "⌘⌥↓  ⌘⌥↑ brillo   ·   ⌘⌥R grabar",
                "⌘⌥H cerrar esta ayuda"].joined(separator: "\n"), seconds: 12)
         DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in self?.shortcutsShown = false }
     }
@@ -2077,7 +2079,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // turning, the render FOV is too large (Cmd+Opt+Shift+-); against it, too small (+).
         for key in minusKeys { regShift(key, "-") { [weak self] in self?.fovKey(grow: false) } }
         for key in plusKeys { regShift(key, "+") { [weak self] in self?.fovKey(grow: true) } }
-        reg(kVK_ANSI_F, "F") { [weak self] in self?.toggleOpticsWizard() }
+        reg(kVK_ANSI_L, "L") { [weak self] in self?.toggleOpticsWizard() }  // ⌘⌥F is the background (GUIApp)
         reg(kVK_ANSI_H, "H") { [weak self] in self?.showShortcuts() }
         if let sim = pose as? SimPoseSource {
             let step: Float = 10

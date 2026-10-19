@@ -185,7 +185,7 @@ struct ServerOptions {
                            through tracking and rendering: before / after comparisons)
     menu bar: "◎ Nimbo" -> Recentrar / Salir
     hotkeys: Cmd+Opt+C recenter (and bring the cursor to the panel in front), Cmd+Opt+Q quit,
-             Cmd+Opt+V vehicle mode on / off, Cmd+Opt+F the optics assistant (field of view),
+             Cmd+Opt+V vehicle mode on / off, Cmd+Opt+L the optics assistant (field of view),
              Cmd+Opt+H every shortcut on the glasses,
              Cmd+Opt+- / Cmd+Opt+= field of view (tune until the panels stay put when turning),
              Cmd+Opt+arrows look around (--sim)

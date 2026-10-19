@@ -61,7 +61,7 @@ struct SettingsView: View {
                 Text(model.hasCalibration ? "Tus gafas están calibradas." : "Aún no has calibrado tus gafas.")
                     .font(Theme.body).foregroundStyle(Theme.text)
                 Button("Volver a calibrar", action: onRecalibrate).buttonStyle(CalmButtonStyle())
-                Button("Ajustar la óptica (⌘⌥F)") { server.startOpticsWizard() }.buttonStyle(CalmButtonStyle())
+                Button("Ajustar la óptica (⌘⌥L)") { server.startOpticsWizard() }.buttonStyle(CalmButtonStyle())
                     .disabled(server.state == .stopped)
                 Text("Con Nimbo en marcha y las gafas puestas: gira la cabeza despacio mirando el borde de una pantalla y responde si se mueve con la cabeza (⌘⌥⇧−) o en contra (⌘⌥⇧+). En unos 20 s las pantallas quedan quietas al girar.")
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
@@ -187,6 +187,9 @@ struct ShortcutSheet: View {
         ("⌘⌥R", "—", "Grabar lo que ves en las gafas (vídeo en Descargas)"),
         ("⌘⌥↓  ⌘⌥↑", "Ctrl+Alt+↓  ↑", "Brillo de la pantalla de las gafas: bajar / subir (8 niveles)"),
         ("⌘⌥⇧-  ⌘⌥⇧+", "Ctrl+Alt+Mayús+-  +", "Calibrar el campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (+)"),
+        ("⌘⌥V", "Ctrl+Alt+V", "Modo vehículo: las pantallas acompañan los giros del coche, tren o avión (otra vez: desactivado)"),
+        ("⌘⌥L", "Ctrl+Alt+L", "Ajustar la óptica: asistente que deja las pantallas quietas al girar la cabeza"),
+        ("⌘⌥H", "Ctrl+Alt+H", "Todos los atajos, en las gafas (Windows: en una ventana)"),
         ("⌘⌥Q", "Ctrl+Alt+Q", "Parar Nimbo (todo vuelve a la normalidad)"),
     ]
 

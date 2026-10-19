@@ -396,7 +396,7 @@ constexpr UINT_PTR kRepinTimer = 1;  // recentre in the glasses' pinned mode: ba
 
 enum HotKey {
     kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema, kDepth3D,
-    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview, kVehicle, kOptics, kHelp
+    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview, kVehicle, kOptics
 };
 
 
@@ -627,7 +627,7 @@ private:
     int key_panel_tick_ = 0;
     void update_key_panel();
     core::SupersamplePolicy supersample_policy_;  // 1 while frames go a refresh late, as macOS
-    // Ctrl+Alt+F: the optics assistant (core/fov_tuner.h), as macOS.
+    // Ctrl+Alt+L: the optics assistant (core/fov_tuner.h), as macOS.
     std::optional<core::FovTuner> optics_;
     void toggle_optics();
     void optics_answer(bool against_head);
@@ -1064,7 +1064,7 @@ bool Server::start() {
                              {kOverview, 'A', "Ctrl+Alt+A"},
                              {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"},
                              {kDepth3D, 'T', "Ctrl+Alt+T"}, {kVehicle, 'V', "Ctrl+Alt+V"},
-                             {kOptics, 'F', "Ctrl+Alt+F"}, {kHelp, 'H', "Ctrl+Alt+H"}};
+                             {kOptics, 'L', "Ctrl+Alt+L"}};  // F and H are the app's (background, shortcuts window)
     if (opt_.sim) {
         keys.push_back({kLeft, VK_LEFT, "Ctrl+Alt+Left"});
         keys.push_back({kRight, VK_RIGHT, "Ctrl+Alt+Right"});
@@ -2631,7 +2631,7 @@ std::wstring Server::optics_text() const {
     wchar_t buf[320];
     std::swprintf(buf, 320,
                   L"Ajuste de la \u00f3ptica \u00b7 %.2f\u00b0\nGira la cabeza despacio mirando el borde de una pantalla\n"
-                  L"Se mueve CON la cabeza: Ctrl+Alt+Shift+-   \u00b7   EN CONTRA: Ctrl+Alt+Shift++\nQuieta en su sitio: Ctrl+Alt+F",
+                  L"Se mueve CON la cabeza: Ctrl+Alt+Shift+-   \u00b7   EN CONTRA: Ctrl+Alt+Shift++\nQuieta en su sitio: Ctrl+Alt+L",
                   optics_->fov);
     return buf;
 }
@@ -2696,16 +2696,6 @@ void Server::on_hotkey(int id) {
         else adjust_fov(0.5f);
         break;
     case kOptics: toggle_optics(); break;
-    case kHelp:  // every shortcut on a card for 12 s, as macOS
-        flash(L"Atajos de Nimbo\n"
-              L"Ctrl+Alt+C recentrar   \u00b7   Ctrl+Alt+Q salir\n"
-              L"Ctrl+Alt++  Ctrl+Alt+-  Ctrl+Alt+0 zoom   \u00b7   Ctrl+Alt+A vista general\n"
-              L"Ctrl+Alt+O enfocar   \u00b7   Ctrl+Alt+P cine   \u00b7   Ctrl+Alt+T 3D\n"
-              L"Ctrl+Alt+K modo c\u00f3digo   \u00b7   Ctrl+Alt+J cursor aqu\u00ed\n"
-              L"Ctrl+Alt+V veh\u00edculo   \u00b7   Ctrl+Alt+F \u00f3ptica\n"
-              L"Ctrl+Alt+Shift++ / - campo de visi\u00f3n   \u00b7   Ctrl+Alt+H esta ayuda",
-              12.0);
-        break;
     case kLeft: pose_->nudge(step, 0); break;
     case kRight: pose_->nudge(-step, 0); break;
     case kUp: pose_->nudge(0, step); break;

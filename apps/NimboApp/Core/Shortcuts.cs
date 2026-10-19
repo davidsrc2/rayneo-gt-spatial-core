@@ -12,7 +12,7 @@ internal static class Shortcuts
     public static readonly (string Win, string Mac, string What)[] Rows =
     {
         ("Ctrl+Alt+N", "⌘⌥N", "Abrir o cerrar el panel de Nimbo"),
-        ("Ctrl+Alt+H", "—", "Esta lista de atajos, en grande"),
+        ("Ctrl+Alt+H", "⌘⌥H", "Esta lista de atajos, en grande (Mac: en las gafas)"),
         ("Ctrl+Alt+1", "⌘⌥1", "Disposición «1 Pantalla Curva»"),
         ("Ctrl+Alt+2", "⌘⌥2", "Disposición «Doble Monitor»"),
         ("Ctrl+Alt+3", "⌘⌥3", "Disposición «Triple Ultrawide»"),
@@ -30,6 +30,8 @@ internal static class Shortcuts
         ("—", "⌘⌥R", "Grabar lo que ves en las gafas (solo Mac por ahora)"),
         ("Ctrl+Alt+↓  ↑", "⌘⌥↓  ⌘⌥↑", "Brillo de la pantalla de las gafas: bajar / subir (8 niveles)"),
         ("Ctrl+Alt+Mayús+-  +", "⌘⌥⇧-  ⌘⌥⇧+", "Calibrar el campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (+)"),
+        ("Ctrl+Alt+V", "⌘⌥V", "Modo vehículo: las pantallas acompañan los giros del coche, tren o avión (otra vez: desactivado)"),
+        ("Ctrl+Alt+L", "⌘⌥L", "Ajustar la óptica: asistente que deja las pantallas quietas al girar la cabeza"),
         ("Ctrl+Alt+Q", "⌘⌥Q", "Parar Nimbo (todo vuelve a la normalidad)"),
     };
 
