@@ -246,8 +246,17 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
     const float placed = (options.layout_arc_deg > 0.0f ? options.layout_arc_deg : options.arc_deg) * kDegToRad;
     const float k = placed > 0.0f ? panel_arc() / placed : 1.0f;
     std::vector<core::PanelPlacement> out;
+    // Hand-placed monitors: their centre straight ahead, like a grid (core::poses_centre, at the
+    // editor's 16:9); the windows floating around them move with them.
+    core::PanelPose shift{0.0f, 0.0f, 1.0f};
     if (static_cast<int>(poses_.size()) == monitors) {
-        out = core::placements_from_poses(poses_, k);
+        std::vector<core::PanelPose> poses = poses_;
+        if (monitors > 0) shift = core::poses_centre(poses, placed / kDegToRad, 16.0f / 9.0f);
+        for (auto& p : poses) {
+            p.yaw_deg -= shift.yaw_deg;
+            p.pitch_deg -= shift.pitch_deg;
+        }
+        out = core::placements_from_poses(poses, k);
     } else {
         std::vector<core::GridCell> cells = cells_;
         if (static_cast<int>(cells.size()) != monitors) {
@@ -257,7 +266,11 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
         out = wall_mode() ? core::wall_grid_layout(cells, panel_arc(), aspect)  // one plane, edge to edge
                           : core::grid_layout(cells, panel_arc(), vertical_arc(aspect), options.gap_deg * kDegToRad);
     }
-    const std::vector<core::PanelPose> fl(floating_.begin(), floating_.begin() + floats);
+    std::vector<core::PanelPose> fl(floating_.begin(), floating_.begin() + floats);
+    for (auto& f : fl) {
+        f.yaw_deg -= shift.yaw_deg;
+        f.pitch_deg -= shift.pitch_deg;
+    }
     for (const auto& pl : core::placements_from_poses(fl, k)) out.push_back(pl);
     if (floats > 0) {  // windows never over the monitors, whatever their shape
         std::vector<float> w, h;
@@ -267,11 +280,8 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
         }
         core::separate_floating(out, w, h, static_cast<size_t>(monitors), wall_mode() ? 0.0f : options.gap_deg * kDegToRad);
     }
-    if (wall_mode()) {
-        core::lift_wall(out, options.panels_pitch_rad);  // the recentre's elevation, rows still touching
-    } else if (!options.static_head) {
-        core::lift_placements(out, options.panels_pitch_rad);
-    }
+    // The recentre's elevation: the wall turns to it as a whole (wall_panel_mesh), the rest lift.
+    if (!wall_mode() && !options.static_head) core::lift_placements(out, options.panels_pitch_rad);
     // Cinema: the focused panel straight ahead, large (the others are not drawn), but never
     // larger than the glasses' image (at real size a panel nearly fills it already).
     if (options.cinema && options.focus_panel >= 0 && options.focus_panel < static_cast<int>(out.size())) {
@@ -485,7 +495,7 @@ int SpatialRenderer::panel_at_gaze(const core::Quat& head) const {
     const float aspect = panels_[0].aspect;
     core::Quat h = core::track_axes(head, options.tracking_axes);
     if (options.vehicle_mode && !options.static_head) h = core::scale_heading(h, core::kVehicleHeadingScale);
-    if (wall_mode()) return core::panel_at_gaze_wall(h, placements(aspect), panel_arc(), aspect);
+    if (wall_mode()) return core::panel_at_gaze_wall(h, placements(aspect), panel_arc(), aspect, options.panels_pitch_rad);
     return core::panel_at_gaze(h, placements(aspect), panel_arc(), vertical_arc(aspect),
                                options.gap_deg * kDegToRad);
 }
@@ -509,15 +519,16 @@ bool SpatialRenderer::can_skip_frame(const core::Quat& orientation, const core::
 
 void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl, bool wall) {
     const float k = filling_image() || wall ? 0.0f : std::clamp(options.curvature, 0.0f, 1.0f);
+    const float wall_pitch = wall ? options.panels_pitch_rad : 0.0f;
     if (p.vertices && p.aspect == p.mesh_aspect && options.distance_m == p.mesh_distance &&
         options.arc_deg == p.mesh_arc && pl.yaw_rad == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
         k == p.mesh_curvature && pl.scale == p.mesh_scale && options.tilt == p.mesh_tilt && options.zoom == p.mesh_zoom &&
-        wall == p.mesh_wall) {
+        wall == p.mesh_wall && wall_pitch == p.mesh_wall_pitch) {
         return;
     }
     core::ScreenMesh mesh;
     if (wall) {  // flat wall: a plain rectangle in the shared plane, no rotation of its own
-        mesh = core::wall_panel_mesh(options.distance_m, panel_arc(), p.aspect, pl);
+        mesh = core::wall_panel_mesh(options.distance_m, panel_arc(), p.aspect, pl, wall_pitch);
     } else {
         const float arc = panel_arc() * pl.scale;
         const float width = core::panel_width(options.distance_m, arc, true);  // a sheet: bending keeps its width
@@ -543,6 +554,7 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl, boo
     p.mesh_arc = options.arc_deg;
     p.mesh_center = pl.yaw_rad;
     p.mesh_wall = wall;
+    p.mesh_wall_pitch = wall_pitch;
     p.mesh_pitch = pl.pitch_rad;
     p.mesh_curvature = k;
     p.mesh_scale = pl.scale;
@@ -971,7 +983,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     int gaze = -1;
     float dim = options.dim_others;
     if (count_ > 1 && options.dim_others < 1.0f) {
-        gaze = wall_mode() ? core::panel_at_gaze_wall(head, pls, panel_arc(), panels_[0].aspect)
+        gaze = wall_mode() ? core::panel_at_gaze_wall(head, pls, panel_arc(), panels_[0].aspect, options.panels_pitch_rad)
                            : core::panel_at_gaze(head, pls, panel_arc(), vertical_arc(panels_[0].aspect),
                                                  options.gap_deg * kDegToRad);
     }

@@ -152,6 +152,7 @@ private:
         Microsoft::WRL::ComPtr<ID3D11Buffer> vertices, indices;
         UINT index_count = 0;
         float mesh_aspect = 0, mesh_distance = 0, mesh_arc = 0, mesh_center = 0, mesh_pitch = 0;
+        float mesh_wall_pitch = 0;  // the wall's turn to the recentre's elevation
         float mesh_curvature = -1.0f;
         float mesh_tilt = -1.0f;
         float mesh_scale = 0.0f;

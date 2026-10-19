@@ -202,6 +202,18 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         self.options = options
     }
 
+    // A restart's IMU: the last run's, still streaming with its gyro bias and centre, taken over
+    // instead of opened again (a restart calibrated again: ~6-15 s of "CALIB").
+    var inheritedPose: PoseSource?
+    private var keepPose = false  // stop() leaves the IMU running for the next run
+
+    // For a restart: the IMU goes on to the next run (inheritedPose) instead of stopping.
+    func handOverPose() -> PoseSource? {
+        guard let imu = pose as? ImuPoseSource else { return nil }
+        keepPose = true
+        return imu
+    }
+
     // Async so the app stays responsive while displays reconfigure and monitors appear: the
     // waits below yield to the main actor instead of spinning a nested run loop. Cancelling
     // the task aborts at the next wait; stop() then tears down whatever was built.
@@ -245,7 +257,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
 
         // Pose first: the IMU needs ~6 s of rest, let it start while the rest comes up.
-        if options.sim {
+        let inherited = inheritedPose
+        inheritedPose = nil
+        if let inherited {
+            pose = inherited
+            log("imu: kept from the last run (calibrated, same centre)")
+        } else if options.sim {
             pose = SimPoseSource(sweepAmplitudeDeg: options.simSweepDeg)
             log("tracking: simulated head" + (options.simSweepDeg > 0 ? " (sweep ±\(options.simSweepDeg)°)" : " (Cmd+Opt+arrows)"))
         } else {
@@ -263,7 +280,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 }
             }
         }
-        try pose.start()
+        if inherited == nil { try pose.start() }
         if let imu = pose as? ImuPoseSource {
             if options.glassesMode >= 0 {
                 imu.setGlassesMode(options.glassesMode)  // pinned: centred in front of you
@@ -274,7 +291,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 log("glasses: brightness \(options.brightness)")
             }
         }
-        if let imu = pose as? ImuPoseSource {
+        if let imu = pose as? ImuPoseSource, inherited == nil {
             log("calibration: " + (imu.calibrationLoaded ? options.calibrationPath : "none (identity)"))
             log("imu: streaming, leave the glasses still on the table ~6 s until TRACK")
         }
@@ -476,7 +493,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             log(HardwareCursor.hide() ? "cursor: hardware cursor hidden (mirrored glasses; the panels show the real one)"
                                       : "cursor: could not hide the hardware cursor")
         }
-        if pose is ImuPoseSource {  // the IMU calibrates first: say so on the glasses
+        if pose is ImuPoseSource, pose.latest()?.tracking != true {  // the IMU calibrates first: say so on the glasses
             renderer.setOverlayText("Nimbo se está preparando\nDeja las gafas quietas unos segundos")
             overlayShown = true
         }
@@ -696,6 +713,26 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
         arrangeFloatingDisplays()
         log("displays: arrangement restored")
+    }
+
+    // A new arrangement of the same monitors (one stacked over another, two swapped): the OS
+    // arrangement and the panels change live. Restarting for it built every monitor again and
+    // calibrated the IMU again, ~15 s. false: it needs a restart (another number of monitors,
+    // or monitors not arranged by Nimbo).
+    func applyLayout(_ cells: [GridPos]?) -> Bool {
+        guard let renderer, desktop != nil, physicalDisplay != nil, !stopped,
+              let cells, cells.count == max(1, panelDisplays.count) else { return false }
+        options.layout = cells
+        renderer.setGridColumns(cells.map { NSNumber(value: $0.col) }, rows: cells.map { NSNumber(value: $0.row) })
+        if options.fit && options.arcDeg == nil {
+            let columns = Set(cells.map(\.col)).count
+            renderer.options.arcDegrees = renderer.fitArcDegrees(forPanels: UInt(max(1, columns)))
+        }
+        rearrangeDisplays()
+        lastGazePanel = -2  // the cursor follows to the panel now in front
+        requestRedraw()
+        log("layout: " + cells.map { "\($0.col),\($0.row)" }.joined(separator: " ") + " (live)")
+        return true
     }
 
     // Unplugged glasses: the display disappears and/or the IMU stops. Quit, which restores
@@ -1638,11 +1675,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statusMenu = nil
         // Space at real size put the glasses in follow: back to pinned, how they are used without
         // Nimbo (the command goes out with the next IMU read, a few ms).
-        if options.realSize && !options.glassesPinned && options.glassesMode == 0, let imu = pose as? ImuPoseSource {
+        // Handed over to a restart: the IMU and the glasses' mode stay as they are.
+        if !keepPose && options.realSize && !options.glassesPinned && options.glassesMode == 0, let imu = pose as? ImuPoseSource {
             imu.setGlassesMode(1)
             Thread.sleep(forTimeInterval: 0.15)
         }
-        pose?.stop()
+        if !keepPose { pose?.stop() }
+        inheritedPose?.stop()  // a start that failed before taking it over
+        inheritedPose = nil
         physicalDisplay = nil
         glassesID = nil
         let caps = captures + floatingCaptures

@@ -135,6 +135,7 @@ final class AppModel: ObservableObject {
         k1 = d.object(forKey: "k1") as? Double ?? 0
         k2 = d.object(forKey: "k2") as? Double ?? 0
         onboardingDone = d.bool(forKey: "onboardingDone")
+        if !panelPoses.isEmpty { panelPoses = centred(panelPoses) }  // placed off centre before
         Self.adoptExistingCalibration()
     }
 
@@ -201,7 +202,8 @@ final class AppModel: ObservableObject {
     // New hand placement; the OS arrangement (where the cursor crosses) follows the order the
     // monitors now have, like core::cells_from_poses.
     func place(_ poses: [PanelPos]) {
-        panelPoses = poses
+        panelPoses = centred(poses)
+        let poses = panelPoses
         let cols = Self.clusters(poses.map(\.yaw), step: Float(size) / 2)
         let rows = Self.clusters(poses.map { -$0.pitch }, step: Self.verticalArc(Float(size)) / 2)
         var derived: [GridPos] = []
@@ -218,6 +220,25 @@ final class AppModel: ObservableObject {
     }
 
     func resetPlacement() { panelPoses = [] }
+
+    // The monitors' box centred straight ahead, as the glasses show them (core::poses_centre),
+    // the floating windows moved with them: stacked by hand, the pair stayed where the dragged
+    // one had been (19.5 deg to the right) and the editor showed them off centre.
+    private func centred(_ poses: [PanelPos]) -> [PanelPos] {
+        guard !poses.isEmpty else { return poses }
+        let size = Float(self.size)
+        let xs = poses.flatMap { [$0.yaw - size * $0.scale / 2, $0.yaw + size * $0.scale / 2] }
+        let ys = poses.flatMap { p in [p.pitch - Self.verticalArc(size * p.scale) / 2, p.pitch + Self.verticalArc(size * p.scale) / 2] }
+        let dx = ((xs.min() ?? 0) + (xs.max() ?? 0)) / 2, dy = ((ys.min() ?? 0) + (ys.max() ?? 0)) / 2
+        guard abs(dx) > 0.01 || abs(dy) > 0.01 else { return poses }
+        let moved = floating.map { w -> FloatingWindow in
+            var w = w
+            if var p = w.pose { p.yaw -= dx; p.pitch -= dy; w.pose = p }
+            return w
+        }
+        if moved != floating { floating = moved }
+        return poses.map { PanelPos(yaw: $0.yaw - dx, pitch: $0.pitch - dy, scale: $0.scale) }
+    }
 
     private static func clusters(_ values: [Float], step: Float) -> [Int] {
         let order = values.indices.sorted { values[$0] < values[$1] }

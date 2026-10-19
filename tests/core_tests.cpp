@@ -1876,13 +1876,35 @@ void test_wall_layout() {
     // Turning right is about core Z negative (render X right): yaw just past the edge.
     CHECK(panel_at_gaze_wall(Quat::from_axis_angle({0, 0, -1}, edge + 0.01f), pl, arc, aspect) == 2);
     CHECK(panel_at_gaze_wall(Quat::from_axis_angle({0, 0, -1}, edge - 0.01f), pl, arc, aspect) == 1);
-    // Lifting keeps the rows touching.
-    auto lifted = pl;
-    lift_wall(lifted, 0.2f);
-    const auto a = wall_panel_mesh(d, arc, aspect, lifted[1]), b = wall_panel_mesh(d, arc, aspect, lifted[3]);
-    CHECK(near(b.vertices[0].py, a.vertices[1].py, 1e-4f));
-    const auto a0 = wall_panel_mesh(d, arc, aspect, pl[1]);  // the same panel, not lifted
-    CHECK(near(a.vertices[0].py - a0.vertices[0].py, d * std::tan(0.2f), 1e-4f));
+    // Recentred looking up: the wall turns about the eye and faces the gaze square (every corner
+    // as far along it as straight ahead), the rows still touching, and that gaze finds the
+    // centre panel.
+    const float up = 0.3f;
+    const auto a = wall_panel_mesh(d, arc, aspect, pl[1], up), b = wall_panel_mesh(d, arc, aspect, pl[3], up);
+    const float gy = std::sin(up), gz = std::cos(up);
+    const auto a0 = wall_panel_mesh(d, arc, aspect, pl[1]);
+    for (size_t k = 0; k < 4; ++k) {
+        CHECK(near(a.vertices[k].py * gy + a.vertices[k].pz * gz, d, 1e-4f));
+        CHECK(near(std::hypot(a.vertices[k].py, a.vertices[k].pz), std::hypot(a0.vertices[k].py, a0.vertices[k].pz), 1e-4f));
+    }
+    CHECK(near(b.vertices[0].py, a.vertices[1].py, 1e-4f) && near(b.vertices[0].pz, a.vertices[1].pz, 1e-4f));
+    // The grid's centre is the seam between its rows: a little above it, the top row's middle.
+    const Quat lookUp = Quat::from_axis_angle({0, -1, 0}, up + 0.1f);
+    CHECK(panel_at_gaze_wall(lookUp, pl, arc, aspect, up) == 1);
+    CHECK(panel_at_gaze_wall(lookUp, pl, arc, aspect) == -1);  // the upright wall: above it
+}
+
+// Hand-placed monitors: their box's centre, whatever their order or sizes.
+void test_poses_centre() {
+    const float arc = 38.0f, aspect = 16.0f / 9.0f;
+    // Stacked by hand at 19.5 deg right (the user's arrangement): centre at 19.5 and between them.
+    const std::vector<PanelPose> stacked{{19.5f, 22.9f, 1.0f}, {19.5f, 0.0f, 1.0f}};
+    const auto c = poses_centre(stacked, arc, aspect);
+    CHECK(near(c.yaw_deg, 19.5f, 1e-4f) && near(c.pitch_deg, 11.45f, 1e-3f));
+    // A larger one widens the box on its side only.
+    const auto w = poses_centre({{0.0f, 0.0f, 1.0f}, {40.0f, 0.0f, 1.5f}}, arc, aspect);
+    CHECK(near(w.yaw_deg, 0.5f * (-19.0f + 40.0f + 28.5f), 1e-3f) && near(w.pitch_deg, 0.0f, 1e-4f));
+    CHECK(near(poses_centre({}, arc, aspect).yaw_deg, 0.0f, 1e-6f));
 }
 
 // Worn: a head's slow micro-motion; on the table only the sensor's white noise. Off after 30 s
@@ -2061,6 +2083,7 @@ int main() {
     test_gyro_noise_monitor();
     test_vehicle_mode();
     test_wall_layout();
+    test_poses_centre();
     test_wear_detector();
     test_supersample_policy();
     test_fov_tuner();

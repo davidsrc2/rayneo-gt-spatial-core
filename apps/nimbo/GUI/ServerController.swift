@@ -24,6 +24,7 @@ final class ServerController: ObservableObject {
     private let notifier = Notifier()
     private var glassesPresent = Displays.glassesConnected  // the display itself, for notices
     private var restarting: Task<Void, Never>?
+    private var keptPose: PoseSource?  // the IMU between a restart's stop and start
 
     var isRunning: Bool { state != .stopped }
 
@@ -66,6 +67,8 @@ final class ServerController: ObservableObject {
         }
         state = .starting
         let s = SpatialServer(options: options)
+        s.inheritedPose = keptPose
+        keptPose = nil
         s.onStopRequest = { [weak self] reason in
             self?.stop(notice: reason.contains("disconnected") || reason.contains("IMU")
                                 ? "Las gafas se han desconectado; todo ha vuelto a la normalidad" : nil)
@@ -103,9 +106,16 @@ final class ServerController: ObservableObject {
     // Stop, then start once macOS has put the displays back (mirroring, arrangement, the
     // virtual monitors gone): starting straight away found the glasses still mirrored and laid
     // the new monitors out on both sides of the Mac's screen.
-    private func restart() {
+    // keepImu: the IMU stays open and calibrated through it (not when its own settings changed).
+    private func restart(keepImu: Bool) {
         restarting?.cancel()
+        var kept: PoseSource?
+        if keepImu {
+            kept = server?.handOverPose() ?? keptPose
+            keptPose = nil
+        }
         stop()
+        keptPose = kept
         state = .starting
         restarting = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -122,6 +132,8 @@ final class ServerController: ObservableObject {
     func stop(notice: String? = nil) {
         restarting?.cancel()
         restarting = nil
+        keptPose?.stop()
+        keptPose = nil
         // Still starting: cancel, and the start task tears down what it built so far.
         pending?.task.cancel()
         pending = nil
@@ -162,11 +174,12 @@ final class ServerController: ObservableObject {
     func settingsChanged() {
         guard let model, let server, let running = runningOptions else { return }
         let next = model.serverOptions()
-        let needsRestart = next.layout != running.layout || next.vdWidth != running.vdWidth ||
-            next.deadZoneDeg != running.deadZoneDeg || next.macScreen != running.macScreen ||
-            next.vdLikeMac != running.vdLikeMac
+        var needsRestart = next.vdWidth != running.vdWidth || next.deadZoneDeg != running.deadZoneDeg ||
+            next.macScreen != running.macScreen || next.vdLikeMac != running.vdLikeMac
+        // The same monitors arranged anew: live (one stacked over another took ~15 s and a calibration).
+        if !needsRestart && next.layout != running.layout { needsRestart = !server.applyLayout(next.layout) }
         if needsRestart {
-            restart()
+            restart(keepImu: next.deadZoneDeg == running.deadZoneDeg)  // the dead zone is the IMU's own
         } else {
             server.applyLive(next)
             let ids = { (o: ServerOptions) in o.floatingWindows.map(\.windowID) }

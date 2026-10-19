@@ -290,7 +290,7 @@ std::vector<PanelPlacement> wall_grid_layout(const std::vector<GridCell>& cells,
     return out;
 }
 
-ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const PanelPlacement& pl) {
+ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const PanelPlacement& pl, float wall_pitch_rad) {
     ScreenMesh mesh;
     if (aspect <= 0.0f || arc_rad <= 0.0f || arc_rad >= 3.0f) return mesh;
     const float half_w = distance_m * std::tan(arc_rad * pl.scale * 0.5f), half_h = half_w / aspect;
@@ -299,11 +299,17 @@ ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const 
     mesh.vertices = {{cx - half_w, cy + half_h, distance_m, 0.0f, 0.0f}, {cx - half_w, cy - half_h, distance_m, 0.0f, 1.0f},
                      {cx + half_w, cy + half_h, distance_m, 1.0f, 0.0f}, {cx + half_w, cy - half_h, distance_m, 1.0f, 1.0f}};
     mesh.indices = {0, 2, 1, 1, 2, 3};
+    if (wall_pitch_rad != 0.0f) pitch_mesh(mesh, wall_pitch_rad);  // the plane turned, still one plane
     return mesh;
 }
 
-int panel_at_gaze_wall(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad, float aspect) {
-    const Vec3 f = render_rotation(head_rel).transform_point({0.0f, 0.0f, 1.0f});
+int panel_at_gaze_wall(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad, float aspect,
+                       float wall_pitch_rad) {
+    // The head as seen from the wall turned back upright (looking up is about core -Y).
+    const Quat head = wall_pitch_rad != 0.0f
+                          ? Quat::from_axis_angle({0.0f, -1.0f, 0.0f}, wall_pitch_rad).conjugate() * head_rel
+                          : head_rel;
+    const Vec3 f = render_rotation(head).transform_point({0.0f, 0.0f, 1.0f});
     if (f.z <= 1e-3f || aspect <= 0.0f) return -1;  // looking away from the wall
     const float x = f.x / f.z, y = f.y / f.z;       // where the gaze meets the wall (units of d)
     for (size_t i = 0; i < panels.size(); ++i) {
@@ -315,9 +321,19 @@ int panel_at_gaze_wall(const Quat& head_rel, const std::vector<PanelPlacement>& 
     return -1;
 }
 
-void lift_wall(std::vector<PanelPlacement>& panels, float pitch_rad) {
-    const float dy = std::tan(pitch_rad);
-    for (auto& p : panels) p.pitch_rad = std::atan(std::tan(p.pitch_rad) + dy);
+PanelPose poses_centre(const std::vector<PanelPose>& poses, float arc_deg, float aspect) {
+    if (poses.empty() || arc_deg <= 0.0f || aspect <= 0.0f) return {0.0f, 0.0f, 1.0f};
+    constexpr float d2r = 0.017453292519943295f;
+    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+    for (const auto& p : poses) {
+        const float arc = arc_deg * std::max(0.2f, p.scale);
+        const float hw = 0.5f * arc, hh = 0.5f * panel_vertical_arc(arc * d2r, aspect, true) / d2r;
+        x0 = std::min(x0, p.yaw_deg - hw);
+        x1 = std::max(x1, p.yaw_deg + hw);
+        y0 = std::min(y0, p.pitch_deg - hh);
+        y1 = std::max(y1, p.pitch_deg + hh);
+    }
+    return {0.5f * (x0 + x1), 0.5f * (y0 + y1), 1.0f};
 }
 
 int overlay_card_height(int lines) {

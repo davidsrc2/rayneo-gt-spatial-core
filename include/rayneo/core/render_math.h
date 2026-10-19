@@ -193,11 +193,22 @@ std::vector<PanelPlacement> grid_layout(const std::vector<GridCell>& cells, floa
 std::vector<PanelPlacement> wall_grid_layout(const std::vector<GridCell>& cells, float arc_rad, float aspect);
 // The panel as a plain rectangle on the wall: width d * 2 tan(arc * scale / 2), height width /
 // aspect, centred at (d tan yaw, d tan pitch) in the plane z = d (render frame).
-ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const PanelPlacement& placement);
-// Panel of the wall the gaze ray meets (within its rectangle), or -1; arc_rad and aspect as above.
-int panel_at_gaze_wall(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad, float aspect);
-// The wall lifted to an elevation: y moved by tan(pitch_rad) (the rows stay edge to edge).
-void lift_wall(std::vector<PanelPlacement>& panels, float pitch_rad);
+// `wall_pitch_rad`: the whole wall turned up (> 0) or down about the eye to the recentre's
+// elevation (Pose::panels_pitch_rad), so it faces the eye square there as it does straight
+// ahead. Lifted along its own plane instead, a wall recentred looking up or down was seen at
+// a slant (keystoned).
+ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const PanelPlacement& placement,
+                           float wall_pitch_rad = 0.0f);
+// Panel of the wall the gaze ray meets (within its rectangle), or -1; arc_rad, aspect and
+// wall_pitch_rad as above.
+int panel_at_gaze_wall(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad, float aspect,
+                       float wall_pitch_rad = 0.0f);
+
+// Centre of hand-placed panels (degrees, the PanelPose frame): the middle of the box around
+// their rectangles, `arc_deg` wide at scale 1, `aspect` width / height. The renderers move it
+// straight ahead, as grid_layout does with a grid: two monitors stacked by hand sat where the
+// dragged one had been (19.5 deg to the right), seen at a slant and off centre after a recentre.
+PanelPose poses_centre(const std::vector<PanelPose>& poses, float arc_deg, float aspect);
 
 // The message card on the glasses (start-up message, notices, assistants, shortcut help): 1400
 // px wide, a title line and any number of lines under it. Its height and each line's centre
