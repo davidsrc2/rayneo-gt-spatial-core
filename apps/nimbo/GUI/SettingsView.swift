@@ -95,16 +95,6 @@ struct SettingsView: View {
                 BackgroundSettings(model: model, server: server)
             }
 
-            Section(title: "Cine en 3D con IA") {
-                Text("Con las gafas en modo 3D, mira el vídeo y pulsa ⌘⌥T: modo cine con relieve. ⌘⌥T otra vez lo quita; ⌘⌥P sale del cine (al volver las gafas a 2D sale solo).")
-                    .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                LabeledSlider(title: "Intensidad", value: $model.depthStrength, range: 0.005...0.08, step: 0.0025,
-                              caption: String(format: "%.1f %%", model.depthStrength * 100))
-                LabeledSlider(title: "Plano de la pantalla", value: $model.depthPlane, range: 0...1, step: 0.05,
-                              caption: model.depthPlane < 0.2 ? "todo sale hacia ti"
-                                  : model.depthPlane > 0.8 ? "todo hacia el fondo" : String(format: "%.2f", model.depthPlane))
-            }
-
             Section(title: "Atajos de teclado") {
                 ShortcutSheet()
             }
@@ -128,8 +118,6 @@ struct SettingsView: View {
                                       range: Double(NormalMode.opticalVFovRange.lowerBound)...Double(NormalMode.opticalVFovRange.upperBound),
                                       step: 0.1, caption: String(format: "%.1f°", model.opticalVFov))
                     }
-                    LabeledSlider(title: "Distancia entre ojos", value: $model.ipd, range: 54...72, step: 1,
-                                  caption: String(format: "%.0f mm", model.ipd))
                     if model.glassesPinned {  // space at real size: never frozen, always fixed in the room
                         LabeledSlider(title: "Zona quieta", value: $model.deadZone, range: 0.3...2.5, step: 0.1,
                                       caption: String(format: "%.1f°", model.deadZone))
@@ -171,7 +159,6 @@ struct ShortcutSheet: View {
         ("⌘⌥A", "Ctrl+Alt+A", "Ver de lejos todas las pantallas (otra vez: como estabas)"),
         ("⌘⌥P", "Ctrl+Alt+P", "Modo cine: la pantalla que miras, delante y grande"),
         ("⌘⌥F", "Ctrl+Alt+F", "Fondo alrededor de las pantallas: ninguno, lluvia, estrellas, atardecer, aurora o tu imagen"),
-        ("⌘⌥T", "Ctrl+Alt+T", "Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)"),
         ("⌘⌥R", "—", "Grabar lo que ves en las gafas (vídeo en Descargas)"),
         ("⌘⌥↓  ⌘⌥↑", "Ctrl+Alt+↓  ↑", "Brillo de la pantalla de las gafas: bajar / subir (8 niveles)"),
         ("⌘⌥⇧-  ⌘⌥⇧+", "Ctrl+Alt+Mayús+-  +", "Calibrar el campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (+)"),
@@ -344,7 +331,6 @@ private struct ApplyOnChange: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: model.fov) { server.settingsChanged() }
-            .onChange(of: model.ipd) { server.settingsChanged() }
             .onChange(of: model.deadZone) { server.settingsChanged() }
             .onChange(of: model.gazeCursor) { server.settingsChanged() }
             .onChange(of: model.dimOthers) { server.settingsChanged() }
@@ -367,8 +353,6 @@ private struct ApplyOnChangeMore: ViewModifier {
             .onChange(of: model.vehicleMode) { server.settingsChanged() }
             .onChange(of: model.flatWall) { server.settingsChanged() }
             .onChange(of: model.keyHighlight) { server.settingsChanged() }
-            .onChange(of: model.depthStrength) { server.settingsChanged() }
-            .onChange(of: model.depthPlane) { server.settingsChanged() }
             .onChange(of: model.k1) { server.settingsChanged() }
             .onChange(of: model.k2) { server.settingsChanged() }
     }

@@ -110,16 +110,6 @@
             </StackPanel>
 
             <StackPanel Spacing="8">
-                <TextBlock Text="Cine en 3D con IA" FontSize="13" Opacity="0.7" />
-                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
-                           Text="Con las gafas en modo 3D, mira el vídeo y pulsa Ctrl+Alt+T: modo cine con relieve. Ctrl+Alt+T otra vez lo quita; Ctrl+Alt+P sale del cine (al volver las gafas a 2D sale solo)." />
-                <Slider x:Name="DepthStrengthSlider" Header="Intensidad (%)" Minimum="0.5" Maximum="8" StepFrequency="0.25"
-                        ValueChanged="SliderChanged" />
-                <Slider x:Name="DepthPlaneSlider" Header="Plano de la pantalla (0 todo sale hacia ti, 1 todo hacia el fondo)"
-                        Minimum="0" Maximum="1" StepFrequency="0.05" ValueChanged="SliderChanged" />
-            </StackPanel>
-
-            <StackPanel Spacing="8">
                 <TextBlock Text="Atajos de teclado" FontSize="13" Opacity="0.7" />
                 <Button Content="Ver todos los atajos (Ctrl+Alt+H)" Click="Shortcuts_Click" />
             </StackPanel>
@@ -128,8 +118,6 @@
                 <StackPanel Spacing="10">
                     <Slider x:Name="FovSlider" Header="Campo de visión (°)" Minimum="15" Maximum="35"
                             StepFrequency="0.5" ValueChanged="SliderChanged" />
-                    <Slider x:Name="IpdSlider" Header="Distancia entre ojos (mm)" Minimum="54" Maximum="72"
-                            StepFrequency="1" ValueChanged="SliderChanged" />
                     <ToggleSwitch x:Name="GazeToggle" Header="El cursor sigue a tu mirada" Toggled="Changed" />
                     <ToggleSwitch x:Name="GatherToggle" Header="Traer mis ventanas al empezar" Toggled="Changed" />
                     <Slider x:Name="K1Slider" Header="Corrección de lente k1" Minimum="-0.2" Maximum="0.2"

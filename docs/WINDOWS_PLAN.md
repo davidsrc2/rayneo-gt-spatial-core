@@ -112,7 +112,6 @@ Opciones de la consola nuevas: `--space` (modo de la app, mono salvo `--sbs`), `
   - ⌘⌥K / Ctrl+Alt+K: modo código (pantallas más cerca).
   - ⌘⌥G / Ctrl+Alt+G: modo fijo nativo de las gafas.
   - ⌘⌥P: modo cine.
-  - ⌘⌥T: cine en 3D con IA.
   - ⌘⌥1/2/3: disposiciones.
   - Quitados los perfiles por app y los botones de cine, enfoque y perfiles.
 - **3D:**
@@ -151,10 +150,7 @@ Opciones de la consola nuevas: `--space` (modo de la app, mono salvo `--sbs`), `
 8. Ctrl+Alt+Mayús + / −: campo de visión.
 
 **3D**
-9. Pasar las gafas a 3D con Nimbo abierto: debe seguir funcionando, con el aviso «Modo 3D de las gafas activado».
-10. Mirar un vídeo, Ctrl+Alt+T: cine con relieve. La primera vez descarga el modelo de 50 MB.
-11. En el log, `3d: N depth fps | infer X ms | input WxH`. Si la Iris Xe no llega, baja sola a 392x294.
-12. Volver a 2D: sale del cine y vuelven todas las pantallas.
+9. Pasar las gafas a 3D con Nimbo abierto: debe seguir funcionando, la misma imagen en las dos mitades.
 
 **Medidas del log**
 13. `latch X ms` (lectura tardía de la pose).
@@ -163,29 +159,17 @@ Opciones de la consola nuevas: `--space` (modo de la app, mono salvo `--sbs`), `
 
 **Panel y Ajustes**
 16. El panel rápido tiene «Atajos».
-17. Ajustes tiene «Cine en 3D con IA» (intensidad y plano) y la hoja de atajos.
+17. Ajustes tiene la hoja de atajos.
 
 **Siguiente, en orden:**
 1. **Windows: comprobar los arreglos del final del día** (sin probar): «Más opciones» ya no debería cerrar la app (los deslizadores lanzaban eventos mientras XAML construía la ventana); la corrección del retraso de presentación (se medía contra el objetivo ya corregido y se quedaba en la mitad: `target err` debería bajar de +4,2 a ~0); dos arranques seguidos con dos paneles sin reiniciar Windows (pool de 6).
 2. **Windows: igualar la sensación al Mac**: probar quietud, giros a izquierda y derecha y golpecitos en las patillas con `--space --anchor`. Añadir al log de Windows la medida `still wobble` del Mac para comparar con cifras.
 3. **Windows: ventanas flotantes con cursor — hecho, sin probar** (`assign_floating_monitors`): cada ventana flotante coge un monitor libre del pool del VDD (sin recargar), colocado donde flota (pegado al borde de los monitores por ese lado: encima, el ratón sube a él), y la ventana se maximiza en él; su panel sigue mostrando la ventana con Windows.Graphics.Capture. El cursor por mirada también va a esos monitores. Probar con `--window TEXTO`. Necesita que el pool tenga monitores libres (si el VDD solo tiene los justos, el log dice «no spare virtual monitor left»).
-4. **Cine en 3D con IA — macOS y Windows hechos (16-10-2026), sin probar con las gafas.** Con las gafas en modo 3D (Nimbo lo detecta y entra solo en modo cine si el 3D con IA está activado) o el modo cine (⌘⌥P / Ctrl+Alt+P), Ajustes > «Cine en 3D con IA» o ⌘⌥T / Ctrl+Alt+T dan relieve al vídeo (⌘⌥1/2/3 son las disposiciones). Claves de ajustes compartidas: `depth3D`, `depthStrength` (0,015), `depthPlane` (0,35). Consola: `--depth3d`, `--depth-strength`, `--depth-plane` (Mac también `--depth-ane-only`).
-   - **Común:** el fotograma de color espera a su profundidad, así que no hay cruces en los cortes de plano. El suavizado temporal se hace en la GPU (EMA 0,35, se reinicia en los cortes). Los cortes se detectan con una rejilla de luminancia de 48x36. Profundidad normalizada a sus percentiles 2-98 %. El shader hace backward mapping en 6 pasos de cerca a lejos con refinado lineal, y el paralaje se desvanece en el 5 % de cada lado.
-   - **macOS** (`apps/nimbo/DepthEngine.swift`):
-     - Modelo: Depth Anything V2 Small F16P8 de Apple (Core ML, 25 MB, se descarga la primera vez a `~/Library/Application Support/Nimbo/Models`).
-     - Dos inferencias a la vez en el Neural Engine; si siguen perdiéndose imágenes 2 s, entra una copia en la GPU. Los resultados se entregan en orden.
-     - M4 con fuente 4K sintética: 60 de 60 fps (17 por la GPU), 37 ms de imagen a profundidad; techo de unos 67 fps. A 24 fps solo usa el Neural Engine.
-     - Con la GPU ayudando hubo una imagen tardía en 4 s a 120 Hz.
-   - **Windows** (`src/platform/windows/depth_engine.*` y el renderer):
-     - ONNX Runtime 1.22.1 con DirectML 1.15.4 (paquetes NuGet descargados por CMake). `onnxruntime.dll` y `DirectML.dll` se cargan en tiempo de ejecución desde la carpeta de `nimbo_server.dll`; sin ellas Nimbo funciona sin 3D.
-     - Modelo `onnx-community/depth-anything-v2-small` fp16 (50 MB), descargado a `%LOCALAPPDATA%\Nimbo\Models`.
-     - En el hilo de render: anillo de 3 copias de la imagen, que se reduce en la GPU desde un mipmap y se lee sin esperar (`D3D11_MAP_FLAG_DO_NOT_WAIT`). La inferencia va en un hilo aparte y el resultado se muestra con su propia imagen.
-     - Si una inferencia tarda más de 45 ms de media, la entrada baja de 518x392 a 392x294 y luego a 308x224 (para la Iris Xe). Log: `3d: N depth fps | infer | input WxH`.
-     - Validado en el Mac: el mismo C++ con ONNX Runtime para CPU da la misma profundidad que Python. Falta medirlo en la Iris Xe.
+4. **Cine en 3D con IA — quitado (19-10-2026)** en macOS y Windows, junto con el estéreo por ojo (IPD). Sin Core ML, ONNX Runtime ni DirectML.
 5. Grabación de lo que muestran las gafas en Windows (en macOS: ⌘⌥R).
 6. **Linux** (idea): el núcleo ya compila y pasa tests en Linux; faltaría captura (PipeWire / wlr-screencopy), dibujado (Vulkan/OpenGL), monitores virtuales (en Hyprland: `hyprctl output create headless`, sin drivers) e interfaz.
 7. **W5 · Instalador — hecho (16-10-2026), sin probar en un PC limpio.** `Nimbo-Setup-<versión>.exe` (Inno Setup 6, artefacto `nimbo-setup-win-x64` del CI; en local: `pwsh scripts/windows/make_installer.ps1 -AppDir build-win\NimboApp`):
-   - Contenido: la app publicada (con ONNX Runtime y DirectML), el Virtual Display Driver 25.7.23 en `{app}\driver` (paquete solo-driver, licencia MIT, firmado por SignPath Foundation, comprobado por SHA-256) y el Visual C++ Runtime (solo si falta).
+   - Contenido: la app publicada el Virtual Display Driver 25.7.23 en `{app}\driver` (paquete solo-driver, licencia MIT, firmado por SignPath Foundation, comprobado por SHA-256) y el Visual C++ Runtime (solo si falta).
    - Al instalar ejecuta `nimbo_win --setup-displays`. Si no hay driver lo instala (`install_vdd`): crea `C:\VirtualDisplayDriver\vdd_settings.xml` ya con 6 monitores, añade el firmante del catálogo a «Editores de confianza» del equipo (sin aviso de Windows), mete el paquete en el almacén (`SetupCopyOEMInf`), crea el dispositivo `Root\MttVDD` y le instala el driver (`UpdateDriverForPlugAndPlayDevices`). Después sigue como antes: pool de 6, tareas de encendido y apagado, driver apagado hasta abrir Nimbo.
    - Lo que hizo Nimbo queda en `HKLM\SOFTWARE\Nimbo`. `--uninstall-driver` (lo lanza el desinstalador) quita solo eso: si el driver era del usuario, lo vuelve a encender y le devuelve su `vdd_settings.xml`.
    - Accesos directos (menú Inicio y, opcional, escritorio) e inicio con Windows opcional, con el mismo valor `Run` que usa la app.

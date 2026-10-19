@@ -1,6 +1,6 @@
 ; Nimbo for Windows: one installer with the app, the Virtual Display Driver and the Visual C++
 ; runtime. Built by scripts/windows/make_installer.ps1 (Inno Setup 6), which passes:
-;   AppDir     published app (dotnet publish: Nimbo.exe, nimbo_server.dll, nimbo_win.exe, ONNX DLLs)
+;   AppDir     published app (dotnet publish: Nimbo.exe, nimbo_server.dll, nimbo_win.exe)
 ;   DriverDir  Virtual Display Driver files (MttVDD.inf / .cat / .dll, vdd_settings.xml)
 ;   Redist     vc_redist.x64.exe
 ;   ParsecVdd  parsec-vdd-0.45.0.0.exe (Parsec's virtual display driver installer, signed by Parsec)
@@ -64,6 +64,12 @@ Source: "{#AppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs cre
 Source: "{#DriverDir}\*"; DestDir: "{app}\driver"; Flags: ignoreversion
 Source: "{#Redist}"; DestDir: "{tmp}"; DestName: "vc_redist.x64.exe"; Flags: deleteafterinstall; Check: NeedsVCRedist
 Source: "{#ParsecVdd}"; DestDir: "{tmp}"; DestName: "parsec-vdd.exe"; Flags: deleteafterinstall
+
+[InstallDelete]
+; Left by versions with AI 3D (ONNX Runtime, DirectML and the depth model).
+Type: files; Name: "{app}\onnxruntime.dll"
+Type: files; Name: "{app}\DirectML.dll"
+Type: filesandordirs; Name: "{localappdata}\Nimbo\Models"
 
 [Icons]
 Name: "{autoprograms}\Nimbo"; Filename: "{app}\Nimbo.exe"

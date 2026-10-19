@@ -45,11 +45,6 @@
     <!-- The CLI next to the app: with setup-displays it prepares the driver (run elevated). -->
     <None Include="$(NimboNativeDir)nimbo_win.exe" Link="nimbo_win.exe" CopyToOutputDirectory="Always"
           CopyToPublishDirectory="Always" Condition="Exists('$(NimboNativeDir)nimbo_win.exe')" />
-    <!-- AI 3D: ONNX Runtime and DirectML, loaded by nimbo_server.dll from its own folder. -->
-    <None Include="$(NimboNativeDir)onnxruntime.dll" Link="onnxruntime.dll" CopyToOutputDirectory="Always"
-          CopyToPublishDirectory="Always" Condition="Exists('$(NimboNativeDir)onnxruntime.dll')" />
-    <None Include="$(NimboNativeDir)DirectML.dll" Link="DirectML.dll" CopyToOutputDirectory="Always"
-          CopyToPublishDirectory="Always" Condition="Exists('$(NimboNativeDir)DirectML.dll')" />
     <Content Include="..\..\assets\icon\Nimbo.ico" Link="Assets\Nimbo.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

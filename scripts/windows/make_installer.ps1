@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path "$PSScriptRoot\..\.."
 $AppDir = Resolve-Path $AppDir
-foreach ($f in "Nimbo.exe", "nimbo_server.dll", "nimbo_win.exe", "onnxruntime.dll", "DirectML.dll") {
+foreach ($f in "Nimbo.exe", "nimbo_server.dll", "nimbo_win.exe") {
     if (-not (Test-Path (Join-Path $AppDir $f))) { throw "$f missing in $AppDir (publish the app first)" }
 }
 if (-not $Version) {
@@ -48,7 +48,7 @@ if (-not (Test-Path $Parsec) -or (Get-FileHash $Parsec -Algorithm SHA256).Hash -
 if ((Get-FileHash $Parsec -Algorithm SHA256).Hash -ne $ParsecSha) { throw "Parsec VDD download does not match its SHA-256" }
 if ((Get-AuthenticodeSignature $Parsec).Status -ne "Valid") { throw "Parsec VDD installer signature is not valid" }
 
-# Visual C++ 2015-2022 runtime (x64): nimbo_server.dll and ONNX Runtime need it. Microsoft-signed.
+# Visual C++ 2015-2022 runtime (x64): nimbo_server.dll needs it. Microsoft-signed.
 $Redist = Join-Path $Deps "vc_redist.x64.exe"
 if (-not (Test-Path $Redist)) { Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $Redist }
 $sig = Get-AuthenticodeSignature $Redist

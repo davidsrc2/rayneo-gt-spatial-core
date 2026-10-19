@@ -45,8 +45,7 @@ typedef struct {
     bool gaze_cursor;                   /* the cursor follows the panel you look at */
     float dim_others;                   /* brightness of the panels you are not looking at, 1 = off */
     /* optics */
-    int side_by_side;                   /* -1 auto (SBS on the glasses, mono windowed), 0 mono, 1 half-SBS */
-    float ipd_mm;
+    int side_by_side;                   /* -1 auto (the glasses in 3D mode: the image in both halves), 0 no, 1 yes */
     float fov_y_deg;                    /* <= 0: the value tuned with Ctrl+Alt+-/= (saved), else 24.5 */
     float k1, k2;                       /* barrel pre-distortion */
     /* tracking */
@@ -78,10 +77,6 @@ typedef struct {
     float tilt;                         /* panels above / below: 1 face you .. 0 upright */
     bool real_size;                     /* every panel as large as the glasses' image (fits both ways), both axes */
     bool laptop_screen;                 /* the computer's own (primary) screen is panel 1; the rest virtual */
-    /* AI 3D: in cinema mode the panel in depth from a depth map per frame (needs side_by_side) */
-    bool depth3d;
-    float depth_strength;               /* parallax between the eyes at the nearest depth, in panel widths (0.015) */
-    float depth_plane;                  /* depth left on the panel's plane, 0 far .. 1 near (0.35) */
     float zoom;                         /* every panel this much larger (Ctrl+Alt++ / -); <= 0: 1 */
     bool grow_by_gaze;                  /* glasses' pinned mode: the panel looked at takes over (false: mouse only) */
     /* around the panels: 0 none, 1 rain, 2 stars, 3 sunset, 4 aurora, 5 the picture below */
@@ -137,7 +132,7 @@ NIMBO_API bool nimbo_start(nimbo_server* s, const nimbo_options* options);
 /* Blocking until the displays are restored. */
 NIMBO_API void nimbo_stop(nimbo_server* s);
 
-/* Applies what changes without a restart: distance, arc, gap, curvature, fov, ipd,
+/* Applies what changes without a restart: distance, arc, gap, curvature, fov,
  * side_by_side, k1/k2, dim_others, gaze_cursor. Layout, displays and resolution need
  * nimbo_stop + nimbo_start. */
 NIMBO_API void nimbo_apply(nimbo_server* s, const nimbo_options* options);
@@ -146,8 +141,6 @@ NIMBO_API void nimbo_adjust_fov(nimbo_server* s, float delta_deg);
 /* Focus mode (only the panel you look at) or, with cinema, that panel centred and large.
  * The same call again brings every panel back (Ctrl+Alt+O / Ctrl+Alt+P). */
 NIMBO_API void nimbo_toggle_focus(nimbo_server* s, bool cinema);
-/* AI 3D on / off for this run (Ctrl+Alt+T); the options' depth3d is applied again with nimbo_apply. */
-NIMBO_API void nimbo_toggle_depth3d(nimbo_server* s);
 /* A short message on the glasses for a few seconds (the app's own shortcuts: code mode...). UTF-8. */
 NIMBO_API void nimbo_show_message(nimbo_server* s, const char* text);
 NIMBO_API void nimbo_get_status(nimbo_server* s, nimbo_status* out);
@@ -190,8 +183,7 @@ typedef struct {
     int text_size;  /* 0 (small text) .. 4 (very large) */
     float distance_m, gap_deg, curvature, size_deg;
     bool auto_start;
-    float fov_y_deg, ipd_mm;
-    bool stereo;
+    float fov_y_deg;
     float dead_zone_deg;
     bool gaze_cursor, dim_others, gather_windows;
     float k1, k2;
@@ -206,9 +198,6 @@ typedef struct {
     float tilt;            /* panels above / below: 1 face you .. 0 upright */
     bool anchor_at_rest;   /* panels frozen while the head holds still */
     bool laptop_screen;    /* "macScreen": the computer's own screen is panel 1 */
-    bool depth3d;          /* "depth3D": cinema mode in depth (AI) */
-    float depth_strength;  /* "depthStrength" */
-    float depth_plane;     /* "depthPlane" */
     float zoom;            /* "zoom": as left last time */
     bool grow_by_gaze;     /* "growByGaze" */
     int background;        /* "background" */

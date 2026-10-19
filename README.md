@@ -83,7 +83,7 @@ Después se abre desde Launchpad / Spotlight («Nimbo»). Para desarrollo tambi�
 - Con flags sigue funcionando como CLI (`--help`; `--curvature 0..1`).
 - Primera vez: asistente con permisos (Grabación de pantalla y Accesibilidad **para la app**, no para Terminal), calibración guiada (reutiliza tu `calibration.json` si ya existía) y ajuste de escala.
 - Disposición: arrastra las tarjetas para poner monitores al lado o encima/debajo; `+`/`−`; plantillas. El monitor 1 es el principal de macOS (barra de menús y Dock).
-- Distancia, separación, forma, FOV, IPD, 3D y lente se aplican en vivo; el número de monitores, la disposición, el tamaño del texto y la zona quieta relanzan el servidor.
+- Distancia, separación, forma, FOV y lente se aplican en vivo; el número de monitores, la disposición, el tamaño del texto y la zona quieta relanzan el servidor.
 - Menú ◎ en la barra superior: Recentrar, Empezar/Parar, Abrir disposición, Salir.
 - Ajustes y calibración en `~/Library/Application Support/RayNeo/` y en las preferencias de la app.
 - La firma es ad-hoc: tras recompilar, macOS puede volver a pedir los permisos.
@@ -108,7 +108,7 @@ Después se abre desde Launchpad / Spotlight («Nimbo»). Para desarrollo tambi�
 12. Calibración de lente con patrón de rejilla (k1/k2).
 
 **Más adelante**
-13. 3D real (SBS) en Modo Cine: hecho en macOS y Windows como «Cine en 3D con IA» (ver docs/WINDOWS_PLAN.md, siguiente 4).
+13. 3D: quitado (19-10-2026). Con las gafas en su modo 3D se ve la misma imagen en las dos mitades.
 14. Inglés y VoiceOver.
 15. Atajos configurables.
 
@@ -159,7 +159,7 @@ Hoy todo se controla con flags en Terminal. La fase 5 sustituye eso por una app 
 - **Recalibrar** accesible desde Ajustes.
 
 **Avanzado** (plegado por defecto)
-- FOV, IPD, mono/SBS (3D), zona muerta del estabilizador, cursor que sigue la mirada, traer ventanas al empezar, k1/k2.
+- FOV, zona muerta del estabilizador, cursor que sigue la mirada, traer ventanas al empezar, k1/k2.
 
 **Comportamiento**
 - Icono en la barra de menús (◎) con: Recentrar, Empezar/Parar, Abrir disposición, Salir.
@@ -293,7 +293,7 @@ Ventana de vista previa en la pantalla del Mac con los 3 paneles (patrón de col
    - Girar la cabeza despacio a izquierda y derecha: los paneles no se mueven respecto al mundo.
    - Movimientos rápidos y paradas en seco: sin retraso apreciable ni efecto gelatina/rebote.
    - Quedarse 1-2 min mirando el panel central: no debe desplazarse solo (drift).
-   - Si se ve doble: `--ipd 60` (o tu distancia interpupilar). Si los bordes se curvan: probar `--k1 0.05`.
+   - Si los bordes se curvan: probar `--k1 0.05`.
 
 6. Trabajar
    - Relanzar sin `--test-pattern`. Con `--displays 1` se ven dos monitores: tu pantalla del Mac (izquierda) y uno virtual (derecha).

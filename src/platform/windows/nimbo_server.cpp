@@ -65,8 +65,7 @@ namespace {
 // ---------------------------------------------------------------------------------------
 
 struct Options {
-    std::optional<bool> side_by_side;  // nil: side by side when the glasses are in 3D mode, mono in --windowed
-    float ipd_mm = 63;
+    std::optional<bool> side_by_side;  // nil: both halves when the glasses are in 3D mode, mono in --windowed
     float distance_m = 2.0f;
     std::optional<float> arc_deg;  // nil: 38 per virtual panel, 50 for single-display capture
     float gap_deg = 1;
@@ -107,9 +106,6 @@ struct Options {
     float tilt = 1;                        // panels above / below: 1 face you .. 0 upright
     bool real_size = false;                // not pinned: every panel as large as the glasses' image, both axes
     bool laptop_screen = false;            // the computer's own (primary) screen is panel 1
-    bool depth3d = false;                  // AI 3D: the cinema panel in depth (needs side by side)
-    float depth_strength = 0.03f;         // parallax between the eyes at the nearest depth, in panel widths
-    float depth_plane = 0.35f;             // depth left on the panel's plane, 0 far .. 1 near
     float zoom = 1.0f;                     // every panel this much larger (shortcuts), as left last time
     bool grow_by_gaze = true;              // glasses' pinned mode: the panel looked at takes over (else mouse only)
     bool vehicle_mode = false;             // a quarter of the head's heading followed (core::scale_heading)
@@ -140,7 +136,6 @@ Options from_c(const nimbo_options& c) {
     o.gaze_cursor = c.gaze_cursor;
     o.dim_others = std::clamp(c.dim_others, 0.0f, 1.0f);
     if (c.side_by_side >= 0) o.side_by_side = c.side_by_side != 0;
-    o.ipd_mm = c.ipd_mm;
     if (c.fov_y_deg > 0) {
         o.fov_y_deg = c.fov_y_deg;
         o.fov_from_cli = true;
@@ -175,9 +170,6 @@ Options from_c(const nimbo_options& c) {
     o.tilt = std::clamp(c.tilt, 0.0f, 1.0f);
     o.real_size = c.real_size;
     o.laptop_screen = c.laptop_screen;
-    o.depth3d = c.depth3d;
-    if (c.depth_strength > 0) o.depth_strength = std::min(c.depth_strength, 0.08f);
-    o.depth_plane = std::clamp(c.depth_plane, 0.0f, 1.0f);
     if (c.zoom > 0) o.zoom = std::clamp(c.zoom, 0.5f, 3.0f);
     o.grow_by_gaze = c.grow_by_gaze;
     o.vehicle_mode = c.vehicle_mode;
@@ -398,7 +390,7 @@ void save_optical_fov(float fov) {
 constexpr UINT_PTR kRepinTimer = 1;  // recentre in the glasses' pinned mode: back to pinned
 
 enum HotKey {
-    kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema, kDepth3D,
+    kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema,
     kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview, kVehicle, kOptics
 };
 
@@ -480,7 +472,7 @@ private:
     void collect_presented();
     void periodic();
     void handle_display_change();
-    // The glasses in their 3D mode are a double-width display (3840x1080, one image per eye).
+    // The glasses in their 3D mode are a double-width display (3840x1080): the image in both halves.
     bool auto_side_by_side() const { return !opt_.windowed && height_ > 0 && width_ > 3 * height_; }
     uint64_t glasses_lost_ns_ = 0;  // their display went away at (0: present)
     // Wallpaper copy to the new monitors, retried while they do not take it yet.
@@ -505,9 +497,6 @@ private:
     void jump_cursor_to_gaze();
     void toggle_focus(bool cinema);
     int focus_mode_ = 0;  // 0 all, 1 focus, 2 cinema
-    // AI 3D: the cinema panel in depth while on and side by side; loads the model the first time.
-    void update_depth3d();
-    void toggle_depth3d();
     // Zoom (Ctrl+Alt++ / -, 0; code mode Ctrl+Alt+K = 170 %): every panel larger and the
     // arrangement with it, like walking up to the screens. For the run.
     void set_zoom(float z, const std::wstring& message = {}, bool save = true);
@@ -520,10 +509,8 @@ private:
     int grow_before_overview_ = -1;
     float zoom_ = 1.0f;
     bool code_mode_ = false;
-    win::DepthEngine depth_;
-    bool depth_failed_logged_ = false;
     bool overlay_shown_ = false;  // start-up message on the glasses until tracking starts
-    // A short message on the glasses ("Modo 3D de las gafas activado"), on the start-up card;
+    // A short message on the glasses ("Vista de todas las pantallas"), on the start-up card;
     // two in a row share it. Waits for the start-up message to end.
     void flash(const std::wstring& line, double seconds = 2.5);
 public:
@@ -531,7 +518,6 @@ public:
 private:
     std::vector<std::wstring> flash_lines_, pending_flash_;
     uint64_t flash_at_ns_ = 0, flash_until_ns_ = 0;
-    bool cinema_for_3d_ = false;  // cinema entered because of AI 3D (glasses to 3D, Ctrl+Alt+T)
     void start_floating(std::vector<Options::Floating> specs);
     core::PanelPose default_floating_pose(int index) const;
     void apply_pending();
@@ -675,9 +661,6 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_APP + 3:  // nimbo_toggle_focus: wp = cinema
         if (server != nullptr) server->on_hotkey(wp != 0 ? kCinema : kFocus);
-        return 0;
-    case WM_APP + 4:  // nimbo_toggle_depth3d
-        if (server != nullptr) server->on_hotkey(kDepth3D);
         return 0;
     case WM_APP + 5: {  // nimbo_show_message: lp = new std::wstring
         std::unique_ptr<std::wstring> text(reinterpret_cast<std::wstring*>(lp));
@@ -983,7 +966,6 @@ bool Server::start() {
     const int panels = static_cast<int>(sources.size());
     auto& ro = renderer_.options;
     ro.side_by_side = opt_.side_by_side.value_or(auto_side_by_side());
-    ro.ipd_m = opt_.ipd_mm / 1000.0f;
     ro.distance_m = opt_.distance_m;
     ro.arc_deg = opt_.panel_arc_deg();
     ro.gap_deg = opt_.gap_deg;
@@ -1001,15 +983,12 @@ bool Server::start() {
     ro.k2 = opt_.k2;
     ro.dim_others = opt_.dim_others;
     ro.tracking_axes = static_cast<core::TrackingAxes>(opt_.tracking_axes);
-    ro.depth_strength = opt_.depth_strength;
-    ro.depth_convergence = opt_.depth_plane;
     zoom_ = opt_.zoom;
     code_mode_ = std::fabs(zoom_ - 1.7f) < 0.01f;
     ro.zoom = zoom_;
     ro.background = opt_.background;
     ro.background_brightness = opt_.background_brightness;
     ro.background_image = opt_.background_image;
-    renderer_.set_depth_engine(&depth_);
     renderer_.set_panel_count(panels);
     if (static_cast<int>(opt_.layout.size()) == panels) renderer_.set_grid(opt_.layout);
     ro.layout_arc_deg = opt_.panel_arc_deg();
@@ -1033,9 +1012,9 @@ bool Server::start() {
     logln("tracking: %s", opt_.glasses_pinned ? "by the glasses (pinned mode); panels fitted inside their image"
                           : opt_.real_size ? "space at real size: full head rotation, panels fixed in the room"
                                            : kTracking[opt_.tracking_axes]);
-    logln("render: %s, %d %s panel(s) of %.1f deg gap %.1f deg at %.1f m, ipd %.0f mm, fov %.1f deg, k1 %.3f k2 %.3f",
-          ro.side_by_side ? "side by side (glasses in 3D)" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
-          ro.distance_m, opt_.ipd_mm, ro.fov_y_deg, ro.k1, ro.k2);
+    logln("render: %s, %d %s panel(s) of %.1f deg gap %.1f deg at %.1f m, fov %.1f deg, k1 %.3f k2 %.3f",
+          ro.side_by_side ? "both halves (glasses in 3D mode)" : "mono", panels, ro.curvature > 0 ? "curved" : "flat", ro.arc_deg, ro.gap_deg,
+          ro.distance_m, ro.fov_y_deg, ro.k1, ro.k2);
 
     render_adapter_ = first->adapter;
     if (!start_captures(&error)) {
@@ -1068,7 +1047,7 @@ bool Server::start() {
                              {kZoomReset, '0', "Ctrl+Alt+0"}, {kCodeMode, 'K', "Ctrl+Alt+K"},
                              {kOverview, 'A', "Ctrl+Alt+A"},
                              {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"},
-                             {kDepth3D, 'T', "Ctrl+Alt+T"}, {kVehicle, 'V', "Ctrl+Alt+V"},
+                             {kVehicle, 'V', "Ctrl+Alt+V"},
                              {kOptics, 'L', "Ctrl+Alt+L"}};  // F and H are the app's (background, shortcuts window)
     if (opt_.sim) {
         keys.push_back({kLeft, VK_LEFT, "Ctrl+Alt+Left"});
@@ -1623,20 +1602,6 @@ void Server::periodic() {
         s.missed_still, s.missed_latch, s.late_switches, static_cast<double>(latch_.margin_ms),
         s.latch_n > 0 ? s.latch_sum / s.latch_n : 0.0, s.latch_n > 0 ? s.cpu_sum / s.latch_n : 0.0, s.cpu_max, imu.c_str(),
         wobble.c_str(), present.c_str());
-    if (renderer_.options.depth_panel >= 0) {
-        if (depth_.state() == win::DepthEngine::State::Failed) {
-            if (!depth_failed_logged_) logln("3d: unavailable (%s); the panel stays flat", depth_.error().c_str());
-            depth_failed_logged_ = true;
-        } else if (depth_.state() == win::DepthEngine::State::Ready) {
-            const auto r = renderer_.take_depth_stats();
-            const auto d = depth_.take_stats();
-            int w = 0, h = 0;
-            depth_.input_size(&w, &h);
-            const double dn = std::max(1, d.frames);
-            logln("3d: %d depth fps (%d dropped, %d cut(s)) | infer %.1f ms | prep %.1f ms | input %dx%d", r.shown,
-                  r.dropped, d.cuts, d.infer_ms / dn, d.prep_ms / dn, w, h);
-        }
-    }
 }
 
 // Keeps the render window on the glasses whatever Windows does with the layout.
@@ -1703,18 +1668,10 @@ void Server::handle_display_change() {
         swap_chain_->ResizeBuffers(0, static_cast<UINT>(width_), static_cast<UINT>(height_), DXGI_FORMAT_UNKNOWN,
                                    DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
         create_back_buffer_view();
-        // One image per eye exactly when the glasses are in their 3D mode (double width).
+        // The glasses in their 3D mode (double width): the same image in both halves.
         renderer_.options.side_by_side = opt_.side_by_side.value_or(auto_side_by_side());
         logln("surface: %dx%d px, %s", width_, height_,
-              renderer_.options.side_by_side ? "side by side (glasses in 3D)" : "mono (glasses in 2D)");
-        flash(renderer_.options.side_by_side ? L"Modo 3D de las gafas activado" : L"Gafas en modo 2D");
-        // Back in 2D: the cinema Ctrl+Alt+T opened (for the depth) closes, all panels come back.
-        if (!renderer_.options.side_by_side && cinema_for_3d_) {
-            opt_.depth3d = false;
-            if (focus_mode_ == 2) toggle_focus(true);
-            cinema_for_3d_ = false;
-        }
-        update_depth3d();
+              renderer_.options.side_by_side ? "both halves (glasses in 3D mode)" : "mono (glasses in 2D)");
         renderer_.invalidate_skipped_frame();
         redraw_ = true;
     }
@@ -1803,11 +1760,9 @@ void Server::toggle_focus(bool cinema) {
             logln("cursor: to panel %d", i + 1);
         }
     }
-    update_depth3d();
     redraw_ = true;
 }
 
-// On: cinema on the panel looked at, in depth (glasses in 3D). Off: flat, still in cinema.
 void Server::update_grow(uint64_t now) {
     if (!opt_.glasses_pinned || focus_mode_ != 0 || overview_ || renderer_.panel_count() < 2) {
         if (!opt_.glasses_pinned && renderer_.grow_panel() != -1) renderer_.set_grow_panel(-1);
@@ -1852,23 +1807,6 @@ void Server::update_grow(uint64_t now) {
         logln("grow: panel %d (gaze)", panel + 1);
         redraw_ = true;
     }
-}
-
-void Server::toggle_depth3d() {
-    opt_.depth3d = !opt_.depth3d;
-    logln("3d: %s", opt_.depth3d ? "on" : "off");
-    if (opt_.depth3d && !renderer_.options.side_by_side) {
-        // Glasses in 2D: nothing to see in depth. Nothing changes; it says what to do.
-        opt_.depth3d = false;
-        flash(L"Pon las gafas en modo 3D");
-        flash(L"y pulsa Ctrl+Alt+T");
-        return;
-    }
-    if (opt_.depth3d && focus_mode_ != 2) {
-        toggle_focus(true);
-        cinema_for_3d_ = true;
-    }
-    update_depth3d();
 }
 
 void Server::set_zoom(float z, const std::wstring& message, bool save) {
@@ -1930,34 +1868,6 @@ void Server::flash(const std::wstring& line, double seconds) {
     flash_until_ns_ = now + static_cast<uint64_t>(seconds * 1e9);
     renderer_.set_overlay_text(flash_lines_.size() > 1 ? flash_lines_[0] + L"\n" + flash_lines_[1] : flash_lines_[0]);
     renderer_.invalidate_skipped_frame();
-    redraw_ = true;
-}
-
-void Server::update_depth3d() {
-    auto& ro = renderer_.options;
-    ro.depth_strength = opt_.depth_strength;
-    ro.depth_convergence = opt_.depth_plane;
-    const bool cinema = focus_mode_ == 2 && ro.focus_panel >= 0;
-    const int wanted = opt_.depth3d && cinema && ro.side_by_side ? ro.focus_panel : -1;
-    if (opt_.depth3d && cinema && !ro.side_by_side) {
-        logln("3d: put the glasses in their 3D mode");
-        flash(L"Pon las gafas en modo 3D");
-    }
-    if (wanted >= 0 && depth_.state() == win::DepthEngine::State::Idle) {
-        logln("3d: preparing the depth model");
-        flash(L"Preparando el 3D con IA…", 6.0);
-        depth_.start([](const std::string& line) { logln("%s", line.c_str()); });
-    }
-    if (wanted != ro.depth_panel) {
-        if (wanted >= 0) {
-            logln("3d: depth on panel %d (strength %.3f, plane %.2f)", wanted + 1, ro.depth_strength, ro.depth_convergence);
-            flash(L"Cine en 3D con IA activado");
-        } else {
-            logln("3d: off");
-            flash(L"Cine en 3D con IA desactivado");
-        }
-    }
-    ro.depth_panel = wanted;
     redraw_ = true;
 }
 
@@ -2505,16 +2415,43 @@ void Server::restore_glasses_mode() {
     }
 }
 
-// The cursor follows the panel you look at, keeping its relative position, once the mouse
-// has rested for a moment (the mouse wins). On the glasses surface it would be a second,
-// head-locked cursor: send it to the panel in view.
-// The panel that gets the keyboard (the foreground window: its own floating panel, or the
-// panel of the monitor it is on), framed on the glasses as macOS; every 8th gaze tick (~4 Hz).
+// The framed panel, as macOS: the one under the cursor (where you are working), every gaze
+// tick. With the cursor on no panel, the panel that gets the keyboard (the foreground window:
+// its own floating panel, or the panel of the monitor it is on), every 8th tick (~4 Hz).
+// That tick also brings back a foreground window that ended up on the glasses' surface
+// (invisible there: it shows the render), onto the panel under the cursor, else panel 1.
 void Server::update_key_panel() {
-    if (++key_panel_tick_ % 8 != 0) return;
     int panel = -1;
-    if (!opt_.glasses_pinned && monitor_panels_ + static_cast<int>(floating_hwnds_.size()) > 1) {
-        if (HWND fg = GetForegroundWindow(); fg != nullptr && fg != hwnd_) {
+    const bool several = !opt_.glasses_pinned && monitor_panels_ + static_cast<int>(floating_hwnds_.size()) > 1;
+    POINT cur{};
+    const bool have_cursor = GetCursorPos(&cur) != FALSE;
+    int cursor_panel = -1;
+    for (size_t i = 0; have_cursor && i < panel_rects_.size(); ++i) {
+        if (PtInRect(&panel_rects_[i], cur)) cursor_panel = static_cast<int>(i);
+    }
+    if (several) panel = cursor_panel;
+    const bool tick = ++key_panel_tick_ % 8 == 0;
+    HWND fg = tick ? GetForegroundWindow() : nullptr;
+    if (fg == hwnd_) fg = nullptr;
+    if (fg != nullptr && !opt_.windowed && !IsRectEmpty(&glasses_rect_) && !panel_rects_.empty()) {
+        RECT r{};
+        bool mirrored = false;  // the glasses sharing a panel's area: nothing is lost there
+        for (const RECT& pr : panel_rects_) {
+            RECT both{};
+            if (IntersectRect(&both, &pr, &glasses_rect_)) mirrored = true;
+        }
+        if (!mirrored && GetWindowRect(fg, &r)) {
+            const POINT centre{(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+            const RECT& to = panel_rects_[static_cast<size_t>(std::max(cursor_panel, 0))];
+            if (PtInRect(&glasses_rect_, centre) && !IsRectEmpty(&to)) {
+                const int moved = win::gather_windows(glasses_rect_, to, hwnd_);
+                logln("windows: %d window(s) off the glasses display to panel %d", moved, std::max(cursor_panel, 0) + 1);
+            }
+        }
+    }
+    if (several && panel < 0) {
+        if (!tick) return;
+        if (fg != nullptr) {
             const auto it = std::find(floating_hwnds_.begin(), floating_hwnds_.end(), fg);
             if (it != floating_hwnds_.end()) {
                 panel = monitor_panels_ + static_cast<int>(it - floating_hwnds_.begin());
@@ -2535,8 +2472,14 @@ void Server::update_key_panel() {
     }
 }
 
+// The cursor follows the panel you look at, keeping its relative position, once the mouse
+// has rested for a moment (the mouse wins). On the glasses surface it would be a second,
+// head-locked cursor: send it to the panel in view.
 void Server::follow_gaze(uint64_t now) {
     update_key_panel();
+    // Captures of panels out of the glasses' view slow down (their frames would wait anyway).
+    const uint32_t visible = renderer_.visible_panel_mask();
+    for (size_t i = 0; i < captures_.size(); ++i) captures_[i]->set_in_view((visible >> i & 1u) != 0);
     if (opt_.windowed || panel_rects_.empty()) return;
     // Mirrored glasses share a panel's area: there the cursor belongs where it is.
     for (const RECT& r : panel_rects_) {
@@ -2721,7 +2664,6 @@ void Server::on_hotkey(int id) {
     case kJump: jump_cursor_to_gaze(); break;
     case kFocus: toggle_focus(false); break;
     case kCinema: toggle_focus(true); break;
-    case kDepth3D: toggle_depth3d(); break;
     case kZoomIn:
     case kZoomInPad: zoom_step(1); break;
     case kZoomOut:
@@ -2904,7 +2846,6 @@ void Server::apply_pending() {
     }
     ro.fixed_prediction_ms = normal_mode ? kPredictionMs : 0.0f;
     ro.supersample = normal_mode ? 2 : 1;
-    ro.ipd_m = o->ipd_mm / 1000.0f;
     ro.side_by_side = o->side_by_side.value_or(auto_side_by_side());
     ro.k1 = o->k1;
     ro.k2 = o->k2;
@@ -2930,15 +2871,11 @@ void Server::apply_pending() {
     apply_pinned(*o);  // after the width above: it overrides it
     opt_.gaze_cursor = o->gaze_cursor;
     opt_.gather_windows = o->gather_windows;
-    opt_.depth3d = o->depth3d;
     opt_.grow_by_gaze = o->grow_by_gaze;
     opt_.vehicle_mode = o->vehicle_mode;
     opt_.flat_wall = o->flat_wall;
     renderer_.options.flat_wall = o->flat_wall;
     renderer_.options.vehicle_mode = o->vehicle_mode && !o->glasses_pinned;
-    opt_.depth_strength = o->depth_strength;
-    opt_.depth_plane = o->depth_plane;
-    update_depth3d();
     redraw_ = true;
     std::lock_guard<std::mutex> lock(shared_mutex_);
     status_.fov_y_deg = ro.fov_y_deg;
@@ -2989,8 +2926,6 @@ core::Settings to_core(const nimbo_settings& c) {
     s.size_deg = c.size_deg;
     s.auto_start = c.auto_start;
     s.fov_y_deg = c.fov_y_deg;
-    s.ipd_mm = c.ipd_mm;
-    s.stereo = c.stereo;
     s.dead_zone_deg = c.dead_zone_deg;
     s.gaze_cursor = c.gaze_cursor;
     s.dim_others = c.dim_others;
@@ -3004,9 +2939,6 @@ core::Settings to_core(const nimbo_settings& c) {
     s.tilt = std::clamp(c.tilt, 0.0f, 1.0f);
     s.anchor_at_rest = c.anchor_at_rest;
     s.mac_screen = c.laptop_screen;
-    s.depth3d = c.depth3d;
-    s.depth_strength = c.depth_strength;
-    s.depth_plane = c.depth_plane;
     s.zoom = c.zoom > 0 ? c.zoom : 1.0f;
     s.grow_by_gaze = c.grow_by_gaze;
     s.vehicle_mode = c.vehicle_mode;
@@ -3034,8 +2966,6 @@ nimbo_settings to_c(const core::Settings& s) {
     c.size_deg = s.size_deg;
     c.auto_start = s.auto_start;
     c.fov_y_deg = s.fov_y_deg;
-    c.ipd_mm = s.ipd_mm;
-    c.stereo = s.stereo;
     c.dead_zone_deg = s.dead_zone_deg;
     c.gaze_cursor = s.gaze_cursor;
     c.dim_others = s.dim_others;
@@ -3049,9 +2979,6 @@ nimbo_settings to_c(const core::Settings& s) {
     c.tilt = s.tilt;
     c.anchor_at_rest = s.anchor_at_rest;
     c.laptop_screen = s.mac_screen;
-    c.depth3d = s.depth3d;
-    c.depth_strength = s.depth_strength;
-    c.depth_plane = s.depth_plane;
     c.zoom = s.zoom;
     c.grow_by_gaze = s.grow_by_gaze;
     c.vehicle_mode = s.vehicle_mode;
@@ -3096,7 +3023,6 @@ nimbo_options nimbo_default_options(void) {
     o.gaze_cursor = true;
     o.dim_others = 1.0f;
     o.side_by_side = -1;
-    o.ipd_mm = 63.0f;
     copy_str(o.calibration_path, sizeof(o.calibration_path), "calibration.json");
     o.dead_zone_deg = 1.0f;
     copy_str(o.source, sizeof(o.source), "auto");
@@ -3106,8 +3032,6 @@ nimbo_options nimbo_default_options(void) {
     o.glasses_mode = -1;
     o.tilt = 0.0f;
     o.flat_wall = true;
-    o.depth_strength = 0.03f;
-    o.depth_plane = 0.35f;
     o.zoom = 1.0f;
     o.grow_by_gaze = true;
     o.background_brightness = 0.6f;
@@ -3196,12 +3120,6 @@ void nimbo_show_message(nimbo_server* s, const char* text) {
     } else {
         delete w;
     }
-}
-
-void nimbo_toggle_depth3d(nimbo_server* s) {
-    if (s == nullptr) return;
-    std::lock_guard<std::mutex> lock(s->mutex);
-    if (s->server) s->server->post(WM_APP + 4);
 }
 
 void nimbo_toggle_focus(nimbo_server* s, bool cinema) {
@@ -3301,8 +3219,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.curvature = s.curvature;
     o.arc_deg = s.size_deg;
     o.fov_y_deg = s.fov_y_deg;
-    o.ipd_mm = s.ipd_mm;
-    o.side_by_side = -1;  // one image per eye exactly when the glasses are in their 3D mode
+    o.side_by_side = -1;  // the image in both halves exactly when the glasses are in their 3D mode
     o.dead_zone_deg = s.dead_zone_deg;
     o.gaze_cursor = s.gaze_cursor;
     o.dim_others = s.dim_others ? 0.55f : 1.0f;  // linear light: ~80 % perceived brightness
@@ -3318,9 +3235,6 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.dead_zone_deg = s.anchor_at_rest ? -2.0f : -1.0f;  // see rayneo_config: -1 - hold (1 deg; 2 up / down)
     o.tilt = s.tilt;
     o.laptop_screen = s.mac_screen;
-    o.depth3d = s.depth3d;
-    o.depth_strength = s.depth_strength;
-    o.depth_plane = s.depth_plane;
     o.zoom = s.zoom;
     o.grow_by_gaze = s.grow_by_gaze;
     o.vehicle_mode = s.vehicle_mode;

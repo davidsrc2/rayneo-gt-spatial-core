@@ -34,16 +34,6 @@ struct DistortUniforms {
     float box;  // 1: no distortion and a 2x supersampled eye: one bilinear tap of level 0 (2x2 box)
 };
 
-struct StereoUniforms {
-    float brightness;
-    float eye;
-    float strength;
-    float convergence;
-    float edge;
-    float pad[3];
-    simd_float4 rect;  // where the video is, 0..1: x0, y0, x1, y1
-};
-
 // Mirrors BackgroundUniforms in Shaders.metal (float3x3: three 16-byte columns).
 struct BackgroundUniforms {
     simd_float3x3 eye_to_world;
@@ -55,13 +45,6 @@ struct BackgroundUniforms {
     float image_aspect;
 };
 
-struct DepthBlendUniforms {
-    float low;
-    float high;
-    float alpha;
-};
-
-constexpr float kDepthEdge = 0.05f;  // AI 3D: side margins where the image returns to the panel's plane
 
 simd_float4x4 to_simd(const core::Mat4& m) {
     simd_float4x4 out;
@@ -103,15 +86,6 @@ struct Panel {
     bool mesh_wall = false;
     float brightness = 1.0f;  // render thread: eased towards 1 (looked at) or dimOthers
 
-    // AI 3D. Guarded by _sourceLock: the latest depth map, its range and whether it starts a scene.
-    CVMetalTextureRef depth = nullptr;
-    float depth_low = 0.0f, depth_high = 1.0f;
-    simd_float4 depth_rect = {0, 0, 1, 1};  // the video's part of the frame (the rest stays flat)
-    bool depth_dirty = false, depth_cut = false;
-    // Render thread: the smoothed maps (ping-pong); `smoothed_valid` false until the first one.
-    id<MTLTexture> smoothed[2];
-    int smoothed_index = 0;
-    bool smoothed_valid = false;
 };
 
 }  // namespace
@@ -119,8 +93,7 @@ struct Panel {
 @implementation RNRenderOptions
 - (instancetype)init {
     if ((self = [super init])) {
-        _sideBySide = YES;
-        _ipdMeters = 0.063f;
+        _sideBySide = NO;
         _distanceMeters = 2.0f;
         _arcDegrees = 50.0f;
         _gapDegrees = 4.0f;
@@ -149,9 +122,6 @@ struct Panel {
         _zoom = 1.0f;
         _backgroundStyle = 0;
         _backgroundBrightness = 0.6f;
-        _depthStrength = 0.03f;
-        _depthConvergence = 0.35f;
-        _depthSmoothing = 0.35f;
     }
     return self;
 }
@@ -176,8 +146,6 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
     id<MTLRenderPipelineState> _screenPipeline;
     id<MTLRenderPipelineState> _sharpPipeline;        // the space at real size: Catmull-Rom
     id<MTLRenderPipelineState> _distortPipeline;
-    id<MTLRenderPipelineState> _stereoPipeline;       // AI 3D panel
-    id<MTLRenderPipelineState> _depthBlendPipeline;   // AI 3D temporal smoothing (R16Float)
     id<MTLRenderPipelineState> _backgroundPipeline;   // around the panels
     id<MTLSamplerState> _mirrorSampler;               // background picture, mirrored beyond its edges
     id<MTLTexture> _backgroundImage;                  // guarded by _sourceLock
@@ -189,7 +157,6 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
     CGPoint _cursorPos;                               // guarded by _sourceLock (points in its display)
     CGSize _cursorDisplay;                            // guarded by _sourceLock
     uint64_t _cursorGeneration;                       // guarded by _sourceLock
-    id<MTLSamplerState> _depthSampler;
     id<MTLSamplerState> _sampler;
     CVMetalTextureCacheRef _textureCache;
 
@@ -208,7 +175,7 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
     NSUInteger _overlayMeshHeight;      // render thread: the height its mesh was built for
     id<MTLBuffer> _overlayIndices;
     NSUInteger _overlayIndexCount;
-    id<MTLTexture> _eyeTextures[2];
+    id<MTLTexture> _eyeTexture;
     os_unfair_lock _gpuLock;  // the GPU times below, written by completion handlers
     double _gpuSumMs;
     int _gpuN;
@@ -284,11 +251,6 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
     _distortPipeline = [device newRenderPipelineStateWithDescriptor:d error:error];
     if (_distortPipeline == nil) return nil;
 
-    d.vertexFunction = [lib newFunctionWithName:@"screen_vertex"];
-    d.fragmentFunction = [lib newFunctionWithName:@"stereo_screen_fragment"];
-    _stereoPipeline = [device newRenderPipelineStateWithDescriptor:d error:error];
-    if (_stereoPipeline == nil) return nil;
-
     {
         MTLRenderPipelineDescriptor* c = [MTLRenderPipelineDescriptor new];
         c.vertexFunction = [lib newFunctionWithName:@"screen_vertex"];
@@ -308,12 +270,6 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
     _backgroundPipeline = [device newRenderPipelineStateWithDescriptor:d error:error];
     if (_backgroundPipeline == nil) return nil;
 
-    d.vertexFunction = [lib newFunctionWithName:@"fullscreen_vertex"];
-    d.fragmentFunction = [lib newFunctionWithName:@"depth_blend_fragment"];
-    d.colorAttachments[0].pixelFormat = MTLPixelFormatR16Float;
-    _depthBlendPipeline = [device newRenderPipelineStateWithDescriptor:d error:error];
-    if (_depthBlendPipeline == nil) return nil;
-
     MTLSamplerDescriptor* s = [MTLSamplerDescriptor new];
     s.minFilter = MTLSamplerMinMagFilterLinear;
     s.magFilter = MTLSamplerMinMagFilterLinear;
@@ -325,14 +281,6 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
     s.sAddressMode = MTLSamplerAddressModeMirrorRepeat;
     s.tAddressMode = MTLSamplerAddressModeMirrorClampToEdge;
     _mirrorSampler = [device newSamplerStateWithDescriptor:s];
-    // Depth: plain bilinear, edges clamped (beyond the frame is as deep as its border).
-    MTLSamplerDescriptor* ds = [MTLSamplerDescriptor new];
-    ds.minFilter = MTLSamplerMinMagFilterLinear;
-    ds.magFilter = MTLSamplerMinMagFilterLinear;
-    ds.sAddressMode = MTLSamplerAddressModeClampToEdge;
-    ds.tAddressMode = MTLSamplerAddressModeClampToEdge;
-    _depthSampler = [device newSamplerStateWithDescriptor:ds];
-
     MTLTextureDescriptor* pd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB
                                                                                   width:1
                                                                                  height:1
@@ -355,7 +303,6 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
 - (void)dealloc {
     for (auto& p : _panels) {
         if (p.texture != nullptr) CFRelease(p.texture);
-        if (p.depth != nullptr) CFRelease(p.depth);
     }
     if (_textureCache != nullptr) CFRelease(_textureCache);
 }
@@ -782,80 +729,6 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
     if (old != nullptr) CFRelease(old);
 }
 
-- (void)setSourcePixelBuffer:(CVPixelBufferRef)pb
-                       depth:(CVPixelBufferRef)depth
-                         low:(float)low
-                        high:(float)high
-                    sceneCut:(BOOL)sceneCut
-                   videoRect:(CGRect)videoRect
-                    forPanel:(NSUInteger)panel {
-    if (panel >= kMaxPanels) return;
-    CVMetalTextureRef dtex = nullptr;
-    if (CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, _textureCache, depth, nil, MTLPixelFormatR16Float,
-                                                  CVPixelBufferGetWidth(depth), CVPixelBufferGetHeight(depth), 0,
-                                                  &dtex) != kCVReturnSuccess) {
-        [self setSourcePixelBuffer:pb forPanel:panel];
-        return;
-    }
-    os_unfair_lock_lock(&_sourceLock);
-    Panel& p = _panels[panel];
-    CVMetalTextureRef old = p.depth;
-    p.depth = dtex;
-    p.depth_low = low;
-    p.depth_high = high;
-    p.depth_cut = p.depth_cut || sceneCut;  // a cut between two drawn frames still resets
-    p.depth_rect = simd_make_float4(static_cast<float>(CGRectGetMinX(videoRect)), static_cast<float>(CGRectGetMinY(videoRect)),
-                                    static_cast<float>(CGRectGetMaxX(videoRect)), static_cast<float>(CGRectGetMaxY(videoRect)));
-    p.depth_dirty = true;
-    os_unfair_lock_unlock(&_sourceLock);
-    if (old != nullptr) CFRelease(old);
-    [self setSourcePixelBuffer:pb forPanel:panel];  // same lock round: drawn together from the next frame
-}
-
-- (void)clearDepthForPanel:(NSUInteger)panel {
-    if (panel >= kMaxPanels) return;
-    os_unfair_lock_lock(&_sourceLock);
-    Panel& p = _panels[panel];
-    CVMetalTextureRef old = p.depth;
-    p.depth = nullptr;
-    p.depth_dirty = true;  // tells the render thread to drop its smoothed maps
-    ++_sourceGeneration;
-    os_unfair_lock_unlock(&_sourceLock);
-    if (old != nullptr) CFRelease(old);
-}
-
-// AI 3D: the new depth map blended into the smoothed one (render thread).
-- (void)blendDepth:(Panel&)p raw:(id<MTLTexture>)raw low:(float)low high:(float)high cut:(bool)cut
-     commandBuffer:(id<MTLCommandBuffer>)cb {
-    if (p.smoothed[0] == nil || p.smoothed[0].width != raw.width || p.smoothed[0].height != raw.height) {
-        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR16Float
-                                                                                     width:raw.width
-                                                                                    height:raw.height
-                                                                                 mipmapped:NO];
-        d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
-        d.storageMode = MTLStorageModePrivate;
-        for (auto& t : p.smoothed) t = [_device newTextureWithDescriptor:d];
-        p.smoothed_valid = false;
-    }
-    const int next = 1 - p.smoothed_index;
-    MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-    pass.colorAttachments[0].texture = p.smoothed[next];
-    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
-    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
-    const float alpha = cut || !p.smoothed_valid ? 1.0f : std::clamp(_options.depthSmoothing, 0.01f, 1.0f);
-    const DepthBlendUniforms u{low, high, alpha};
-    [enc setRenderPipelineState:_depthBlendPipeline];
-    [enc setFragmentTexture:raw atIndex:0];
-    [enc setFragmentTexture:p.smoothed[p.smoothed_index] atIndex:1];
-    [enc setFragmentSamplerState:_depthSampler atIndex:0];
-    [enc setFragmentBytes:&u length:sizeof(u) atIndex:0];
-    [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-    [enc endEncoding];
-    p.smoothed_index = next;
-    p.smoothed_valid = true;
-}
-
 static float effective_curvature(RNRenderOptions* o) {
     return o.curved && o.curvature <= 0.0f ? 1.0f : std::clamp(o.curvature, 0.0f, 1.0f);
 }
@@ -954,8 +827,8 @@ static float effective_curvature(RNRenderOptions* o) {
 }
 
 - (void)ensureEyeTextures:(MTLPixelFormat)format width:(NSUInteger)w height:(NSUInteger)h mipmapped:(BOOL)mips {
-    if (_eyeTextures[0] != nil && _eyeTextures[0].width == w && _eyeTextures[0].height == h &&
-        _eyeTextures[0].pixelFormat == format && (_eyeTextures[0].mipmapLevelCount > 1) == mips) {
+    if (_eyeTexture != nil && _eyeTexture.width == w && _eyeTexture.height == h &&
+        _eyeTexture.pixelFormat == format && (_eyeTexture.mipmapLevelCount > 1) == mips) {
         return;
     }
     MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
@@ -964,7 +837,7 @@ static float effective_curvature(RNRenderOptions* o) {
                                                                              mipmapped:mips];
     d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
     d.storageMode = MTLStorageModePrivate;
-    for (auto& t : _eyeTextures) t = [_device newTextureWithDescriptor:d];
+    _eyeTexture = [_device newTextureWithDescriptor:d];
     _eyeWidthPx.store(static_cast<float>(w), std::memory_order_relaxed);
 }
 
@@ -1033,12 +906,8 @@ static float effective_curvature(RNRenderOptions* o) {
 
     // Snapshot the panels' latest frames; each stays retained until the GPU is done.
     CVMetalTextureRef textures[kMaxPanels] = {};
-    CVMetalTextureRef depths[kMaxPanels] = {};  // only the new depth maps
     float aspects[kMaxPanels];
     bool fresh[kMaxPanels] = {};
-    bool depthChanged[kMaxPanels] = {}, depthCut[kMaxPanels] = {};
-    float depthLow[kMaxPanels] = {}, depthHigh[kMaxPanels] = {};
-    simd_float4 depthRect[kMaxPanels];
     os_unfair_lock_lock(&_sourceLock);
     const NSUInteger count = _panelCount;
     for (NSUInteger i = 0; i < count; ++i) {
@@ -1046,20 +915,9 @@ static float effective_curvature(RNRenderOptions* o) {
         textures[i] = p.texture;
         if (textures[i] != nullptr) CFRetain(textures[i]);
         aspects[i] = p.aspect;
-        depthRect[i] = p.depth_rect;
         // Out of view: the new frame waits (dirty) until the panel comes into view.
         fresh[i] = p.dirty && (_visibleMask.load(std::memory_order_relaxed) & (NSUInteger{1} << i)) != 0;
         if (fresh[i]) p.dirty = false;
-        if (p.depth_dirty) {
-            depthChanged[i] = true;
-            depths[i] = p.depth;
-            if (depths[i] != nullptr) CFRetain(depths[i]);
-            depthLow[i] = p.depth_low;
-            depthHigh[i] = p.depth_high;
-            depthCut[i] = p.depth_cut;
-            p.depth_dirty = false;
-            p.depth_cut = false;
-        }
     }
     os_unfair_lock_unlock(&_sourceLock);
 
@@ -1099,7 +957,9 @@ static float effective_curvature(RNRenderOptions* o) {
     id<MTLTexture> target = drawable.texture;
     // Supersampling (space at real size): the eyes drawn larger, mipmapped down in the last pass.
     const NSUInteger ss = o.staticHead ? 1 : std::clamp<NSUInteger>(o.supersample, 1, 2);
-    [self ensureEyeTextures:target.pixelFormat width:target.width * ss height:target.height * ss mipmapped:ss > 1];
+    // The glasses in their 3D mode are a double-width display: the same image in both halves.
+    const int halves = o.sideBySide ? 2 : 1;
+    [self ensureEyeTextures:target.pixelFormat width:target.width / halves * ss height:target.height * ss mipmapped:ss > 1];
 
     id<MTLCommandBuffer> cb = [_queue commandBuffer];
 
@@ -1125,17 +985,6 @@ static float effective_curvature(RNRenderOptions* o) {
     }
     [blit endEncoding];
 
-    for (NSUInteger i = 0; i < count; ++i) {
-        if (!depthChanged[i]) continue;
-        if (depths[i] == nullptr) {  // AI 3D off
-            _panels[i].smoothed_valid = false;
-            continue;
-        }
-        [self blendDepth:_panels[i] raw:CVMetalTextureGetTexture(depths[i]) low:depthLow[i] high:depthHigh[i]
-                     cut:depthCut[i] commandBuffer:cb];
-    }
-
-    const int eyes = o.sideBySide ? 2 : 1;
     const core::Mat4 proj =
         core::perspective_lh(o.fovYDegrees * kDegToRad, o.eyeAspect, 0.05f, 100.0f);
 
@@ -1185,16 +1034,15 @@ static float effective_curvature(RNRenderOptions* o) {
         bgu.style = static_cast<int>(bgStyle);
         bgu.image_aspect = bgImage != nil ? static_cast<float>(bgImage.width) / std::max<NSUInteger>(1, bgImage.height) : 1.0f;
     }
-    for (int eye = 0; eye < eyes; ++eye) {
+    {  // one image, shown to both eyes alike (the glasses' 3D mode gets it in both halves)
         MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-        pass.colorAttachments[0].texture = _eyeTextures[eye];
+        pass.colorAttachments[0].texture = _eyeTexture;
         pass.colorAttachments[0].loadAction = MTLLoadActionClear;
         pass.colorAttachments[0].storeAction = MTLStoreActionStore;
         pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);  // black = see-through
         id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
-        const float offset = o.sideBySide ? (eye == 0 ? -0.5f : 0.5f) * o.ipdMeters : 0.0f;
         const float up = o.neckModel ? core::kNeckUpM : 0.0f, fwd = o.neckModel ? core::kNeckForwardM : 0.0f;
-        SceneUniforms u{to_simd(proj * core::view_matrix(head, offset, up, fwd))};
+        SceneUniforms u{to_simd(proj * core::view_matrix(head, 0.0f, up, fwd))};
         if (bgStyle > 0 && bgStyle <= 5 && (bgStyle != 5 || bgImage != nil)) {
             [enc setRenderPipelineState:_backgroundPipeline];
             [enc setFragmentBytes:&bgu length:sizeof(bgu) atIndex:0];
@@ -1214,25 +1062,13 @@ static float effective_curvature(RNRenderOptions* o) {
             [enc setVertexBuffer:p.vertices offset:0 atIndex:0];
             [enc setFragmentTexture:_panels[i].mipmapped != nil ? _panels[i].mipmapped : _placeholder
                             atIndex:0];
-            // AI 3D: only with one image per eye (in mono there is no depth to show).
-            const bool deep = o.sideBySide && p.smoothed_valid && p.mipmapped != nil;
-            if (deep) {
-                const StereoUniforms su{p.brightness, eye == 0 ? -1.0f : 1.0f, o.depthStrength,
-                                        std::clamp(o.depthConvergence, 0.0f, 1.0f), kDepthEdge, {0, 0, 0}, depthRect[i]};
-                [enc setRenderPipelineState:_stereoPipeline];
-                [enc setFragmentBytes:&su length:sizeof(su) atIndex:0];
-                [enc setFragmentTexture:p.smoothed[p.smoothed_index] atIndex:1];
-                [enc setFragmentSamplerState:_depthSampler atIndex:1];
-            } else {
-                const simd_float2 pu = {p.brightness, static_cast<NSInteger>(i) == o.keyPanel ? 1.0f : 0.0f};
-                [enc setFragmentBytes:&pu length:sizeof(pu) atIndex:0];
-            }
+            const simd_float2 pu = {p.brightness, static_cast<NSInteger>(i) == o.keyPanel ? 1.0f : 0.0f};
+            [enc setFragmentBytes:&pu length:sizeof(pu) atIndex:0];
             [enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                             indexCount:p.index_count
                              indexType:MTLIndexTypeUInt16
                            indexBuffer:p.indices
                      indexBufferOffset:0];
-            if (deep) [enc setRenderPipelineState:panelPipeline];
             if (cursorTex != nil && static_cast<NSInteger>(i) == cursorPanel) {
                 [enc setRenderPipelineState:_cursorPipeline];
                 [enc setFragmentTexture:cursorTex atIndex:0];
@@ -1249,7 +1085,7 @@ static float effective_curvature(RNRenderOptions* o) {
         if (overlay != nil) {
             [enc setRenderPipelineState:_screenPipeline];
             // Head-locked: straight ahead whatever the pose, slightly below the centre.
-            SceneUniforms ou{to_simd(proj * core::view_matrix(core::Quat{}, offset))};
+            SceneUniforms ou{to_simd(proj * core::view_matrix(core::Quat{}, 0.0f))};
             const simd_float2 one = {1.0f, 0.0f};  // full brightness, no frame
             [enc setVertexBytes:&ou length:sizeof(ou) atIndex:1];
             [enc setVertexBuffer:_overlayVertices offset:0 atIndex:0];
@@ -1270,7 +1106,7 @@ static float effective_curvature(RNRenderOptions* o) {
     const bool box = ss == 2 && o.k1 == 0.0f && o.k2 == 0.0f;
     if (ss > 1 && !box) {  // supersampled: the mip chain the last pass reads at the glasses' size
         id<MTLBlitCommandEncoder> mips = [cb blitCommandEncoder];
-        for (int eye = 0; eye < eyes; ++eye) [mips generateMipmapsForTexture:_eyeTextures[eye]];
+        [mips generateMipmapsForTexture:_eyeTexture];
         [mips endEncoding];
     }
     MTLRenderPassDescriptor* out = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -1281,11 +1117,11 @@ static float effective_curvature(RNRenderOptions* o) {
     id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:out];
     [enc setRenderPipelineState:_distortPipeline];
     const DistortUniforms du{o.k1, o.k2, o.eyeAspect, box ? 1.0f : 0.0f};
-    const double half = static_cast<double>(target.width) / eyes;
-    for (int eye = 0; eye < eyes; ++eye) {
-        const MTLViewport vp{half * eye, 0.0, half, static_cast<double>(target.height), 0.0, 1.0};
+    const double half = static_cast<double>(target.width) / halves;
+    for (int h = 0; h < halves; ++h) {
+        const MTLViewport vp{half * h, 0.0, half, static_cast<double>(target.height), 0.0, 1.0};
         [enc setViewport:vp];
-        [enc setFragmentTexture:_eyeTextures[eye] atIndex:0];
+        [enc setFragmentTexture:_eyeTexture atIndex:0];
         [enc setFragmentSamplerState:_sampler atIndex:0];
         [enc setFragmentBytes:&du length:sizeof(du) atIndex:0];
         [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
@@ -1296,7 +1132,6 @@ static float effective_curvature(RNRenderOptions* o) {
     std::vector<CVMetalTextureRef> held;
     for (NSUInteger i = 0; i < count; ++i) {
         if (textures[i] != nullptr) held.push_back(textures[i]);
-        if (depths[i] != nullptr) held.push_back(depths[i]);
     }
     if (!held.empty()) {
         [cb addCompletedHandler:^(id<MTLCommandBuffer>) {

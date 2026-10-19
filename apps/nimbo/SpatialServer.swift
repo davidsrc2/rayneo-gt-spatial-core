@@ -149,10 +149,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // front (a click on a virtual monitor), App Nap and timer coalescing would delay the IMU
     // and render threads and the panels would tremble.
     private var activity: NSObjectProtocol?
-    // AI 3D: depth for the cinema panel (DepthEngine); the model loads the first time it is wanted.
-    private let depth3D = DepthEngine()
-    private var depthLoading: Task<Void, Never>?
-    private var depthPanel = -1  // main thread: panel last given depth (to flatten it again)
 
     // GUI hooks. Without them (CLI) a stop request quits the process.
     var onStopRequest: ((String) -> Void)?
@@ -434,11 +430,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         layer.colorspace = nil  // no colour matching pass
 
         renderer = try RNSpatialRenderer(device: device, pixelFormat: .bgra8Unorm_srgb)
-        // One image per eye when the glasses are in their 3D mode (nothing to switch in Nimbo).
-        let sbs = options.sideBySide ?? autoSideBySide
+        // The glasses in their 3D mode (double width): the one image in both halves.
+        let sbs = autoSideBySide
         let ro = renderer.options
         ro.sideBySide = sbs
-        ro.ipdMeters = options.ipdMM / 1000
         ro.distanceMeters = options.distanceM
         ro.arcDegrees = options.panelArcDeg
         ro.gapDegrees = options.gapDeg
@@ -458,16 +453,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.trackingAxes = options.trackingAxes
         ro.vehicleMode = options.vehicleMode
         ro.flatWall = options.flatWall
-        ro.depthStrength = options.depthStrength
-        ro.depthConvergence = options.depthConvergence
         zoom = max(0.5, min(3, options.zoom))
         codeMode = abs(zoom - 1.7) < 0.01
         ro.zoom = zoom
-        depth3D.allowGPU = options.depthGPU
-        depth3D.onFrame = { [weak self] color, depth, low, high, cut, video, panel in
-            self?.renderer?.setSourcePixelBuffer(color, depth: depth, low: low, high: high, sceneCut: cut, videoRect: video,
-                                                 forPanel: UInt(panel))
-        }
         let panels = max(1, panelDisplays.count)
         renderer.panelCount = UInt(panels)
         if let layout = options.layout, layout.count == panels {
@@ -481,7 +469,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         applyPinned(options)
         log("tracking: " + (options.glassesPinned ? "by the glasses (pinned mode); panels fitted inside their image" : ["full head rotation", "left/right turn only (panels never move vertically)",
                             "up/down only (panels never move sideways)"][max(0, min(2, ro.trackingAxes))]))
-        log("render: \(sbs ? "side by side (glasses in 3D)" : "mono"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, ipd \(options.ipdMM) mm, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
+        log("render: \(sbs ? "glasses in 3D (the same image to both eyes)" : "glasses in 2D"), \(panels) \(options.curved ? "curved" : "flat") panel(s) of \(String(format: "%.1f", ro.arcDegrees))° gap \(options.gapDeg)° at \(options.distanceM) m, fov \(ro.fovYDegrees)°, k1 \(options.k1) k2 \(options.k2)")
 
         registerHotKeys()
         if options.headless { statusMenu = StatusMenu { [weak self] in self?.recenter() } }
@@ -752,7 +740,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: glasses 2D / 3D
 
-    // In --windowed: mono; on the glasses: side by side when they are in their 3D mode.
+    // The glasses in their 3D mode: a double-width display (the image goes to both halves).
     private var autoSideBySide: Bool { glassesID.map(Displays.isSideBySide) ?? false }
 
     // The glasses' display went away. Switching them between 2D and 3D does that for a moment
@@ -761,7 +749,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var glassesLostSince: Date?
 
     private var reconnecting = false  // main thread: setting the glasses' display up again
-    private var cinemaFor3D = false   // cinema entered by ⌘⌥T
     private var lastUnmirror = Date.distantPast
 
     private func glassesLost() {
@@ -864,12 +851,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
     }
 
-    // Drawable at the display's pixel size; side by side with the glasses in 3D.
+    // Drawable at the display's pixel size; the same image in both halves with the glasses in 3D.
     private func fitSurface(to screen: NSScreen) {
         guard let id = glassesID, let view, let mode = CGDisplayCopyDisplayMode(id), screen.frame.width > 0 else { return }
         let layer = view.metalLayer
         let size = CGSize(width: mode.pixelWidth, height: mode.pixelHeight)
-        let sbs = options.sideBySide ?? Displays.isSideBySide(id)
+        let sbs = Displays.isSideBySide(id)
         guard layer.drawableSize != size || renderer.options.sideBySide != sbs else { return }
         layer.contentsScale = CGFloat(mode.pixelWidth) / screen.frame.width
         layer.drawableSize = size
@@ -878,22 +865,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         statsLock.unlock()
         renderer.options.sideBySide = sbs
         renderer.invalidateSkippedFrame()
-        log(String(format: "surface: %.0fx%.0f px, %@", size.width, size.height, sbs ? "side by side (glasses in 3D)" : "mono (glasses in 2D)"))
+        log(String(format: "surface: %.0fx%.0f px, %@", size.width, size.height, sbs ? "glasses in 3D (the same image to both eyes)" : "glasses in 2D"))
         restoreAudio()  // the glasses' speakers went away with the display
-        onNotice?(sbs ? "Gafas en 3D: una imagen para cada ojo" : "Gafas en 2D")
-        flash(sbs ? "Modo 3D de las gafas activado" : "Gafas en modo 2D")
-        // Back in 2D: the cinema ⌘⌥T opened (for the depth) closes, and all panels come back.
-        if !sbs && cinemaFor3D {
-            options.depth3D = false
-            if focusMode == 2 { toggleFocus(cinema: true) }
-            cinemaFor3D = false
-        }
-        updateDepth3D()
         requestRedraw()
     }
 
-    // A card in front of the eyes for a few seconds (the start-up message's), e.g. "Modo 3D de
-    // las gafas activado". Two messages in a row share it, one per line.
+    // A card in front of the eyes for a few seconds (the start-up message's), e.g. "Modo
+    // vehículo activado". Two messages in a row share it, one per line.
     private func flash(_ line: String, seconds: Double = 2.5) {
         guard let renderer else { return }
         if overlayShown {  // the start-up message is up: after it
@@ -953,8 +931,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.curvature = o.curvature
         ro.tilt = o.tilt
         ro.fovYDegrees = o.fovYDeg
-        ro.ipdMeters = o.ipdMM / 1000
-        ro.sideBySide = o.sideBySide ?? autoSideBySide
+        ro.sideBySide = autoSideBySide
         ro.k1 = o.k1
         ro.k2 = o.k2
         ro.fixedPredictionMs = o.predictionMs
@@ -966,8 +943,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.trackingAxes = o.trackingAxes
         ro.vehicleMode = o.vehicleMode
         ro.flatWall = o.flatWall
-        ro.depthStrength = o.depthStrength
-        ro.depthConvergence = o.depthConvergence
         if let arc = o.arcDeg { ro.arcDegrees = arc }
         applyPoses(o)
         options.distanceM = o.distanceM
@@ -977,8 +952,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.tilt = o.tilt
         options.arcDeg = o.arcDeg
         options.fovYDeg = o.fovYDeg
-        options.ipdMM = o.ipdMM
-        options.sideBySide = o.sideBySide
         options.k1 = o.k1
         options.k2 = o.k2
         options.gazeCursor = o.gazeCursor
@@ -1003,11 +976,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.growByGaze = o.growByGaze
         options.realSize = o.realSize
         options.focusWindows = o.focusWindows
-        options.depth3D = o.depth3D
-        options.depthStrength = o.depthStrength
-        options.depthConvergence = o.depthConvergence
         applyPinned(o)  // last: it overrides the panel width
-        updateDepth3D()
         requestRedraw()
     }
 
@@ -1561,9 +1530,10 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // When the gaze moves to another panel, bring the cursor along, keeping its relative
     // position (the main display is invisible behind the glasses image otherwise).
     // The framed panel (RNRenderOptions.keyPanel): the one under the cursor, where a click or
-    // the next window goes. Every 8th gaze tick (~4 Hz) the front app's window is also checked
+    // the next window goes. Every 16th gaze tick (~2 Hz) the front app's window is also checked
     // (rescueStray): the window list is not free.
     private var keyPanelTick = 0
+    private var lastFrontPid: pid_t?
     private func updateKeyPanel() {
         guard let ro = renderer?.options else { return }
         var panel = -1
@@ -1582,8 +1552,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             requestRedraw()
         }
         keyPanelTick += 1
-        guard keyPanelTick % 8 == 0, !options.windowed,
-              let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier, pid != getpid(),
+        // The window list costs the main thread a few ms with many windows: ~2 Hz, and at once
+        // when another app comes to the front.
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let switched = front != lastFrontPid
+        lastFrontPid = front
+        guard keyPanelTick % 16 == 0 || switched, !options.windowed,
+              let pid = front, pid != getpid(),
               let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
         else { return }
         // Its frontmost real window: not the strips a full-screen window's tab and title bars are
@@ -1708,11 +1683,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         guard !stopped else { return }
         stopped = true
         if isRecording { toggleRecording() }  // the file is finished, not lost
-        depthLoading?.cancel()
-        depthLoading = nil
         audioRestore?.cancel()
-        depth3D.route(panel: -1)
-        depth3D.onFrame = nil
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil
         HardwareCursor.show()
@@ -1889,101 +1860,14 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             bringCursor(toPanel: ro.focusPanel)  // the only panel shown: the cursor there, not lost on another
             onNotice?(cinema ? "Modo cine (⌘⌥P para salir)" : "Modo enfoque (⌘⌥O para salir)")
         }
-        updateDepth3D()
         requestRedraw()
     }
 
-    // MARK: AI 3D
+    // MARK: capture delivery
 
-    // Captured frames: the cinema panel's go through the depth model first when AI 3D is on.
-    // Capture queues.
+    // Captured frames, from the capture queues.
     private func deliver(_ pb: CVPixelBuffer, panel: Int) {
-        if depth3D.submit(pb, panel: panel) { return }
         renderer?.setSourcePixelBuffer(pb, forPanel: UInt(panel))
-    }
-
-    // The model finished loading (error nil) or could not be had. Main thread.
-    private func depthModelReady(_ error: String?) {
-        depthLoading = nil
-        if let error {
-            log("3d: model unavailable: \(error)")
-            onNotice?("No se pudo preparar el 3D con IA")
-            options.depth3D = false
-            return
-        }
-        updateDepth3D()
-    }
-
-    // ⌘⌥T: AI 3D on / off for this session (⌘⌥1/2/3 are the app's layouts) (the app's setting is applied again when it changes).
-    // On: cinema on the panel you look at, in depth (with the glasses in 3D). Off: flat, still
-    // in cinema, to compare.
-    func toggleDepth3D() {
-        options.depth3D.toggle()
-        log("3d: \(options.depth3D ? "on" : "off")")
-        if options.depth3D {
-            if renderer?.options.sideBySide == false {
-                // Glasses in 2D: nothing to see in depth. Nothing changes; it says what to do.
-                options.depth3D = false
-                log("3d: glasses in 2D, not started")
-                flash("Pon las gafas en modo 3D")
-                flash("y pulsa ⌘⌥T")
-                return
-            }
-            if focusMode != 2 {
-                toggleFocus(cinema: true)
-                cinemaFor3D = true
-            }
-        } else {
-            onNotice?("3D con IA desactivado")
-        }
-        updateDepth3D()
-    }
-
-    // Gives depth to the cinema panel while AI 3D is on and each eye has its own image; else
-    // every panel is flat. Loads the model the first time. Main thread.
-    private func updateDepth3D() {
-        guard let renderer, !stopped else { return }
-        let ro = renderer.options
-        let cinema = focusMode == 2 && ro.focusPanel >= 0
-        let wanted = options.depth3D && cinema && ro.sideBySide ? ro.focusPanel : -1
-        if options.depth3D && cinema && !ro.sideBySide {
-            onNotice?("Pon las gafas en modo 3D para ver el cine en 3D")
-            flash("Pon las gafas en modo 3D")
-        }
-        if wanted >= 0 && !depth3D.isLoaded {
-            guard depthLoading == nil else { return }
-            onNotice?("Preparando el 3D con IA…")
-            flash("Preparando el 3D con IA…", seconds: 6)
-            let engine = depth3D
-            let owner = WeakServer(self)
-            depthLoading = Task.detached(priority: .userInitiated) {
-                let logger: @Sendable (String) -> Void = { line in DispatchQueue.main.async { owner.server?.log(line) } }
-                do {
-                    let url = try await DepthEngine.compiledModel(log: logger)
-                    let t0 = Date()
-                    try engine.load(url)
-                    logger(String(format: "3d: model loaded in %.1f s (Neural Engine)", Date().timeIntervalSince(t0)))
-                    DispatchQueue.main.async { owner.server?.depthModelReady(nil) }
-                } catch {
-                    let message = error.localizedDescription
-                    DispatchQueue.main.async { owner.server?.depthModelReady(message) }
-                }
-            }
-            return
-        }
-        guard wanted != depthPanel else { return }
-        depth3D.route(panel: wanted)
-        if depthPanel >= 0 { renderer.clearDepth(forPanel: UInt(depthPanel)) }
-        if wanted >= 0 {
-            log("3d: depth on panel \(wanted + 1) (strength \(ro.depthStrength), plane \(ro.depthConvergence))")
-            onNotice?("Cine en 3D con IA (⌘⌥T para quitarlo)")
-            flash("Cine en 3D con IA activado")
-        } else if depthPanel >= 0 {
-            log("3d: off")
-            flash("Cine en 3D con IA desactivado")
-        }
-        depthPanel = wanted
-        requestRedraw()
     }
 
     // MARK: zoom and code mode
@@ -2058,7 +1942,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         flash(["Atajos de Nimbo",
                "⌘⌥C recentrar   ·   ⌘⌥Q salir   ·   ⌘⌥N panel",
                "⌘⌥+  ⌘⌥−  ⌘⌥0 zoom   ·   ⌘⌥A vista general",
-               "⌘⌥O enfocar   ·   ⌘⌥P cine   ·   ⌘⌥T 3D",
+               "⌘⌥O enfocar   ·   ⌘⌥P cine",
                "⌘⌥K modo código   ·   ⌘⌥J cursor aquí",
                "⌘⌥1  ⌘⌥2  ⌘⌥3 plantillas   ·   ⌘⌥G modo fijo",
                "⌘⌥V vehículo   ·   ⌘⌥L óptica   ·   ⌘⌥F fondo",
@@ -2178,7 +2062,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         reg(kVK_ANSI_O, "O") { [weak self] in self?.toggleFocus(cinema: false) }
         reg(kVK_ANSI_P, "P") { [weak self] in self?.toggleFocus(cinema: true) }
         reg(kVK_ANSI_R, "R") { [weak self] in self?.toggleRecording() }
-        reg(kVK_ANSI_T, "T") { [weak self] in self?.toggleDepth3D() }
         reg(kVK_ANSI_K, "K") { [weak self] in self?.toggleCodeMode() }
         reg(kVK_ANSI_A, "A") { [weak self] in self?.toggleOverview() }
         reg(kVK_ANSI_V, "V") { [weak self] in self?.toggleVehicleMode() }
@@ -2851,12 +2734,6 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             let noise = (pose as? ImuPoseSource)?.gyroNoise?.degs ?? 0
             let temp = (pose as? ImuPoseSource)?.temperature ?? 0
             log(String(format: "imu: gyro bias %.3f %.3f %.3f deg/s (noise at rest %.2f, %.1f C)", b.x, b.y, b.z, noise, temp))
-        }
-        if depthPanel >= 0 {
-            let d = depth3D.takeStats()
-            let n = Double(max(1, d.frames))
-            log(String(format: "3d: %d depth fps (%d on GPU, %d dropped, %d cut(s)) | scale %.1f ms | infer %.1f ms | in order %.1f ms",
-                       d.frames, d.gpuFrames, d.dropped, d.cuts, d.scaleMs / n, d.inferMs / n, d.waitMs / n))
         }
     }
 

@@ -22,8 +22,6 @@ struct Settings {
     bool auto_start = false;     // "autoStart": start when the glasses connect
 
     float fov_y_deg = 24.5f;     // "fovY"
-    float ipd_mm = 63.0f;        // "ipd"
-    bool stereo = false;         // "stereo": half-SBS (glasses in 3D mode)
     float dead_zone_deg = 1.0f;  // "deadZone"
     bool gaze_cursor = true;     // "gazeCursor"
     bool dim_others = false;     // "dimOthers" (off: on see-through optics a dimmed panel looks cut off)
@@ -36,9 +34,6 @@ struct Settings {
     float tilt = 0.0f;           // "tilt": panels above / below face you (1) .. stand upright (0)
     bool anchor_at_rest = false;  // "anchorAtRest": panels frozen while the head holds still
     bool mac_screen = true;      // "macScreen": the computer's own screen is panel 1 (laptop lid open)
-    bool depth3d = false;        // "depth3D": cinema mode in depth from a depth map per frame (AI)
-    float depth_strength = 0.03f;  // "depthStrength": parallax at the nearest depth, in panel widths
-    float depth_plane = 0.35f;   // "depthPlane": depth left on the panel's plane, 0 far .. 1 near
     float zoom = 1.0f;           // "zoom": every panel this much larger (shortcuts), as left last time
     bool grow_by_gaze = true;    // "growByGaze": glasses' pinned mode, the panel looked at takes over (else mouse only)
     int background = 0;          // "background": around the panels, 0 none, 1 rain, 2 stars, 3 sunset, 4 aurora, 5 picture

@@ -10,8 +10,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface RNRenderOptions : NSObject
-@property(nonatomic) BOOL sideBySide;        // half-SBS for the glasses' 3D mode
-@property(nonatomic) float ipdMeters;        // 0.063
+@property(nonatomic) BOOL sideBySide;        // the glasses in their 3D mode (double width): the one image in both halves
 @property(nonatomic) float distanceMeters;   // cylinder radius, 2.0
 @property(nonatomic) float arcDegrees;       // horizontal extent of each panel, 50
 @property(nonatomic) float gapDegrees;       // space between panels, 4
@@ -52,10 +51,6 @@ NS_ASSUME_NONNULL_BEGIN
 // The panel that gets the keyboard (the front app's window), framed in the accent colour; -1 none.
 @property(nonatomic) NSInteger keyPanel;
 @property(nonatomic) float zoom;             // every panel this much larger (and the arrangement with them), 1 = off
-// AI 3D: panels given a depth map (setSourcePixelBuffer:depth:...) are drawn in depth when side by side.
-@property(nonatomic) float depthStrength;    // parallax between the eyes at the nearest depth, in panel widths (0.03)
-@property(nonatomic) float depthConvergence; // depth (0 far .. 1 near) left on the panel's plane (0.35)
-@property(nonatomic) float depthSmoothing;   // weight of each new depth map against the previous ones (0.35)
 // Around the panels, fixed in the room: 0 none (the room seen through), 1 rain, 2 stars,
 // 3 sunset, 4 aurora, 5 the picture given with setBackgroundImageAtPath:.
 @property(nonatomic) NSInteger backgroundStyle;
@@ -78,19 +73,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer forPanel:(NSUInteger)panel;
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer;  // panel 0
 
-// AI 3D: a frame with its own depth map (one-component half float, larger = nearer), shown
-// together so the depth always matches the picture. low / high: the map's 2 % and 98 %
-// percentiles (normalised to 0..1 on the GPU). sceneCut: start the temporal smoothing afresh.
-// Any thread.
-- (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer
-                       depth:(CVPixelBufferRef)depth
-                         low:(float)low
-                        high:(float)high
-                    sceneCut:(BOOL)sceneCut
-                   videoRect:(CGRect)videoRect
-                    forPanel:(NSUInteger)panel;
-// The panel is flat again (AI 3D off). Any thread.
-- (void)clearDepthForPanel:(NSUInteger)panel;
 
 // Grid cell of each panel (column, row; row 0 = top), in panel order. Empty or mismatched
 // count: one row, left -> right. Any thread.

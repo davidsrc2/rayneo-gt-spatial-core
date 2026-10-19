@@ -196,8 +196,6 @@ std::string settings_to_json(const Settings& s) {
     put(out, "size", s.size_deg);
     put(out, "autoStart", s.auto_start);
     put(out, "fovY", s.fov_y_deg);
-    put(out, "ipd", s.ipd_mm);
-    put(out, "stereo", s.stereo);
     put(out, "deadZone", s.dead_zone_deg);
     put(out, "gazeCursor", s.gaze_cursor);
     put(out, "dimOthers", s.dim_others);
@@ -210,9 +208,6 @@ std::string settings_to_json(const Settings& s) {
     put(out, "vehicleMode", s.vehicle_mode);
     put(out, "flatWall", s.flat_wall);
     put(out, "macScreen", s.mac_screen);
-    put(out, "depth3D", s.depth3d);
-    put(out, "depthStrength", s.depth_strength);
-    put(out, "depthPlane", s.depth_plane);
     put(out, "zoom", s.zoom);
     put(out, "growByGaze", s.grow_by_gaze);
     out += "  \"background\": " + std::to_string(s.background) + ",\n";
@@ -232,19 +227,18 @@ std::optional<Settings> settings_from_json(std::string_view json) {
         const char* key;
         float* value;
     } floats[] = {{"distance", &s.distance_m}, {"gap", &s.gap_deg},     {"curvature", &s.curvature},
-                  {"size", &s.size_deg},       {"fovY", &s.fov_y_deg},  {"ipd", &s.ipd_mm},
+                  {"size", &s.size_deg},       {"fovY", &s.fov_y_deg},
                   {"deadZone", &s.dead_zone_deg}, {"k1", &s.k1},        {"k2", &s.k2},
-                  {"tilt", &s.tilt},           {"depthStrength", &s.depth_strength},
-                  {"depthPlane", &s.depth_plane},      {"zoom", &s.zoom},
+                  {"tilt", &s.tilt},           {"zoom", &s.zoom},
                   {"backgroundBrightness", &s.background_brightness}};
     const struct {
         const char* key;
         bool* value;
-    } bools[] = {{"autoStart", &s.auto_start},       {"stereo", &s.stereo},
+    } bools[] = {{"autoStart", &s.auto_start},
                  {"gazeCursor", &s.gaze_cursor},     {"dimOthers", &s.dim_others},
                  {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done},
                  {"anchorAtRest", &s.anchor_at_rest}, {"vehicleMode", &s.vehicle_mode}, {"flatWall", &s.flat_wall}, {"macScreen", &s.mac_screen},
-                 {"depth3D", &s.depth3d},             {"growByGaze", &s.grow_by_gaze}};
+                 {"growByGaze", &s.grow_by_gaze}};
     bool has_mode = false, legacy_pinned = false;
     bool has_tracking = false, legacy_yaw_only = true, has_legacy = false;
 
@@ -321,8 +315,6 @@ std::optional<Settings> settings_from_json(std::string_view json) {
     }
     if (!has_tracking && has_legacy) s.tracking = legacy_yaw_only ? 1 : 0;
     if (!has_mode && legacy_pinned) s.glasses_mode = 1;
-    // 0.015 was the first default AI 3D strength, barely noticeable: saved files move to the new one.
-    if (std::abs(s.depth_strength - 0.015f) < 1e-6f) s.depth_strength = Settings{}.depth_strength;
     return s;
 }
 

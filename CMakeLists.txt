@@ -214,7 +214,6 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     ${NIMBO_DIR}/main.swift
     ${NIMBO_DIR}/SpatialServer.swift
     ${NIMBO_DIR}/GlassesRecorder.swift
-    ${NIMBO_DIR}/DepthEngine.swift
     ${NIMBO_DIR}/SettingsFile.swift
     ${NIMBO_DIR}/AudioOutput.swift
     ${NIMBO_DIR}/ScreenCapture.swift
@@ -254,7 +253,7 @@ if(APPLE AND RAYNEO_BUILD_MAC_APP AND RAYNEO_BUILD_APPS)
     -swift-version 5 -warnings-as-errors)
   target_link_libraries(nimbo PRIVATE rayneo_macos rayneo_macos_renderer
     "-framework AppKit" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework Carbon" "-framework ApplicationServices"
-    "-framework CoreML" "-framework Accelerate" "-framework CoreAudio")
+    "-framework CoreAudio")
   # CMake adds libc++ once per implicit language (CXX, OBJCXX) when Swift drives the link.
   target_link_options(nimbo PRIVATE "SHELL:-Xlinker -no_warn_duplicate_libraries")
 
@@ -310,27 +309,7 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
   configure_file(${RAYNEO_WIN_DIR}/renderer/rn_shaders_hlsl.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/rn_shaders_hlsl.h @ONLY)
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${RAYNEO_WIN_DIR}/renderer/Shaders.hlsl)
 
-  # AI 3D: ONNX Runtime with DirectML, loaded at run time (only its headers at build time); its
-  # DLLs are copied next to nimbo_server.dll. Microsoft's NuGet packages (MIT / DirectML
-  # redistributable licence).
-  include(FetchContent)
-  FetchContent_Declare(onnxruntime_dml
-    URL https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.22.1/microsoft.ml.onnxruntime.directml.1.22.1.nupkg
-    URL_HASH SHA256=210823f9932f81f222e2d05d04531d948a4d75dbf527dfb94195ad61371ab728
-    DOWNLOAD_NAME onnxruntime_dml.zip
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-  FetchContent_Declare(directml
-    URL https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg
-    URL_HASH SHA256=4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9
-    DOWNLOAD_NAME directml.zip
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-  FetchContent_MakeAvailable(onnxruntime_dml directml)
-  set(RAYNEO_ONNX_DLLS
-    ${onnxruntime_dml_SOURCE_DIR}/runtimes/win-x64/native/onnxruntime.dll
-    ${directml_SOURCE_DIR}/bin/x64-win/DirectML.dll)
-
   add_library(rayneo_windows STATIC
-    ${RAYNEO_WIN_DIR}/depth_engine.cpp
     ${RAYNEO_WIN_DIR}/displays.cpp
     ${RAYNEO_WIN_DIR}/desktop_duplication.cpp
     ${RAYNEO_WIN_DIR}/virtual_displays.cpp
@@ -340,7 +319,6 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
   target_include_directories(rayneo_windows
     PUBLIC  ${RAYNEO_WIN_DIR} ${RAYNEO_WIN_DIR}/renderer
     PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
-  target_include_directories(rayneo_windows PRIVATE ${onnxruntime_dml_SOURCE_DIR}/build/native/include)
   target_link_libraries(rayneo_windows PUBLIC rayneo::core d3d11 dxgi d3dcompiler dwmapi shell32 ole32 urlmon windowscodecs windowsapp setupapi)
   # C++/WinRT (Windows.Graphics.Capture) headers are large.
   set_source_files_properties(${RAYNEO_WIN_DIR}/window_capture.cpp PROPERTIES COMPILE_OPTIONS "/bigobj;/std:c++20")  # C++/WinRT: C++20 coroutines (the experimental ones are gone)
@@ -356,9 +334,6 @@ if(WIN32 AND RAYNEO_BUILD_APPS)
   # the two names are the same file on Windows and one overwrote the other.
   set_target_properties(nimbo PROPERTIES OUTPUT_NAME nimbo_server)
   rayneo_warnings(nimbo)
-  add_custom_command(TARGET nimbo POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${RAYNEO_ONNX_DLLS} $<TARGET_FILE_DIR:nimbo>
-    COMMENT "AI 3D: onnxruntime.dll and DirectML.dll next to nimbo_server.dll")
 
   add_executable(nimbo_win apps/nimbo_win/main.cpp)
   target_link_libraries(nimbo_win PRIVATE nimbo rayneo_windows setupapi newdev crypt32 cfgmgr32)

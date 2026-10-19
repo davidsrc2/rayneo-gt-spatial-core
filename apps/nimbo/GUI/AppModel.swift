@@ -52,8 +52,6 @@ final class AppModel: ObservableObject {
     @Published var fov: Double { didSet { d.set(fov, forKey: "fovY") } }  // the glasses' pinned mode
     // The space at real size: the optics' vertical field of view (NormalMode.opticalVFovDeg).
     @Published var opticalVFov: Double { didSet { d.set(opticalVFov, forKey: "opticalVFov") } }
-    @Published var ipd: Double { didSet { d.set(ipd, forKey: "ipd") } }
-    @Published var stereo: Bool { didSet { d.set(stereo, forKey: "stereo") } }
     @Published var deadZone: Double { didSet { d.set(deadZone, forKey: "deadZone") } }
     @Published var gazeCursor: Bool { didSet { d.set(gazeCursor, forKey: "gazeCursor") } }
     @Published var dimOthers: Bool { didSet { d.set(dimOthers, forKey: "dimOthers") } }
@@ -80,10 +78,6 @@ final class AppModel: ObservableObject {
     @Published var growByGaze: Bool { didSet { d.set(growByGaze, forKey: "growByGaze") } }
     @Published var focusWindows: Bool { didSet { d.set(focusWindows, forKey: "focusWindows") } }  // floating windows count
     @Published var brightness: Int { didSet { d.set(brightness, forKey: "brightness") } }  // 1..8, 0 = leave
-    // AI 3D in cinema mode: strength = parallax at the nearest depth (panel widths), plane = depth on the panel.
-    @Published var depth3D: Bool { didSet { d.set(depth3D, forKey: "depth3D") } }
-    @Published var depthStrength: Double { didSet { d.set(depthStrength, forKey: "depthStrength") } }
-    @Published var depthPlane: Double { didSet { d.set(depthPlane, forKey: "depthPlane") } }
     @Published var k1: Double { didSet { d.set(k1, forKey: "k1") } }
     @Published var k2: Double { didSet { d.set(k2, forKey: "k2") } }
 
@@ -107,8 +101,6 @@ final class AppModel: ObservableObject {
         fov = d.object(forKey: "fovY") != nil ? Double(d.float(forKey: "fovY")) : 24.5
         let r = NormalMode.opticalVFovRange
         opticalVFov = Double(min(r.upperBound, max(r.lowerBound, Float(d.double(forKey: "opticalVFov") ?? Double(NormalMode.opticalVFovDeg)))))
-        ipd = d.object(forKey: "ipd") as? Double ?? 63
-        stereo = d.bool(forKey: "stereo")
         deadZone = d.object(forKey: "deadZone") as? Double ?? 1.0
         gazeCursor = d.object(forKey: "gazeCursor") as? Bool ?? true
         dimOthers = d.object(forKey: "dimOthers") as? Bool ?? false  // optical see-through: dimmed reads as cut off
@@ -126,11 +118,7 @@ final class AppModel: ObservableObject {
         anchorAtRest = d.bool(forKey: "anchorAtRest")
         vehicleMode = d.bool(forKey: "vehicleMode")
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
-        depth3D = d.bool(forKey: "depth3D")
         // 0.015 was the first default: barely noticeable, so it moves to the new one.
-        let strength = d.object(forKey: "depthStrength") as? Double ?? 0.03
-        depthStrength = abs(strength - 0.015) < 1e-6 ? 0.03 : strength
-        depthPlane = d.object(forKey: "depthPlane") as? Double ?? 0.35
         brightness = d.object(forKey: "brightness") as? Int ?? 0
         k1 = d.object(forKey: "k1") as? Double ?? 0
         k2 = d.object(forKey: "k2") as? Double ?? 0
@@ -379,8 +367,6 @@ final class AppModel: ObservableObject {
         o.predictionMs = glassesPinned ? 0 : NormalMode.predictionMs
         o.supersample = glassesPinned ? 1 : NormalMode.supersample
         o.fovFromCLI = true
-        o.ipdMM = Float(ipd)
-        o.sideBySide = nil  // one image per eye exactly when the glasses are in their 3D mode
         // Space at real size: the panels never move with the head, not even a little (the dead
         // zone would hold them on the head while it moves less than it, then let go).
         // Anchor at rest: frozen while the head holds within 1 deg sideways (-1 - 1, see
@@ -407,10 +393,7 @@ final class AppModel: ObservableObject {
         o.growByGaze = growByGaze
         o.macScreen = macScreen
         o.focusWindows = focusWindows
-        o.depth3D = false  // AI 3D only with ⌘⌥T, for the run
         o.zoom = Float(d.double(forKey: "zoom") ?? 1)  // as left last time (⌘⌥+ / - / 0, ⌘⌥K)
-        o.depthStrength = Float(depthStrength)
-        o.depthConvergence = Float(depthPlane)
         o.brightness = brightness
         o.unmirror = true  // mirrored glasses run at the Mac's resolution and composited (reverted on exit)
         o.k1 = Float(k1)

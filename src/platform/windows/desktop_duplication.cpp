@@ -204,6 +204,13 @@ void DesktopDuplication::run() {
         if (info.PointerShapeBufferSize > 0) read_shape(info);
         dup_->ReleaseFrame();
         if (changed) generation_.fetch_add(1, std::memory_order_acq_rel);
+        // Out of view: the desktop's changes pile up in the duplication meanwhile, the next
+        // frame brings them all.
+        for (int waited = 0; changed && !in_view_.load(std::memory_order_relaxed) && running_.load() &&
+                             waited < 1000 / kHiddenFps;
+             waited += 5) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
     }
 }
 

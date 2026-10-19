@@ -39,8 +39,6 @@ enum NormalMode {
 }
 
 struct ServerOptions {
-    var sideBySide: Bool? = nil   // nil: side by side when the glasses are in their 3D mode (3840x1080), mono in --windowed
-    var ipdMM: Float = 63
     var distanceM: Float = 2.0
     var arcDeg: Float? = nil      // nil: 38 per virtual panel, 50 for single-display capture
     var gapDeg: Float = 1
@@ -83,15 +81,11 @@ struct ServerOptions {
     var glassesMode = -1          // set the glasses' mode at start: 0 follow, 1 pinned, 2 steady; -1 = leave
     var brightness = 0            // set the glasses' brightness 1..8 at start; 0 = leave
     var recenterGlasses = false   // ⌘⌥C also recentres the glasses' own pinned mode (0x08 pinned)
-    var depth3D = false           // AI 3D: the cinema panel in depth (needs side by side, glasses in 3D mode)
-    var depthStrength: Float = 0.03    // parallax between the eyes at the nearest depth, in panel widths
-    var depthConvergence: Float = 0.35  // depth left on the panel's plane: farther recedes, nearer stands out
     var zoom: Float = 1           // every panel this much larger (⌘⌥+ / -): remembered between runs
     var lateLatch = false         // read the pose just before the frame's deadline; on in the space at real
                                   // size (the margin grew to 12 ms before: drawables were short, fixed since)
     var predictionMs: Float = 0   // > 0: the pose predicted this far ahead (space at real size: kPredictionMs)
     var supersample = 1           // space at real size: NormalMode.supersample
-    var depthGPU = true           // AI 3D: the GPU helps when the Neural Engine falls behind (60 fps video)
 
     var source = "auto"           // --displays 0 only: auto | glasses | builtin | <id>
     var calibrationPath = "calibration.json"
@@ -130,11 +124,6 @@ struct ServerOptions {
                            own (default: centred above the monitors); repeatable
       --focus-panel N      start showing only panel N (focus mode, Cmd+Opt+O)
       --cinema             with --focus-panel: that panel centred and large (Cmd+Opt+P)
-      --depth3d            AI 3D: the cinema panel in depth, from a depth map per frame (Cmd+Opt+T;
-                           needs --sbs and the glasses in 3D mode)
-      --depth-strength F   AI 3D parallax at the nearest depth, in panel widths (0.03)
-      --depth-plane F      AI 3D depth left on the panel's plane, 0 far .. 1 near (0.35)
-      --depth-ane-only     AI 3D on the Neural Engine only (no GPU help above ~48 fps)
       --late-latch         read the head pose just before each frame's deadline (experimental)
       --test-pattern       labelled grid on each virtual monitor
       --mac-screen         the Mac's own screen is panel 1 (when the lid is open); the other
@@ -156,8 +145,6 @@ struct ServerOptions {
       --track AXES         head rotations that move the panels: h (left/right, default: still
                            vertically), v (up/down, for stacked monitors) or both
     optics
-      --mono / --sbs       force one image / one image per eye (default: follows the glasses' 2D / 3D mode)
-      --ipd MM             interpupillary distance (63)
       --fov DEG            per-eye vertical FOV of the optics (24.5, or the value tuned with
                            Cmd+Opt+- / Cmd+Opt+= which is remembered)
       --k1 K --k2 K        barrel pre-distortion (0 = off)
@@ -223,10 +210,6 @@ struct ServerOptions {
                 o.floatingWindows.append(w)
             case "--focus-panel": guard let v = value().flatMap({ Int($0) }), (1...8).contains(v) else { return nil }; o.startFocusPanel = v
             case "--cinema": o.startCinema = true
-            case "--depth3d": o.depth3D = true
-            case "--depth-strength": guard let v = float(), (0...0.08).contains(v) else { return nil }; o.depthStrength = v
-            case "--depth-plane": guard let v = float(), (0...1).contains(v) else { return nil }; o.depthConvergence = v
-            case "--depth-ane-only": o.depthGPU = false
             case "--no-late-latch": o.lateLatch = false
             case "--late-latch": o.lateLatch = true
             case "--prediction-ms":
@@ -269,9 +252,6 @@ struct ServerOptions {
             case "--recenter-glasses": o.recenterGlasses = true
             case "--brightness": guard let v = value().flatMap({ Int($0) }), (1...8).contains(v) else { return nil }; o.brightness = v
             case "--dim": guard let v = float() else { return nil }; o.dimOthers = max(0, min(1, v))
-            case "--mono": o.sideBySide = false
-            case "--sbs": o.sideBySide = true
-            case "--ipd": guard let v = float() else { return nil }; o.ipdMM = v
             case "--fov": guard let v = float() else { return nil }; o.fovYDeg = v; o.fovFromCLI = true
             case "--k1": guard let v = float() else { return nil }; o.k1 = v
             case "--k2": guard let v = float() else { return nil }; o.k2 = v

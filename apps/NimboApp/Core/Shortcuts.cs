@@ -26,7 +26,6 @@ internal static class Shortcuts
         ("Ctrl+Alt+F", "⌘⌥F", "Fondo alrededor de las pantallas: ninguno, lluvia, estrellas, atardecer, aurora o tu imagen"),
         ("Ctrl+Alt+O", "⌘⌥O", "Modo enfoque: solo la pantalla que miras (otra vez: todas)"),
         ("Ctrl+Alt+P", "⌘⌥P", "Modo cine: la pantalla que miras, delante y grande"),
-        ("Ctrl+Alt+T", "⌘⌥T", "Cine en 3D con IA: modo cine con relieve (gafas en modo 3D)"),
         ("—", "⌘⌥R", "Grabar lo que ves en las gafas (solo Mac por ahora)"),
         ("Ctrl+Alt+↓  ↑", "⌘⌥↓  ⌘⌥↑", "Brillo de la pantalla de las gafas: bajar / subir (8 niveles)"),
         ("Ctrl+Alt+Mayús+-  +", "⌘⌥⇧-  ⌘⌥⇧+", "Calibrar el campo de visión: si las pantallas se mueven con la cabeza (-) o contra ella (+)"),

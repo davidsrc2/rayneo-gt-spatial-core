@@ -73,8 +73,6 @@ internal sealed unsafe class AppModel
     public float Size { get => _s.SizeDeg; set => _s.SizeDeg = value; }
     public bool AutoStart { get => _s.AutoStart != 0; set => _s.AutoStart = B(value); }
     public float Fov { get => _s.FovYDeg; set => _s.FovYDeg = value; }
-    public float Ipd { get => _s.IpdMm; set => _s.IpdMm = value; }
-    public bool Stereo { get => _s.Stereo != 0; set => _s.Stereo = B(value); }
     public float DeadZone { get => _s.DeadZoneDeg; set => _s.DeadZoneDeg = value; }
     public bool GazeCursor { get => _s.GazeCursor != 0; set => _s.GazeCursor = B(value); }
     public bool DimOthers { get => _s.DimOthers != 0; set => _s.DimOthers = B(value); }
@@ -92,10 +90,6 @@ internal sealed unsafe class AppModel
     // Every panel in one plane, straight and edge to edge, like a wall of monitors.
     public bool FlatWall { get => _s.FlatWall != 0; set => _s.FlatWall = B(value); }
     public bool LaptopScreen { get => _s.LaptopScreen != 0; set => _s.LaptopScreen = B(value); }
-    // AI 3D in cinema mode: strength = parallax at the nearest depth (panel widths), plane = depth on the panel.
-    public bool Depth3D { get => _s.Depth3D != 0; set => _s.Depth3D = B(value); }
-    public float DepthStrength { get => _s.DepthStrength; set => _s.DepthStrength = Math.Clamp(value, 0.005f, 0.08f); }
-    public float DepthPlane { get => _s.DepthPlane; set => _s.DepthPlane = Math.Clamp(value, 0f, 1f); }
     public int Brightness { get => _s.Brightness; set => _s.Brightness = Math.Clamp(value, 0, 8); }  // 1..8, 0 = leave
     public int Tracking { get => _s.Tracking; set => _s.Tracking = Math.Clamp(value, 0, 2); }  // 0 both, 1 left/right, 2 up/down
 
@@ -333,7 +327,6 @@ internal sealed unsafe class AppModel
             o.FloatingPitch[i] = Floating[i].Pose.Pitch;
             o.FloatingScale[i] = Floating[i].Pose.Scale;
         }
-        o.Depth3D = 0;  // AI 3D only with Ctrl+Alt+T, for the run
         if (PinnedMode)
         {
             // The glasses hold the image: panels fitted inside it, the one looked at large.

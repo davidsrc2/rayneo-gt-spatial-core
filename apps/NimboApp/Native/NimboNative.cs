@@ -29,7 +29,6 @@ internal static unsafe class NimboNative
         public byte GazeCursor;
         public float DimOthers;
         public int SideBySide;
-        public float IpdMm;
         public float FovYDeg;
         public float K1, K2;
         public fixed byte CalibrationPath[260];
@@ -58,9 +57,6 @@ internal static unsafe class NimboNative
         public float Tilt;          // panels above / below: 1 face you .. 0 upright
         public byte RealSize;       // every panel as large as the glasses' image, both axes
         public byte LaptopScreen;   // the computer's own screen is panel 1
-        public byte Depth3D;        // AI 3D: the cinema panel in depth (needs SideBySide)
-        public float DepthStrength; // parallax at the nearest depth, in panel widths (0.03)
-        public float DepthPlane;    // depth left on the panel's plane, 0 far .. 1 near (0.35)
         public float Zoom;          // every panel this much larger; <= 0: 1
         public byte GrowByGaze;     // glasses' pinned mode: the panel looked at takes over (0: mouse only)
         public int Background;      // around the panels: 0 none, 1 rain, 2 stars, 3 sunset, 4 aurora, 5 picture
@@ -118,8 +114,7 @@ internal static unsafe class NimboNative
         public int TextSize;
         public float DistanceM, GapDeg, Curvature, SizeDeg;
         public byte AutoStart;
-        public float FovYDeg, IpdMm;
-        public byte Stereo;
+        public float FovYDeg;
         public float DeadZoneDeg;
         public byte GazeCursor;
         public byte DimOthers;
@@ -136,9 +131,6 @@ internal static unsafe class NimboNative
         public float Tilt;
         public byte AnchorAtRest;
         public byte LaptopScreen;
-        public byte Depth3D;
-        public float DepthStrength;
-        public float DepthPlane;
         public float Zoom;
         public byte GrowByGaze;
         public int Background;
@@ -230,7 +222,6 @@ internal static unsafe class NimboNative
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_recenter(IntPtr s);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_adjust_fov(IntPtr s, float delta);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_toggle_focus(IntPtr s, byte cinema);
-    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_toggle_depth3d(IntPtr s);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern void nimbo_show_message(IntPtr s, byte[] utf8);
     public static void nimbo_show_message(IntPtr s, string text) => nimbo_show_message(s, System.Text.Encoding.UTF8.GetBytes(text + "\0"));
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_get_status(IntPtr s, Status* status);

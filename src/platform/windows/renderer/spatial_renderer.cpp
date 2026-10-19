@@ -19,6 +19,7 @@ namespace rayneo::win {
 namespace {
 
 constexpr float kDegToRad = 0.017453292519943295f;
+constexpr float kViewMarginRad = 0.30f;  // ~17 deg around the view still counts as in view (as macOS)
 
 struct SceneUniforms {
     float view_projection[16];
@@ -34,13 +35,6 @@ struct DistortUniforms {
 struct OverlayUniforms {
     float rect[4];
 };
-struct StereoUniforms {
-    float brightness, eye, strength, convergence, edge, pad[3];
-    float rect[4];  // where the video is, 0..1: x0, y0, x1, y1
-};
-struct DepthBlendUniforms {
-    float low, high, alpha, lod;
-};
 
 // Mirrors BackgroundUniforms in Shaders.hlsl.
 struct BackgroundUniforms {
@@ -50,8 +44,6 @@ struct BackgroundUniforms {
     float image_aspect;
     float pad[2];
 };
-
-constexpr float kDepthEdge = 0.05f;  // AI 3D: side margins where the image returns to the panel's plane
 
 bool compile(const char* entry, const char* target, ComPtr<ID3DBlob>* out, std::string* error,
              const D3D_SHADER_MACRO* defines = nullptr) {
@@ -126,19 +118,11 @@ bool SpatialRenderer::init(ID3D11Device* device, std::string* error) {
     device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &overlay_ps_);
     if (!compile("cursor_fragment", "ps_4_0", &ps, error)) return false;
     device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &cursor_ps_);
-    if (!compile("stereo_screen_fragment", "ps_4_0", &ps, error)) return false;
-    device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &stereo_ps_);
-    if (!compile("depth_blend_fragment", "ps_4_0", &ps, error)) return false;
-    device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &depth_blend_ps_);
-    if (!compile("downscale_fragment", "ps_4_0", &ps, error)) return false;
-    device_->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &downscale_ps_);
 
     scene_cb_ = constant_buffer(device_.Get(), sizeof(SceneUniforms));
     panel_cb_ = constant_buffer(device_.Get(), sizeof(PanelUniforms));
     distort_cb_ = constant_buffer(device_.Get(), sizeof(DistortUniforms));
     overlay_cb_ = constant_buffer(device_.Get(), sizeof(OverlayUniforms));
-    stereo_cb_ = constant_buffer(device_.Get(), sizeof(StereoUniforms));
-    depth_blend_cb_ = constant_buffer(device_.Get(), sizeof(DepthBlendUniforms));
 
     D3D11_SAMPLER_DESC s{};
     s.Filter = D3D11_FILTER_ANISOTROPIC;  // trilinear + anisotropic: crisp, stable text
@@ -147,13 +131,12 @@ bool SpatialRenderer::init(ID3D11Device* device, std::string* error) {
     s.ComparisonFunc = D3D11_COMPARISON_NEVER;
     s.MaxLOD = FLT_MAX;
     device_->CreateSamplerState(&s, &sampler_);
-    // Depth maps and the shrinking for the depth model: trilinear, edges clamped.
+    // The background's: trilinear, mirrored across and clamped up and down.
     D3D11_SAMPLER_DESC ds{};
     ds.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     ds.AddressU = ds.AddressV = ds.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
     ds.ComparisonFunc = D3D11_COMPARISON_NEVER;
     ds.MaxLOD = FLT_MAX;
-    device_->CreateSamplerState(&ds, &depth_sampler_);
     // The space at real size: bicubic panels (optional: without them, the plain shader).
     std::string sharp_error;
     const D3D_SHADER_MACRO sharp_defines[] = {{"NIMBO_SHARP", "1"}, {nullptr, nullptr}};
@@ -200,8 +183,7 @@ bool SpatialRenderer::init(ID3D11Device* device, std::string* error) {
 
     const uint32_t grey = 0xFF16181Cu;  // BGRA {28, 24, 22}: dark panel until the first frame
     placeholder_ = image(device_.Get(), 1, 1, &grey, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
-    if (!sampler_ || !depth_sampler_ || !raster_ || !blend_alpha_ || !blend_invert_ || !placeholder_ || !scene_cb_ ||
-        !stereo_cb_ || !depth_blend_cb_) {
+    if (!sampler_ || !raster_ || !blend_alpha_ || !blend_invert_ || !placeholder_ || !scene_cb_) {
         if (error != nullptr) *error = "D3D11 state creation failed";
         return false;
     }
@@ -503,16 +485,18 @@ int SpatialRenderer::panel_at_gaze(const core::Quat& head) const {
 bool SpatialRenderer::can_skip_frame(const core::Quat& orientation, const core::Vec3& angular_velocity, bool tracking,
                                      bool forced) {
     uint64_t generation = 0;
+    // Out of view: a new frame waits until the panel comes into view.
+    const uint32_t visible = visible_mask_.load(std::memory_order_relaxed);
     for (int i = 0; i < count_; ++i) {
-        if (panels_[i].source != nullptr) generation += panels_[i].source->generation();
+        if (panels_[i].source != nullptr && (visible >> i & 1u) != 0) generation += panels_[i].source->generation();
     }
     core::FrameSkipper::Input in;
     in.orientation = options.static_head ? core::Quat{} : orientation;
     in.angular_speed_rads = options.static_head ? 0.0f : angular_velocity.norm();
-    in.source_generation = generation + overlay_generation_ + depth_generation_ + grow_generation_ + cursor_generation_;
+    in.source_generation = generation + overlay_generation_ + grow_generation_ + cursor_generation_ + view_generation_;
     in.tracking = tracking;
     const bool moving_background = background_ps_ && (options.background == 1 || options.background == 2 || options.background == 4);
-    in.animating = dimmer_.animating() || depth_pending() || grow_animating() || moving_background;  // depth on its way, a pan / zoom, rain
+    in.animating = dimmer_.animating() || grow_animating() || moving_background;  // a pan / zoom, rain
     in.forced = forced;
     return skipper_.skip(in);
 }
@@ -540,6 +524,7 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl, boo
     d.Usage = D3D11_USAGE_IMMUTABLE;
     d.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     d.ByteWidth = static_cast<UINT>(mesh.vertices.size() * sizeof(core::ScreenVertex));
+    p.mesh_vertices = mesh.vertices;
     D3D11_SUBRESOURCE_DATA init{mesh.vertices.data(), 0, 0};
     p.vertices.Reset();
     device_->CreateBuffer(&d, &init, &p.vertices);
@@ -649,258 +634,8 @@ void SpatialRenderer::draw_cursor(const Panel& p, ID3D11PixelShader* panel_ps) {
     ctx_->PSSetShader(panel_ps, nullptr, 0);
 }
 
-// ---------------------------------------------------------------------------------------
-// AI 3D
-// ---------------------------------------------------------------------------------------
-
-bool SpatialRenderer::depth_pending() const {
-    if (depth_active_ < 0) return false;
-    for (const auto& s : depth_slots_) {
-        if (s.state != DepthSlot::State::Free) return true;
-    }
-    return false;
-}
-
-// Another panel or none: the frames in flight belong to the old one.
-void SpatialRenderer::depth_reset() {
-    for (auto& s : depth_slots_) {
-        s.state = DepthSlot::State::Free;
-        s.input = DepthInput{};
-    }
-    depth_valid_ = false;
-    depth_video_[0] = depth_video_[1] = 0.0f;
-    depth_video_[2] = depth_video_[3] = 1.0f;
-    depth_captured_generation_ = ~0ull;
-    if (depth_ != nullptr) {
-        DepthOutput stale;
-        depth_->take(&stale);
-        depth_->reset_scene();
-    }
-}
-
-bool SpatialRenderer::ensure_depth_slot(DepthSlot& s, int width, int height, int small_w, int small_h) {
-    if (!s.color || s.width != width || s.height != height) {
-        D3D11_TEXTURE2D_DESC d{};
-        d.Width = static_cast<UINT>(width);
-        d.Height = static_cast<UINT>(height);
-        d.MipLevels = 0;  // full chain: shrunk to the model's size without aliasing
-        d.ArraySize = 1;
-        d.Format = DXGI_FORMAT_B8G8R8A8_TYPELESS;
-        d.SampleDesc.Count = 1;
-        d.Usage = D3D11_USAGE_DEFAULT;
-        d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-        d.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
-        s.color.Reset();
-        s.color_srv.Reset();
-        if (FAILED(device_->CreateTexture2D(&d, nullptr, &s.color))) return false;
-        D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
-        sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-        sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-        sd.Texture2D.MipLevels = static_cast<UINT>(-1);
-        if (FAILED(device_->CreateShaderResourceView(s.color.Get(), &sd, &s.color_srv))) return false;
-        s.width = width;
-        s.height = height;
-    }
-    if (!s.staging || s.small_w != small_w || s.small_h != small_h) {
-        D3D11_TEXTURE2D_DESC d{};
-        d.Width = static_cast<UINT>(small_w);
-        d.Height = static_cast<UINT>(small_h);
-        d.MipLevels = 1;
-        d.ArraySize = 1;
-        d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-        d.SampleDesc.Count = 1;
-        d.Usage = D3D11_USAGE_STAGING;
-        d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        s.staging.Reset();
-        if (FAILED(device_->CreateTexture2D(&d, nullptr, &s.staging))) return false;
-        s.small_w = small_w;
-        s.small_h = small_h;
-    }
-    if (!depth_small_ || depth_small_w_ != small_w || depth_small_h_ != small_h) {
-        D3D11_TEXTURE2D_DESC d{};
-        d.Width = static_cast<UINT>(small_w);
-        d.Height = static_cast<UINT>(small_h);
-        d.MipLevels = 1;
-        d.ArraySize = 1;
-        d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-        d.SampleDesc.Count = 1;
-        d.Usage = D3D11_USAGE_DEFAULT;
-        d.BindFlags = D3D11_BIND_RENDER_TARGET;
-        depth_small_.Reset();
-        depth_small_rtv_.Reset();
-        if (FAILED(device_->CreateTexture2D(&d, nullptr, &depth_small_))) return false;
-        if (FAILED(device_->CreateRenderTargetView(depth_small_.Get(), nullptr, &depth_small_rtv_))) return false;
-        depth_small_w_ = small_w;
-        depth_small_h_ = small_h;
-    }
-    return true;
-}
-
-// A new frame of the depth panel into a free slot, shrunk to the model's input and copied for
-// the CPU (read back on a later frame, without waiting for the GPU). One read-back at a time.
-void SpatialRenderer::depth_capture(Panel& p) {
-    if (p.source == nullptr) return;
-    DepthSlot* slot = nullptr;
-    for (auto& s : depth_slots_) {
-        if (s.state == DepthSlot::State::Reading) return;
-        if (s.state == DepthSlot::State::Free && slot == nullptr) slot = &s;
-    }
-    if (slot == nullptr) return;
-    const FrameSource::Frame f = p.source->latest();
-    if (!f.texture || f.generation == depth_captured_generation_ || f.width <= 0 || f.height <= 0) return;
-    int sw = 0, sh = 0;
-    depth_->input_size(&sw, &sh);
-    if (!ensure_depth_slot(*slot, f.width, f.height, sw, sh)) return;
-    if (f.mutex->AcquireSync(0, 0) != S_OK) return;
-    ctx_->CopySubresourceRegion(slot->color.Get(), 0, 0, 0, 0, f.texture.Get(), 0, nullptr);
-    f.mutex->ReleaseSync(0);
-    depth_captured_generation_ = f.generation;
-    ctx_->GenerateMips(slot->color_srv.Get());
-
-    const DepthBlendUniforms u{0, 0, 0, std::max(0.0f, std::log2(static_cast<float>(f.width) / static_cast<float>(sw)))};
-    ctx_->UpdateSubresource(depth_blend_cb_.Get(), 0, nullptr, &u, 0, 0);
-    ID3D11RenderTargetView* rtv = depth_small_rtv_.Get();
-    ctx_->OMSetRenderTargets(1, &rtv, nullptr);
-    const D3D11_VIEWPORT vp{0, 0, static_cast<float>(sw), static_cast<float>(sh), 0, 1};
-    ctx_->RSSetViewports(1, &vp);
-    ctx_->RSSetState(raster_.Get());
-    ctx_->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
-    ctx_->IASetInputLayout(nullptr);
-    ctx_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ctx_->VSSetShader(fullscreen_vs_.Get(), nullptr, 0);
-    ctx_->PSSetShader(downscale_ps_.Get(), nullptr, 0);
-    ctx_->PSSetConstantBuffers(5, 1, depth_blend_cb_.GetAddressOf());
-    ctx_->PSSetSamplers(1, 1, depth_sampler_.GetAddressOf());
-    ctx_->PSSetShaderResources(0, 1, slot->color_srv.GetAddressOf());
-    ctx_->Draw(3, 0);
-    ID3D11ShaderResourceView* none = nullptr;
-    ctx_->PSSetShaderResources(0, 1, &none);
-    ctx_->OMSetRenderTargets(0, nullptr, nullptr);
-    ctx_->CopyResource(slot->staging.Get(), depth_small_.Get());
-
-    slot->pointer = f.pointer;
-    slot->seq = ++depth_seq_;
-    slot->state = DepthSlot::State::Reading;
-}
-
-// The engine's map, normalised to its 2-98 % range and blended into the smoothed one (or
-// replacing it at a cut). R16F ping-pong.
-void SpatialRenderer::blend_depth(const DepthOutput& out) {
-    if (!depth_raw_ || depth_map_w_ != out.width || depth_map_h_ != out.height) {
-        D3D11_TEXTURE2D_DESC d{};
-        d.Width = static_cast<UINT>(out.width);
-        d.Height = static_cast<UINT>(out.height);
-        d.MipLevels = 1;
-        d.ArraySize = 1;
-        d.Format = DXGI_FORMAT_R32_FLOAT;
-        d.SampleDesc.Count = 1;
-        d.Usage = D3D11_USAGE_DEFAULT;
-        d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        depth_raw_.Reset();
-        depth_raw_srv_.Reset();
-        if (FAILED(device_->CreateTexture2D(&d, nullptr, &depth_raw_))) return;
-        device_->CreateShaderResourceView(depth_raw_.Get(), nullptr, &depth_raw_srv_);
-        d.Format = DXGI_FORMAT_R16_FLOAT;
-        d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-        const float zero[4] = {0, 0, 0, 0};
-        for (int i = 0; i < 2; ++i) {
-            depth_smooth_[i].Reset();
-            depth_smooth_rtv_[i].Reset();
-            depth_smooth_srv_[i].Reset();
-            if (FAILED(device_->CreateTexture2D(&d, nullptr, &depth_smooth_[i]))) return;
-            device_->CreateRenderTargetView(depth_smooth_[i].Get(), nullptr, &depth_smooth_rtv_[i]);
-            device_->CreateShaderResourceView(depth_smooth_[i].Get(), nullptr, &depth_smooth_srv_[i]);
-            ctx_->ClearRenderTargetView(depth_smooth_rtv_[i].Get(), zero);  // never NaN, even blended at alpha 1
-        }
-        depth_map_w_ = out.width;
-        depth_map_h_ = out.height;
-        depth_valid_ = false;
-    }
-    ctx_->UpdateSubresource(depth_raw_.Get(), 0, nullptr, out.depth.data(), static_cast<UINT>(out.width * 4), 0);
-    const int next = 1 - depth_smooth_index_;
-    const float alpha = out.scene_cut || !depth_valid_ ? 1.0f : std::clamp(options.depth_smoothing, 0.01f, 1.0f);
-    const DepthBlendUniforms u{out.low, out.high, alpha, 0};
-    ctx_->UpdateSubresource(depth_blend_cb_.Get(), 0, nullptr, &u, 0, 0);
-    ID3D11RenderTargetView* rtv = depth_smooth_rtv_[next].Get();
-    ctx_->OMSetRenderTargets(1, &rtv, nullptr);
-    const D3D11_VIEWPORT vp{0, 0, static_cast<float>(out.width), static_cast<float>(out.height), 0, 1};
-    ctx_->RSSetViewports(1, &vp);
-    ctx_->RSSetState(raster_.Get());
-    ctx_->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
-    ctx_->IASetInputLayout(nullptr);
-    ctx_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ctx_->VSSetShader(fullscreen_vs_.Get(), nullptr, 0);
-    ctx_->PSSetShader(depth_blend_ps_.Get(), nullptr, 0);
-    ctx_->PSSetConstantBuffers(5, 1, depth_blend_cb_.GetAddressOf());
-    ctx_->PSSetSamplers(1, 1, depth_sampler_.GetAddressOf());
-    ID3D11ShaderResourceView* srvs[2] = {depth_raw_srv_.Get(), depth_smooth_srv_[depth_smooth_index_].Get()};
-    ctx_->PSSetShaderResources(0, 2, srvs);
-    ctx_->Draw(3, 0);
-    ID3D11ShaderResourceView* none[2] = {nullptr, nullptr};
-    ctx_->PSSetShaderResources(0, 2, none);
-    ctx_->OMSetRenderTargets(0, nullptr, nullptr);
-    depth_smooth_index_ = next;
-    depth_valid_ = true;
-}
-
-// The depth panel's frame steps, once per rendered frame: a finished map shows its own frame,
-// finished read-backs become ready, the newest ready one goes to the engine when it is free,
-// and a new frame is taken.
-void SpatialRenderer::depth_frame(Panel& p) {
-    DepthOutput out;
-    if (depth_->take(&out)) {
-        for (auto& s : depth_slots_) {
-            if (s.state != DepthSlot::State::Inferring || s.seq != out.seq) continue;
-            blend_depth(out);
-            for (int k = 0; k < 4; ++k) depth_video_[k] = out.video[k];
-            if (compose_copy(p, s.color.Get(), s.width, s.height)) compose_finish(p);
-            s.state = DepthSlot::State::Free;
-            depth_generation_ += 1;
-            depth_stats_.shown += 1;
-            break;
-        }
-    }
-    for (auto& s : depth_slots_) {
-        if (s.state != DepthSlot::State::Reading) continue;
-        D3D11_MAPPED_SUBRESOURCE m{};
-        const HRESULT hr = ctx_->Map(s.staging.Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m);
-        if (hr == DXGI_ERROR_WAS_STILL_DRAWING) continue;
-        if (FAILED(hr)) {
-            s.state = DepthSlot::State::Free;
-            continue;
-        }
-        s.input.seq = s.seq;
-        s.input.width = s.small_w;
-        s.input.height = s.small_h;
-        const size_t row = static_cast<size_t>(s.small_w) * 4;
-        s.input.bgra.resize(row * static_cast<size_t>(s.small_h));
-        for (int y = 0; y < s.small_h; ++y) {
-            std::memcpy(&s.input.bgra[row * static_cast<size_t>(y)], static_cast<const uint8_t*>(m.pData) + m.RowPitch * static_cast<size_t>(y), row);
-        }
-        ctx_->Unmap(s.staging.Get(), 0);
-        s.state = DepthSlot::State::Ready;
-    }
-    // Only the newest ready frame is worth inferring.
-    DepthSlot* newest = nullptr;
-    for (auto& s : depth_slots_) {
-        if (s.state == DepthSlot::State::Ready && (newest == nullptr || s.seq > newest->seq)) newest = &s;
-    }
-    for (auto& s : depth_slots_) {
-        if (s.state == DepthSlot::State::Ready && &s != newest) {
-            s.state = DepthSlot::State::Free;
-            depth_stats_.dropped += 1;
-        }
-    }
-    if (newest != nullptr && depth_->idle()) {
-        // Refused: the engine stepped down to a smaller input meanwhile.
-        newest->state = depth_->submit(std::move(newest->input)) ? DepthSlot::State::Inferring : DepthSlot::State::Free;
-        newest->input = DepthInput{};
-    }
-    depth_capture(p);
-}
-
 void SpatialRenderer::ensure_eye_textures(int width, int height, bool mips) {
-    if (eye_tex_[0] && eye_w_ == width && eye_h_ == height && eye_mips_ == mips) return;
+    if (eye_tex_ && eye_w_ == width && eye_h_ == height && eye_mips_ == mips) return;
     D3D11_TEXTURE2D_DESC d{};
     d.Width = static_cast<UINT>(width);
     d.Height = static_cast<UINT>(height);
@@ -911,14 +646,12 @@ void SpatialRenderer::ensure_eye_textures(int width, int height, bool mips) {
     d.SampleDesc.Count = 1;
     d.Usage = D3D11_USAGE_DEFAULT;
     d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-    for (int i = 0; i < 2; ++i) {
-        eye_tex_[i].Reset();
-        eye_rtv_[i].Reset();
-        eye_srv_[i].Reset();
-        device_->CreateTexture2D(&d, nullptr, &eye_tex_[i]);
-        device_->CreateRenderTargetView(eye_tex_[i].Get(), nullptr, &eye_rtv_[i]);
-        device_->CreateShaderResourceView(eye_tex_[i].Get(), nullptr, &eye_srv_[i]);
-    }
+    eye_tex_.Reset();
+    eye_rtv_.Reset();
+    eye_srv_.Reset();
+    device_->CreateTexture2D(&d, nullptr, &eye_tex_);
+    device_->CreateRenderTargetView(eye_tex_.Get(), nullptr, &eye_rtv_);
+    device_->CreateShaderResourceView(eye_tex_.Get(), nullptr, &eye_srv_);
     eye_w_ = width;
     eye_h_ = height;
     eye_mips_ = mips;
@@ -953,22 +686,9 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         horizon_s = 0.0f;
     }
 
-    // AI 3D: the depth panel shows only frames whose depth map has come.
-    const int depth_panel = depth_ != nullptr && depth_->state() == DepthEngine::State::Ready &&
-                                    options.depth_panel >= 0 && options.depth_panel < count_
-                                ? options.depth_panel
-                                : -1;
-    if (depth_panel != depth_active_) {
-        depth_reset();
-        if (depth_active_ >= 0) panels_[depth_active_].composed_generation = ~0ull;  // back to its live frames
-        depth_active_ = depth_panel;
-    }
+    const uint32_t was_visible = visible_mask_.load(std::memory_order_relaxed);
     for (int i = 0; i < count_; ++i) {
-        if (i == depth_active_) {
-            depth_frame(panels_[i]);
-        } else {
-            compose(panels_[i]);
-        }
+        if ((was_visible >> i & 1u) != 0) compose(panels_[i]);  // out of view: its last composite stays
         update_cursor_shape(panels_[i]);
     }
     // One layout for all panels (they share a size); per-panel aspect only shapes its mesh.
@@ -999,10 +719,31 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     dimmer_.update(static_cast<size_t>(count_), gaze, dim, dt);
     for (int i = 0; i < count_; ++i) panels_[i].brightness = dimmer_.brightness(static_cast<size_t>(i));
 
+    // Which panels the glasses show or are about to (a quick turn's worth of margin).
+    {
+        const float up = options.neck_model ? core::kNeckUpM : 0.0f, fwd = options.neck_model ? core::kNeckForwardM : 0.0f;
+        const core::Mat4 view = core::view_matrix(head, 0.0f, up, fwd);
+        uint32_t mask = 0;
+        for (int i = 0; i < count_; ++i) {
+            const Panel& p = panels_[i];
+            const bool shown = options.focus_panel < 0 || i == options.focus_panel;
+            if (shown && (p.mesh_vertices.empty() ||
+                          core::panel_in_view(p.mesh_vertices.data(), p.mesh_vertices.size(), view,
+                                              options.fov_y_deg * kDegToRad, options.eye_aspect, kViewMarginRad))) {
+                mask |= 1u << i;
+            }
+        }
+        if ((mask & ~visible_mask_.exchange(mask, std::memory_order_relaxed)) != 0) {
+            ++view_generation_;  // their waiting frames are drawn even if the head stops now
+        }
+    }
+
     // Supersampling (space at real size): the eyes drawn larger, mipmapped down in the last pass.
     const int ss = options.static_head ? 1 : std::clamp(options.supersample, 1, 2);
-    ensure_eye_textures(width * ss, height * ss, ss > 1);
-    const int eyes = options.side_by_side ? 2 : 1;
+    // The glasses in their 3D mode are a double-width display: the same image in both halves.
+    const int halves = options.side_by_side ? 2 : 1;
+    const int eye_w = width / halves;
+    ensure_eye_textures(eye_w * ss, height * ss, ss > 1);
     const core::Mat4 proj = core::perspective_lh(options.fov_y_deg * kDegToRad, options.eye_aspect, 0.05f, 100.0f);
     const float black[4] = {0, 0, 0, 1};  // black = see-through
 
@@ -1017,7 +758,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     ctx_->PSSetShader(panel_ps, nullptr, 0);
     ctx_->PSSetConstantBuffers(1, 1, panel_cb_.GetAddressOf());
     ctx_->PSSetSamplers(0, 1, sampler_.GetAddressOf());
-    const D3D11_VIEWPORT eye_vp{0, 0, static_cast<float>(width * ss), static_cast<float>(height * ss), 0, 1};
+    const D3D11_VIEWPORT eye_vp{0, 0, static_cast<float>(eye_w * ss), static_cast<float>(height * ss), 0, 1};
     // Background: the eye's axes in the room (the view's rotation), the same for both eyes.
     if (options.background == 5 && options.background_image != loaded_background_) load_background(options.background_image);
     const bool draw_background = background_ps_ && options.background > 0 && options.background <= 5 &&
@@ -1039,12 +780,11 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         bu.image_aspect = background_aspect_;
         ctx_->UpdateSubresource(background_cb_.Get(), 0, nullptr, &bu, 0, 0);
     }
-    for (int eye = 0; eye < eyes; ++eye) {
-        ID3D11RenderTargetView* rtv = eye_rtv_[eye].Get();
+    {  // one image, shown to both eyes alike
+        ID3D11RenderTargetView* rtv = eye_rtv_.Get();
         ctx_->OMSetRenderTargets(1, &rtv, nullptr);
         ctx_->RSSetViewports(1, &eye_vp);
         ctx_->ClearRenderTargetView(rtv, black);
-        ctx_->PSSetShader(panel_ps, nullptr, 0);  // the previous eye ended with the overlay's
         if (draw_background) {
             ctx_->IASetInputLayout(nullptr);
             ctx_->VSSetShader(fullscreen_vs_.Get(), nullptr, 0);
@@ -1058,10 +798,9 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
             ctx_->VSSetShader(screen_vs_.Get(), nullptr, 0);
             ctx_->PSSetShader(panel_ps, nullptr, 0);
         }
-        const float offset = options.side_by_side ? (eye == 0 ? -0.5f : 0.5f) * options.ipd_m : 0.0f;
         SceneUniforms su;
         const float up = options.neck_model ? core::kNeckUpM : 0.0f, fwd = options.neck_model ? core::kNeckForwardM : 0.0f;
-        std::memcpy(su.view_projection, (proj * core::view_matrix(head, offset, up, fwd)).m, sizeof(su.view_projection));
+        std::memcpy(su.view_projection, (proj * core::view_matrix(head, 0.0f, up, fwd)).m, sizeof(su.view_projection));
         ctx_->UpdateSubresource(scene_cb_.Get(), 0, nullptr, &su, 0, 0);
         for (int i = 0; i < count_; ++i) {
             if (options.focus_panel >= 0 && i != options.focus_panel) continue;  // focus / cinema
@@ -1074,31 +813,14 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
             ctx_->IASetIndexBuffer(p.indices.Get(), DXGI_FORMAT_R16_UINT, 0);
             ID3D11ShaderResourceView* srv = p.composite_srv ? p.composite_srv.Get() : placeholder_.Get();
             ctx_->PSSetShaderResources(0, 1, &srv);
-            // AI 3D: only with one image per eye (in mono there is no depth to show).
-            const bool deep = i == depth_active_ && depth_valid_ && options.side_by_side && p.composite_srv;
-            if (deep) {
-                const StereoUniforms st{p.brightness, eye == 0 ? -1.0f : 1.0f, options.depth_strength,
-                                        std::clamp(options.depth_convergence, 0.0f, 1.0f), kDepthEdge, {0, 0, 0},
-                                        {depth_video_[0], depth_video_[1], depth_video_[2], depth_video_[3]}};
-                ctx_->UpdateSubresource(stereo_cb_.Get(), 0, nullptr, &st, 0, 0);
-                ctx_->PSSetShader(stereo_ps_.Get(), nullptr, 0);
-                ctx_->PSSetConstantBuffers(4, 1, stereo_cb_.GetAddressOf());
-                ctx_->PSSetSamplers(1, 1, depth_sampler_.GetAddressOf());
-                ctx_->PSSetShaderResources(1, 1, depth_smooth_srv_[depth_smooth_index_].GetAddressOf());
-            }
             ctx_->DrawIndexed(p.index_count, 0, 0);
-            if (deep) {
-                ID3D11ShaderResourceView* none = nullptr;
-                ctx_->PSSetShaderResources(1, 1, &none);
-                ctx_->PSSetShader(panel_ps, nullptr, 0);
-            }
             draw_cursor(p, panel_ps);
         }
         if (overlay_ && overlay_vertices_) {
             ctx_->PSSetShader(screen_ps_.Get(), nullptr, 0);
             // Head-locked: straight ahead whatever the pose.
             SceneUniforms ou;
-            std::memcpy(ou.view_projection, (proj * core::view_matrix(core::Quat{}, offset)).m, sizeof(ou.view_projection));
+            std::memcpy(ou.view_projection, (proj * core::view_matrix(core::Quat{}, 0.0f)).m, sizeof(ou.view_projection));
             ctx_->UpdateSubresource(scene_cb_.Get(), 0, nullptr, &ou, 0, 0);
             const PanelUniforms pu{1.0f, 0.0f, {0, 0}};
             ctx_->UpdateSubresource(panel_cb_.Get(), 0, nullptr, &pu, 0, 0);
@@ -1112,7 +834,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
 
     if (ss > 1) {
         ctx_->OMSetRenderTargets(0, nullptr, nullptr);  // unbound before their mips are made
-        for (int eye = 0; eye < eyes; ++eye) ctx_->GenerateMips(eye_srv_[eye].Get());
+        ctx_->GenerateMips(eye_srv_.Get());
     }
     ctx_->OMSetRenderTargets(1, &target, nullptr);
     ctx_->ClearRenderTargetView(target, black);
@@ -1122,11 +844,11 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     ctx_->VSSetShader(fullscreen_vs_.Get(), nullptr, 0);
     ctx_->PSSetShader(distort_ps_.Get(), nullptr, 0);
     ctx_->PSSetConstantBuffers(2, 1, distort_cb_.GetAddressOf());
-    const float half = static_cast<float>(width) / static_cast<float>(eyes);
-    for (int eye = 0; eye < eyes; ++eye) {
-        const D3D11_VIEWPORT vp{half * static_cast<float>(eye), 0, half, static_cast<float>(height), 0, 1};
+    const float half = static_cast<float>(eye_w);
+    for (int h = 0; h < halves; ++h) {
+        const D3D11_VIEWPORT vp{half * static_cast<float>(h), 0, half, static_cast<float>(height), 0, 1};
         ctx_->RSSetViewports(1, &vp);
-        ctx_->PSSetShaderResources(0, 1, eye_srv_[eye].GetAddressOf());
+        ctx_->PSSetShaderResources(0, 1, eye_srv_.GetAddressOf());
         ctx_->Draw(3, 0);
     }
     // Unbind: next frame writes the eye textures and the composites again.

@@ -75,6 +75,9 @@ public:
     uint64_t generation() const override { return generation_.load(std::memory_order_acquire); }
     bool pointer_shape(uint64_t have, PointerShape* out) override;
     uint64_t frames() const { return frames_.load(std::memory_order_relaxed); }
+    // Out of the glasses' view: at most kHiddenFps frames copied (as macOS). Any thread.
+    void set_in_view(bool in_view) { in_view_.store(in_view, std::memory_order_relaxed); }
+    static constexpr int kHiddenFps = 8;
 
 private:
     void run();
@@ -109,6 +112,7 @@ private:
     std::atomic<uint64_t> generation_{0};
     std::atomic<uint64_t> frames_{0};
     std::atomic<bool> running_{false};
+    std::atomic<bool> in_view_{true};
     std::thread thread_;
 };
 

@@ -1504,7 +1504,6 @@ void test_settings_json() {
     s.cells = {{0, 0}, {0, 1}, {1, 0}};
     s.text_size = 1;
     s.distance_m = 1.5f;
-    s.stereo = true;
     s.dim_others = false;
     s.fov_y_deg = 23.5f;
     s.tracking = 2;
@@ -1514,9 +1513,6 @@ void test_settings_json() {
     s.tilt = 0.4f;
     s.anchor_at_rest = true;
     s.mac_screen = false;
-    s.depth3d = true;
-    s.depth_strength = 0.02f;
-    s.depth_plane = 0.5f;
     s.background = 5;
     s.background_image = "C:\\Users\\Ana \"x\"\\fondo.jpg";
     s.background_brightness = 0.4f;
@@ -1525,7 +1521,7 @@ void test_settings_json() {
     const auto back = settings_from_json(json);
     CHECK(back.has_value());
     CHECK(back->cells.size() == 3 && back->cells[1].col == 0 && back->cells[1].row == 1);
-    CHECK(back->text_size == 1 && near(back->distance_m, 1.5f, 1e-6f) && back->stereo && !back->dim_others);
+    CHECK(back->text_size == 1 && near(back->distance_m, 1.5f, 1e-6f) && !back->dim_others);
     CHECK(near(back->fov_y_deg, 23.5f, 1e-6f) && back->gaze_cursor && back->tracking == 2);
     CHECK(back->panels.size() == 2 && near(back->panels[0].yaw_deg, -10.5f, 1e-5f) &&
           near(back->panels[1].scale, 0.8f, 1e-6f));
@@ -1534,17 +1530,15 @@ void test_settings_json() {
     CHECK(back->glasses_mode == 2 && back->brightness == 5);
     CHECK(near(back->tilt, 0.4f, 1e-6f) && back->anchor_at_rest && !back->mac_screen);
     CHECK(near(settings_from_json("{}")->tilt, 0.0f, 1e-6f) && settings_from_json("{}")->mac_screen);  // flat wall: upright
-    CHECK(back->depth3d && near(back->depth_strength, 0.02f, 1e-6f) && near(back->depth_plane, 0.5f, 1e-6f));
-    CHECK(!settings_from_json("{}")->depth3d && near(settings_from_json("{}")->depth_strength, 0.03f, 1e-6f));
-    CHECK(near(settings_from_json(R"({"depthStrength": 0.015})")->depth_strength, 0.03f, 1e-6f));  // first default moved
+    CHECK(json.find("depth") == std::string::npos && json.find("stereo") == std::string::npos);  // no 3D
     CHECK(settings_from_json(R"({"glassesPinned": true})")->glasses_mode == 1);  // earlier builds' switch
     CHECK(settings_from_json("{}")->tracking == 1);                    // default: left/right only
     CHECK(settings_from_json(R"({"yawOnly": false})")->tracking == 0);  // earlier builds' switch
 
-    const auto partial = settings_from_json(R"({"distance": 3, "unknown": {"a": [1, {"b": "}"}]}, "stereo": true})");
-    CHECK(partial && near(partial->distance_m, 3.0f, 1e-6f) && partial->stereo && partial->cells.size() == 2);
-    const auto wrong_type = settings_from_json(R"({"distance": "far", "ipd": 60})");
-    CHECK(wrong_type && near(wrong_type->distance_m, 1.2f, 1e-6f) && near(wrong_type->ipd_mm, 60.0f, 1e-6f));
+    const auto partial = settings_from_json(R"({"distance": 3, "unknown": {"a": [1, {"b": "}"}]}, "stereo": true, "depth3D": true})");
+    CHECK(partial && near(partial->distance_m, 3.0f, 1e-6f) && partial->cells.size() == 2);  // old 3D keys skipped
+    const auto wrong_type = settings_from_json(R"({"distance": "far", "fovY": 23})");
+    CHECK(wrong_type && near(wrong_type->distance_m, 1.2f, 1e-6f) && near(wrong_type->fov_y_deg, 23.0f, 1e-6f));
     const auto bad_cells = settings_from_json(R"({"layoutCells": [], "gap": 2})");
     CHECK(bad_cells && bad_cells->cells.size() == 2 && near(bad_cells->gap_deg, 2.0f, 1e-6f));
     CHECK(!settings_from_json("not json").has_value());

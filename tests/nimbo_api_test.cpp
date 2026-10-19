@@ -35,12 +35,11 @@ int main() {
     s.cols[1] = 6; s.rows[1] = 1;
     s.cols[2] = 5; s.rows[2] = 2;
     s.text_size = 0;
-    s.stereo = true;
     s.dim_others = false;
     s.size_deg = 42;
     check(nimbo_save_settings(path.c_str(), &s), "save (creates the folder)");
     nimbo_settings back{};
-    check(nimbo_load_settings(path.c_str(), &back) && back.cell_count == 3 && back.cols[1] == 6 && back.stereo &&
+    check(nimbo_load_settings(path.c_str(), &back) && back.cell_count == 3 && back.cols[1] == 6 &&
               !back.dim_others && back.text_size == 0,
           "load what was saved");
 
@@ -50,7 +49,7 @@ int main() {
     check(o.displays == 3 && o.layout_count == 3 && o.layout_cols[0] == 0 && o.layout_rows[0] == 0 &&
               o.layout_cols[2] == 0 && o.layout_rows[2] == 1,
           "layout normalised to the top-left cell");
-    // Side by side follows the glasses' 3D mode, whatever the old "stereo" setting says.
+    // Side by side follows the glasses' 3D mode.
     check(o.vd_scale == 100 && o.side_by_side == -1 && o.dim_others == 1.0f && o.arc_deg == 42.0f,
           "text size, side by side auto, dim, size mapped");
 

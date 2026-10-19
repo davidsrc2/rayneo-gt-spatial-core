@@ -97,9 +97,9 @@ final class SettingsFile: @unchecked Sendable {
     // Settings of earlier builds (UserDefaults), with the names and shapes of the file: JSON
     // arrays instead of encoded blobs, "panelPoses" as "panels".
     private static let plainKeys = [
-        "textSize", "distance", "gap", "curvature", "curved", "tilt", "size", "autoStart", "fovY", "ipd", "stereo",
+        "textSize", "distance", "gap", "curvature", "curved", "tilt", "size", "autoStart", "fovY",
         "deadZone", "gazeCursor", "dimOthers", "gatherWindows", "tracking", "yawOnly", "glassesMode", "anchorAtRest",
-        "macScreen", "zoom", "growFocused", "growByGaze", "focusWindows", "brightness", "depth3D", "depthStrength", "depthPlane", "k1", "k2",
+        "macScreen", "zoom", "growFocused", "growByGaze", "focusWindows", "brightness", "k1", "k2",
         "onboardingDone",
     ]
     private static let blobKeys = ["layoutCells": "layoutCells", "panelPoses": "panels",
