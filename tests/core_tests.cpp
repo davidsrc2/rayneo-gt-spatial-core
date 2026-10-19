@@ -1963,13 +1963,19 @@ void test_supersample_policy() {
     double end = t + 40;
     while (t < end - 1) CHECK(p.update(0, t += 1, 2) == 1);
     CHECK(p.update(0, t += 2, 2) == 2);
-    for (int k = 0; k < 6; ++k) {  // repeated relapses: capped at 120 s
-        p.update(100, t += 1, 2);
-        t += p.hold_s() + 1;
-        p.update(0, t, 2);
-    }
-    CHECK(near(p.hold_s(), 120.0f, 1e-3f));
     CHECK(p.update(100, t += 60, 2) == 1 && near(p.hold_s(), 20.0f, 1e-3f));  // long after: back to 20 s
+    t += 21;
+    CHECK(p.update(0, t, 2) == 2 && !p.given_up());
+    CHECK(p.update(100, t += 3, 2) == 1 && p.given_up());  // the second relapse: 1 for good
+    CHECK(p.update(0, t += 1000, 2) == 1);
+    SupersamplePolicy cap({30, 20.0f, 120.0f, 30.0f, 100});  // repeated relapses: capped at 120 s
+    t = 0;
+    for (int k = 0; k < 6; ++k) {
+        cap.update(100, t += 1, 2);
+        t += cap.hold_s() + 1;
+        cap.update(0, t, 2);
+    }
+    CHECK(near(cap.hold_s(), 120.0f, 1e-3f));
     SupersamplePolicy one;
     CHECK(one.update(100, 0, 1) == 1 && !one.lowered());  // nothing to lower
 }

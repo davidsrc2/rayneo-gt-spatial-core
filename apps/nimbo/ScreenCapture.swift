@@ -15,6 +15,8 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var baseFps = 60             // the rate it was started at
     private var slowed = false           // main thread: captured at hiddenFps (out of view)
     static let hiddenFps = 8
+    private var widthRange: ClosedRange<Int>?  // display captures: 1x points ... native pixels
+    private var heightPerWidth: CGFloat = 0
 
     init(onFrame: @escaping (CVPixelBuffer) -> Void) {
         self.onFrame = onFrame
@@ -64,6 +66,10 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             cfg.width = mode.pixelWidth
             cfg.height = mode.pixelHeight
         }
+        if crop == nil {
+            widthRange = Int(filter.contentRect.width)...max(Int(filter.contentRect.width), cfg.width)
+            heightPerWidth = CGFloat(cfg.height) / CGFloat(max(1, cfg.width))
+        }
         if let crop {
             cropScale = scale
             cfg.sourceRect = crop
@@ -97,6 +103,20 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         let rate = inView ? baseFps : min(baseFps, Self.hiddenFps)
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(rate))
         stream.updateConfiguration(cfg) { _ in }
+    }
+
+    // A display capture sized for `pixels` wide (clamped to 1x points ... native): a panel ~1700 px
+    // wide on the glasses gained nothing from a 3024 px capture but WindowServer's work and the
+    // mipmaps. Main thread. Returns the new width, nil when unchanged (within 5 %).
+    @discardableResult
+    func setWidth(_ pixels: Int) -> Int? {
+        guard let stream, let cfg = config, let range = widthRange else { return nil }
+        let w = min(max(pixels, range.lowerBound), range.upperBound) & ~1
+        guard abs(w - cfg.width) > cfg.width / 20 else { return nil }
+        cfg.width = w
+        cfg.height = Int((CGFloat(w) * heightPerWidth).rounded()) & ~1
+        stream.updateConfiguration(cfg) { _ in }
+        return w
     }
 
     // A new crop for a display capture started with one (the window moved or was resized).

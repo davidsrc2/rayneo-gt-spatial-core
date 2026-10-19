@@ -1560,57 +1560,71 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // When the gaze moves to another panel, bring the cursor along, keeping its relative
     // position (the main display is invisible behind the glasses image otherwise).
-    // The panel that gets the keyboard: the front app's frontmost window, its monitor (or its own
-    // panel if it floats), framed on the glasses (RNRenderOptions.keyPanel). Every 8th gaze tick
-    // (~4 Hz): the window list is not free.
+    // The framed panel (RNRenderOptions.keyPanel): the one under the cursor, where a click or
+    // the next window goes. Every 8th gaze tick (~4 Hz) the front app's window is also checked
+    // (rescueStray): the window list is not free.
     private var keyPanelTick = 0
     private func updateKeyPanel() {
-        keyPanelTick += 1
-        guard keyPanelTick % 8 == 0, let ro = renderer?.options else { return }
+        guard let ro = renderer?.options else { return }
         var panel = -1
-        if !options.windowed,
-           let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-           let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
-           let w = list.first(where: { ($0[kCGWindowOwnerPID as String] as? pid_t) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }),
-           let b = w[kCGWindowBounds as String] as? [String: CGFloat] {
-            let id = w[kCGWindowNumber as String] as? CGWindowID ?? 0
-            let center = CGPoint(x: (b["X"] ?? 0) + (b["Width"] ?? 0) / 2, y: (b["Y"] ?? 0) + (b["Height"] ?? 0) / 2)
-            if let f = floatingResolved.firstIndex(where: { $0.windowID == UInt32(id) }) {
+        if options.keyHighlight, !options.glassesPinned, panelDisplays.count + floatingResolved.count > 1,
+           let cursor = CGEvent(source: nil)?.location {
+            if let f = floatingDisplays.firstIndex(where: { $0.map { CGDisplayBounds($0.displayID).contains(cursor) } ?? false }),
+               f < floatingResolved.count {
                 panel = monitorPanels + f
-            } else if let m = panelDisplays.firstIndex(where: { CGDisplayBounds($0).contains(center) }) {
+            } else if let m = panelDisplays.firstIndex(where: { CGDisplayBounds($0).contains(cursor) }) {
                 panel = m
-            } else if pid != getpid() {  // never Nimbo's own surface
-                rescueStray(id, title: w[kCGWindowName as String] as? String ?? "",
-                            frame: CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0))
             }
         }
-        if !(options.keyHighlight && !options.glassesPinned && panelDisplays.count + floatingResolved.count > 1) { panel = -1 }
         if ro.keyPanel != panel {
             ro.keyPanel = panel
             renderer.invalidateSkippedFrame()
             requestRedraw()
         }
+        keyPanelTick += 1
+        guard keyPanelTick % 8 == 0, !options.windowed,
+              let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier, pid != getpid(),
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else { return }
+        // Its frontmost real window: not the strips a full-screen window's tab and title bars are
+        // (untitled, 30-70 pt tall: picked first, they matched no accessibility window).
+        let window = list.first { w in
+            guard (w[kCGWindowOwnerPID as String] as? pid_t) == pid, (w[kCGWindowLayer as String] as? Int) == 0,
+                  (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat] else { return false }
+            return (b["Width"] ?? 0) >= 200 && (b["Height"] ?? 0) >= 120
+        }
+        guard let w = window, let b = w[kCGWindowBounds as String] as? [String: CGFloat] else { return }
+        let id = w[kCGWindowNumber as String] as? CGWindowID ?? 0
+        let frame = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        if floatingResolved.contains(where: { $0.windowID == UInt32(id) }) { return }
+        if panelDisplays.contains(where: { CGDisplayBounds($0).contains(center) }) { return }
+        rescueStray(id, title: w[kCGWindowName as String] as? String ?? "", frame: frame)
     }
 
     // The front window on no panel (the glasses' surface, a tucked-away screen, or full screen in a
     // Space of its own there: a Terminal tab clicked slid to it and showed nothing): out of full
-    // screen first, then onto the panel you look at. At most every 3 s per window.
+    // screen first, then onto the panel under the cursor (else the one looked at). At most every
+    // 3 s per window; a second after leaving full screen (macOS's animation) for the move.
     private var strayFixes: [CGWindowID: Date] = [:]
     private func rescueStray(_ id: CGWindowID, title: String, frame: CGRect) {
-        guard id != 0, frame.width > 1, Date().timeIntervalSince(strayFixes[id] ?? .distantPast) > 3,
-              !panelDisplays.isEmpty else { return }
-        strayFixes[id] = Date()
-        if WindowGatherer.isFullScreen(windowID: id, title: title) {
-            WindowGatherer.exitFullScreen(windowID: id, title: title)
+        guard id != 0, frame.width > 1, Date() > (strayFixes[id] ?? .distantPast), !panelDisplays.isEmpty else { return }
+        strayFixes[id] = Date().addingTimeInterval(3)
+        if WindowGatherer.isFullScreen(windowID: id, title: title, orFocused: true) {
+            WindowGatherer.exitFullScreen(windowID: id, title: title, orFocused: true)
+            strayFixes[id] = Date().addingTimeInterval(1)
             log("window: \(id) was full screen off the panels; full screen left")
             return  // moved on the next check, once macOS has brought it out
         }
+        let cursor = CGEvent(source: nil)?.location
         let gaze = pose.latest().map { renderer.panel(atGaze: $0.orientation) } ?? 0
-        let display = panelDisplays[max(0, min(panelDisplays.count - 1, gaze))]
+        let display = cursor.flatMap { c in panelDisplays.first { CGDisplayBounds($0).contains(c) } }
+            ?? panelDisplays[max(0, min(panelDisplays.count - 1, gaze))]
         let area = Displays.visibleBounds(display) ?? CGDisplayBounds(display)
         let size = CGSize(width: min(frame.width, area.width), height: min(frame.height, area.height))
         let target = CGRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2, width: size.width, height: size.height)
-        if WindowGatherer.move(windowID: id, title: title, to: target) {
+        if WindowGatherer.move(windowID: id, title: title, to: target, orFocused: true) {
             log("window: \(id) was off the panels; moved to panel \(panelDisplays.firstIndex(of: display).map { $0 + 1 } ?? 1)")
         } else {
             log("window: \(id) is off the panels and could not be moved")
@@ -2696,8 +2710,23 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     // Supersampling (crisper text) down to 1 while the glasses show frames a refresh late, then
-    // tried again (core/supersample_policy.h: 20 s, doubling on relapses up to 2 min).
+    // tried again (core/supersample_policy.h: 20 s, doubling on a relapse; after two, 1 for the session).
     private let supersamplePolicy = rayneo_supersample_create()
+    // The monitors' captures sized for what the glasses show of them (RNSpatialRenderer
+    // panelPixelWidth, 15 % to spare): at 2x a Mac screen is 3024 px wide, a panel ~1700 px on the
+    // glasses (34 deg of a 40 deg, 1920 px image). Fewer pixels: less WindowServer work per
+    // captured frame (the glasses' composition waits on the same GPU) and smaller mipmaps. Once a
+    // second; follows the size, distance, cinema and supersample.
+    private func sizeCaptures() {
+        guard let r = renderer, !options.glassesPinned else { return }
+        let px = r.panelPixelWidth()
+        guard px > 0 else { return }
+        let want = Int((px * 1.15).rounded(.up))
+        for cap in captures {
+            if let w = cap.setWidth(want) { log("capture: panel \(cap.panel + 1) at \(w) px wide (~\(Int(px)) px on the glasses)") }
+        }
+    }
+
     private func adaptSupersample(missed: Int) {
         guard let ro = renderer?.options, options.supersample > 1 else { return }
         let ss = Int(rayneo_supersample_update(supersamplePolicy, Int32(missed), CACurrentMediaTime(), Int32(options.supersample)))
@@ -2814,6 +2843,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         pauseWhileOff()
         publishDiagnostics(s)
         if s.tracking && s.frames > 0 { adaptSupersample(missed: s.missed) }
+        sizeCaptures()
         // Every 10 s: the gyro bias in use (a drift of the panels shows here as a bias that moves).
         biasLogSeconds += 1
         if biasLogSeconds >= 10, s.tracking, let b = (pose as? ImuPoseSource)?.gyroBias {

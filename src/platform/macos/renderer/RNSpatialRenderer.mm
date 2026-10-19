@@ -194,6 +194,7 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
     CVMetalTextureCacheRef _textureCache;
 
     os_unfair_lock _sourceLock;
+    std::atomic<float> _eyeWidthPx;  // eye texture width (supersample included), read by panelPixelWidth
     std::atomic<NSUInteger> _visibleMask;  // render thread writes, the server reads (visiblePanelMask)
     Panel _panels[kMaxPanels];
     NSUInteger _panelCount;  // guarded by _sourceLock
@@ -964,6 +965,16 @@ static float effective_curvature(RNRenderOptions* o) {
     d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
     d.storageMode = MTLStorageModePrivate;
     for (auto& t : _eyeTextures) t = [_device newTextureWithDescriptor:d];
+    _eyeWidthPx.store(static_cast<float>(w), std::memory_order_relaxed);
+}
+
+- (float)panelPixelWidth {
+    RNRenderOptions* o = _options;
+    const float eye = _eyeWidthPx.load(std::memory_order_relaxed);
+    if (eye <= 0.0f || o.staticHead) return 0.0f;
+    const float hfov = core::horizontal_fov(o.fovYDegrees * kDegToRad, o.eyeAspect);
+    const float arc = std::min(panel_arc(o) * (o.cinema ? kCinemaScale : 1.0f), 3.0f);
+    return eye * std::tan(arc * 0.5f) / std::tan(hfov * 0.5f);
 }
 
 - (double)takeGPUMeanMs {

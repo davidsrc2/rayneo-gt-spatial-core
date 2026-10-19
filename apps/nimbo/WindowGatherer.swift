@@ -46,8 +46,10 @@ enum WindowGatherer {
         return CGRect(dictionaryRepresentation: b as CFDictionary)
     }
 
-    // The accessibility element of a window (found by its current frame, else its title).
-    private static func axWindow(windowID: CGWindowID, title: String) -> AXUIElement? {
+    // The accessibility element of a window (found by its current frame, else its title; with
+    // `orFocused`, else its app's focused window: a window in full screen in a Space of its own
+    // may report neither).
+    private static func axWindow(windowID: CGWindowID, title: String, orFocused: Bool = false) -> AXUIElement? {
         guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
               let pid = list.first?[kCGWindowOwnerPID as String] as? pid_t else { return nil }
         let current = frame(windowID: windowID)
@@ -63,25 +65,30 @@ enum WindowGatherer {
             var t: CFTypeRef?
             return !title.isEmpty && AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &t) == .success && (t as? String) == title
         }
-        return placed ?? titled
+        if let w = placed ?? titled { return w }
+        guard orFocused else { return nil }
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focused) == .success,
+              let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
+        return (focused as! AXUIElement)
     }
 
     // The window in macOS full screen (a Space of its own), and taking it out of it.
-    static func isFullScreen(windowID: CGWindowID, title: String) -> Bool {
-        guard let w = axWindow(windowID: windowID, title: title) else { return false }
+    static func isFullScreen(windowID: CGWindowID, title: String, orFocused: Bool = false) -> Bool {
+        guard let w = axWindow(windowID: windowID, title: title, orFocused: orFocused) else { return false }
         var v: CFTypeRef?
         return AXUIElementCopyAttributeValue(w, "AXFullScreen" as CFString, &v) == .success && (v as? Bool) == true
     }
 
     @discardableResult
-    static func exitFullScreen(windowID: CGWindowID, title: String) -> Bool {
-        guard let w = axWindow(windowID: windowID, title: title) else { return false }
+    static func exitFullScreen(windowID: CGWindowID, title: String, orFocused: Bool = false) -> Bool {
+        guard let w = axWindow(windowID: windowID, title: title, orFocused: orFocused) else { return false }
         return AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, kCFBooleanFalse) == .success
     }
 
     // Moves one window (found by its owner and title, or by its current frame) to fill `target`.
-    static func move(windowID: CGWindowID, title: String, to target: CGRect) -> Bool {
-        guard let w = axWindow(windowID: windowID, title: title) else { return false }
+    static func move(windowID: CGWindowID, title: String, to target: CGRect, orFocused: Bool = false) -> Bool {
+        guard let w = axWindow(windowID: windowID, title: title, orFocused: orFocused) else { return false }
         var pos = target.origin
         var sz = target.size
         guard let p = AXValueCreate(.cgPoint, &pos), let s = AXValueCreate(.cgSize, &sz) else { return false }

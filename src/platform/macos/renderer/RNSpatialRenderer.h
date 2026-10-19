@@ -115,6 +115,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 // The zoom (<= 1) at which every panel fits in the glasses' image at once (an overview).
 - (float)overviewZoom;
+// A monitor's width on the glasses straight ahead, in eye-texture pixels (supersample and cinema
+// included); 0 before the first frame and in the glasses' pinned mode. The captures are sized
+// from it: more pixels than this only cost WindowServer and the mipmaps.
+- (float)panelPixelWidth;
 
 // Panel arc (deg) that fits `count` panels (columns) in the horizontal FOV of the options.
 - (float)fitArcDegreesForPanels:(NSUInteger)count;
