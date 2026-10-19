@@ -158,6 +158,7 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     p.tracking = bias_.tracking();
     p.gyro_noise_degs = noise_.noise_degs();
     p.gyro_noisy = noise_.noisy();
+    p.temp_c = s.temp_c;
     if (cfg_.use_vqf && cfg_.hold_until_bias_settles && p.tracking) {
         p.tracking = attitude_init_ && (bias_seeded_ || bias_settled_ || attitude_s_ >= cfg_.bias_settle_max_s);
     }

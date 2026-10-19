@@ -47,6 +47,7 @@ struct Settings {
     float k1 = 0.0f;             // "k1"
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"
+    bool vehicle_mode = false;   // "vehicleMode": a quarter of the heading followed (core::kVehicleHeadingScale)
 };
 
 std::string settings_to_json(const Settings& s);

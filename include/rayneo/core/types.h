@@ -121,6 +121,7 @@ struct Pose {
     // above normal (a poor cable or port: drift likely).
     float gyro_noise_degs = 0.0f;
     bool gyro_noisy = false;
+    float temp_c = 0.0f;  // the sensor's temperature (C)
 };
 
 }  // namespace rayneo::core

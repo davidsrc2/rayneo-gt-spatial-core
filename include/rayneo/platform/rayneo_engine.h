@@ -35,6 +35,7 @@ typedef struct {
     float panels_pitch_rad;    /* elevation to lift the panels to: the last user recentre's (up > 0) */
     float gyro_noise_degs;     /* gyro white noise at rest, deg/s per axis */
     bool gyro_noisy;           /* far above normal: a poor cable or USB port, drift likely */
+    float temp_c;              /* the IMU's temperature, C */
 } rayneo_pose;
 
 /* Transport and device-clock health counters, cumulative since start. */

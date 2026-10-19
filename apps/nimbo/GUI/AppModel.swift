@@ -68,6 +68,7 @@ final class AppModel: ObservableObject {
     // space at real size with the glasses in follow. Nimbo sets the glasses' mode to match.
     @Published var glassesPinned: Bool { didSet { d.set(glassesPinned ? 1 : 0, forKey: "glassesMode") } }
     @Published var anchorAtRest: Bool { didSet { d.set(anchorAtRest, forKey: "anchorAtRest") } }  // panels frozen while the head is still
+    @Published var vehicleMode: Bool { didSet { d.set(vehicleMode, forKey: "vehicleMode") } }  // a quarter of turns followed (in a car)
     @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
     // With the Mac's screen as panel 1, the virtual monitors at its exact resolution (the text
     // the same size on all of them) instead of the text size chosen.
@@ -119,6 +120,7 @@ final class AppModel: ObservableObject {
         macScreen = d.object(forKey: "macScreen") as? Bool ?? true
         monitorsLikeMac = d.object(forKey: "monitorsLikeMac") as? Bool ?? true
         anchorAtRest = d.bool(forKey: "anchorAtRest")
+        vehicleMode = d.bool(forKey: "vehicleMode")
         focusWindows = d.object(forKey: "focusWindows") as? Bool ?? true
         depth3D = d.bool(forKey: "depth3D")
         // 0.015 was the first default: barely noticeable, so it moves to the new one.
@@ -367,6 +369,7 @@ final class AppModel: ObservableObject {
         o.backgroundBrightness = Float(backgroundBrightness)
         o.gatherWindows = gatherWindows
         o.trackingAxes = tracking
+        o.vehicleMode = vehicleMode && !glassesPinned
         o.glassesPinned = glassesPinned
         o.recenterGlasses = glassesPinned
         // The two ways of seeing the panels set the glasses' mode themselves: pinned for one

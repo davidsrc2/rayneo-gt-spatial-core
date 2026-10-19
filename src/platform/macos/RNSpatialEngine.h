@@ -20,6 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) float panelsPitch;  // rad, up > 0: the last recentre's elevation
 @property(nonatomic, readonly) float gyroNoise;    // deg/s per axis, white noise at rest
 @property(nonatomic, readonly, getter=isGyroNoisy) BOOL gyroNoisy;  // far above normal (cable / port)
+@property(nonatomic, readonly) float temperature;  // the IMU's, C
 @property(nonatomic, readonly) simd_float3 gyroBias;          // deg/s, sensor frame (diagnostics)
 @end
 

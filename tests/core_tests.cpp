@@ -1819,6 +1819,25 @@ void test_gyro_noise_monitor() {
     CHECK(moving.windows_measured() == 0);
 }
 
+// Vehicle mode: a quarter of the heading, pitch untouched; the setting round-trips.
+void test_vehicle_mode() {
+    const float d2r = 0.0174533f;
+    const Quat yaw40 = Quat::from_axis_angle({0, 0, 1}, 40 * d2r);
+    const Quat pitch10 = Quat::from_axis_angle({0, -1, 0}, 10 * d2r);  // looking up (core frame)
+    const Quat head = yaw40 * pitch10;
+    const Quat v = scale_heading(head, kVehicleHeadingScale);
+    const Vec3 f = v.rotate({1, 0, 0});
+    CHECK(near(std::atan2(f.y, f.x) / d2r, 10.0f, 0.05f));  // 40 -> 10 deg
+    const Vec3 f0 = head.rotate({1, 0, 0});
+    CHECK(near(f.z, f0.z, 1e-4f));                           // same elevation
+    CHECK(angle_between_deg(scale_heading(head, 1.0f), head) < 0.01f);
+    Settings st;
+    st.vehicle_mode = true;
+    const auto back = settings_from_json(settings_to_json(st));
+    CHECK(back && back->vehicle_mode);
+    CHECK(settings_from_json("{}") && !settings_from_json("{}")->vehicle_mode);
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -1905,6 +1924,7 @@ int main() {
     test_recenter_lifts_panels_to_gaze();
     test_vqf_cold_rest_threshold();
     test_gyro_noise_monitor();
+    test_vehicle_mode();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

@@ -88,6 +88,7 @@ typedef struct {
     int background;
     float background_brightness;        /* 0..1 */
     char background_image[520];         /* UTF-8 path */
+    bool vehicle_mode;                  /* a quarter of the head's heading followed (in a car) */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -201,6 +202,7 @@ typedef struct {
     int background;        /* "background" */
     float background_brightness;  /* "backgroundBrightness" */
     char background_image[520];   /* "backgroundImage", UTF-8 */
+    bool vehicle_mode;            /* "vehicleMode" */
 } nimbo_settings;
 
 NIMBO_API nimbo_settings nimbo_default_settings(void);

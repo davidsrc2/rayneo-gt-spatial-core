@@ -50,6 +50,7 @@ struct RenderOptions {
     float cinema_yaw_rad = 0.0f;   // where the cinema panel is centred (yaw right, pitch up)
     float cinema_pitch_rad = 0.0f;
     float panels_pitch_rad = 0.0f;  // the arrangement lifted to the recentre's elevation (up > 0)
+    bool vehicle_mode = false;      // a quarter of the head's heading followed (core::scale_heading)
     float zoom = 1.0f;           // every panel this much larger (and the arrangement with them), 1 = off
     // AI 3D: this panel's frames go through the depth engine and it is drawn in depth when side
     // by side (-1: none).

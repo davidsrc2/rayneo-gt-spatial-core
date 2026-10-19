@@ -701,7 +701,8 @@ static float panel_arc(RNRenderOptions* o) {
     const float aspect = _panels[0].aspect;
     os_unfair_lock_unlock(&_sourceLock);
     const float arc = panel_arc(o);
-    const core::Quat head = core::track_axes(from_simd(orientation), static_cast<core::TrackingAxes>(o.trackingAxes));
+    core::Quat head = core::track_axes(from_simd(orientation), static_cast<core::TrackingAxes>(o.trackingAxes));
+    if (o.vehicleMode && !o.staticHead) head = core::scale_heading(head, core::kVehicleHeadingScale);
     return core::panel_at_gaze(head, [self placements:self.panelCount aspect:aspect], arc,
                                core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
 }
@@ -949,6 +950,7 @@ static float effective_curvature(RNRenderOptions* o) {
     }
     core::Quat head = core::predict_orientation(from_simd(orientation), wp, horizon_s);
     head = core::track_axes(head, static_cast<core::TrackingAxes>(o.trackingAxes));
+    if (o.vehicleMode && !o.staticHead) head = core::scale_heading(head, core::kVehicleHeadingScale);
     if (o.staticHead) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
         head = core::Quat{};
         horizon_s = 0.0f;

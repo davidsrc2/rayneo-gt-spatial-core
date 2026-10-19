@@ -465,7 +465,9 @@ float SpatialRenderer::fit_arc_deg(int columns) const {
 int SpatialRenderer::panel_at_gaze(const core::Quat& head) const {
     if (options.focus_panel >= 0 && options.focus_panel < count_) return options.focus_panel;
     const float aspect = panels_[0].aspect;
-    return core::panel_at_gaze(core::track_axes(head, options.tracking_axes), placements(aspect), panel_arc(), vertical_arc(aspect),
+    core::Quat h = core::track_axes(head, options.tracking_axes);
+    if (options.vehicle_mode && !options.static_head) h = core::scale_heading(h, core::kVehicleHeadingScale);
+    return core::panel_at_gaze(h, placements(aspect), panel_arc(), vertical_arc(aspect),
                                options.gap_deg * kDegToRad);
 }
 
@@ -905,6 +907,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     }
     core::Quat head = core::predict_orientation(orientation, wp, horizon_s);
     head = core::track_axes(head, options.tracking_axes);
+    if (options.vehicle_mode && !options.static_head) head = core::scale_heading(head, core::kVehicleHeadingScale);
     // No horizon lock: the head's roll is compensated in full, so the panels stay level with the
     // floor when the head tilts (taking the roll out made them lean with the head). A diagonal
     // drift when looking up / down comes from the sensor mounting (calibration), not from here.

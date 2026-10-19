@@ -83,6 +83,12 @@ Quat pitch_only(const Quat& q);
 enum class TrackingAxes { Both = 0, Horizontal = 1, Vertical = 2, NoRoll = 3 };
 Quat track_axes(const Quat& q, TrackingAxes axes);
 
+// Vehicle mode: of the head's turn about the vertical (its heading), only `k` moves the panels
+// (pitch and roll stay 1:1), so a car turning carries the panels along partly instead of
+// leaving them behind. kVehicleHeadingScale: a quarter of the heading is followed.
+inline constexpr float kVehicleHeadingScale = 0.25f;
+Quat scale_heading(const Quat& head, float k);
+
 // Inside of a vertical cylinder section centred on the viewer, in render space.
 struct ScreenVertex {
     float px, py, pz;

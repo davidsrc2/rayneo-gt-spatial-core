@@ -38,6 +38,7 @@ struct SettingsView: View {
         .onChange(of: model.growByGaze) { server.settingsChanged() }
         .onChange(of: model.macScreen) { server.settingsChanged() }
         .onChange(of: model.anchorAtRest) { server.settingsChanged() }
+        .onChange(of: model.vehicleMode) { server.settingsChanged() }
         .onChange(of: model.depthStrength) { server.settingsChanged() }
         .onChange(of: model.depthPlane) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
@@ -66,6 +67,9 @@ struct SettingsView: View {
                 Text("Cada pantalla mide lo que la imagen de las gafas y queda quieta en la habitación: gira la cabeza para pasar de una a otra. Nimbo pone las gafas en follow y, al parar, las devuelve a pinned. ⌘⌥C las vuelve a poner delante.")
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Modo vehículo", isOn: $model.vehicleMode)
+                    Text("Para ir en coche, tren o avión: las pantallas siguen solo una cuarta parte de los giros, así acompañan las curvas del vehículo en vez de quedarse atrás. Mirar a los lados mueve menos las pantallas.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     Toggle("Anclar las pantallas con la cabeza quieta", isOn: $model.anchorAtRest)
                     Text("En el espacio a tamaño real el anclaje va siempre incluido: con la cabeza quieta las pantallas se congelan; al moverla (más de 0,15° o de 1,4°/s) pasan en 40 ms a seguir el espacio 1:1, y 150 ms después de parar se congelan de nuevo.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)

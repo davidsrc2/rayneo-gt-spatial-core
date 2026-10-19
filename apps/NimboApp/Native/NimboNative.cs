@@ -66,6 +66,7 @@ internal static unsafe class NimboNative
         public int Background;      // around the panels: 0 none, 1 rain, 2 stars, 3 sunset, 4 aurora, 5 picture
         public float BackgroundBrightness;
         public fixed byte BackgroundImage[520];  // UTF-8 path
+        public byte VehicleMode;    // a quarter of the head's heading followed (in a car)
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -133,6 +134,7 @@ internal static unsafe class NimboNative
         public int Background;
         public float BackgroundBrightness;
         public fixed byte BackgroundImage[520];
+        public byte VehicleMode;
     }
 
     [StructLayout(LayoutKind.Sequential)]

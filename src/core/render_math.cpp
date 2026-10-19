@@ -293,6 +293,14 @@ void place_pitched(ScreenMesh& mesh, float pitch_rad, float tilt, float distance
     pitch_mesh(mesh, pitch_rad);
 }
 
+Quat scale_heading(const Quat& head, float k) {
+    const Vec3 f = head.rotate({1.0f, 0.0f, 0.0f});
+    if (f.x * f.x + f.y * f.y < 1e-8f) return head;  // straight up / down: no heading
+    const Quat yaw = Quat::from_axis_angle({0.0f, 0.0f, 1.0f}, std::atan2(f.y, f.x));
+    const Quat rest = yaw.conjugate() * head;  // pitch and roll in the heading's frame
+    return (Quat::from_axis_angle({0.0f, 0.0f, 1.0f}, k * std::atan2(f.y, f.x)) * rest).normalized();
+}
+
 void lift_placements(std::vector<PanelPlacement>& panels, float pitch_rad) {
     for (auto& p : panels) p.pitch_rad += pitch_rad;
 }

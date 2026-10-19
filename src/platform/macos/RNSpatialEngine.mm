@@ -31,6 +31,7 @@
 - (float)panelsPitch { return _p.panels_pitch_rad; }
 - (float)gyroNoise { return _p.gyro_noise_degs; }
 - (BOOL)isGyroNoisy { return _p.gyro_noisy ? YES : NO; }
+- (float)temperature { return _p.temp_c; }
 
 @end
 

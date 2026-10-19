@@ -422,6 +422,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.supersample = UInt(max(1, options.supersample))
         applyBackground(options, to: ro)
         ro.trackingAxes = options.trackingAxes
+        ro.vehicleMode = options.vehicleMode
         ro.depthStrength = options.depthStrength
         ro.depthConvergence = options.depthConvergence
         zoom = max(0.5, min(3, options.zoom))
@@ -908,6 +909,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         ro.dimOthers = o.dimOthers
         applyBackground(o, to: ro)
         ro.trackingAxes = o.trackingAxes
+        ro.vehicleMode = o.vehicleMode
         ro.depthStrength = o.depthStrength
         ro.depthConvergence = o.depthConvergence
         if let arc = o.arcDeg { ro.arcDegrees = arc }
@@ -929,6 +931,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.backgroundImage = o.backgroundImage
         options.backgroundBrightness = o.backgroundBrightness
         options.trackingAxes = o.trackingAxes
+        options.vehicleMode = o.vehicleMode
         options.panelPoses = o.panelPoses
         if let imu = pose as? ImuPoseSource {
             if o.glassesMode >= 0 && o.glassesMode != options.glassesMode { imu.setGlassesMode(o.glassesMode) }
@@ -2369,6 +2372,16 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         fallbackThread = thread
     }
 
+    // Glasses that start cold (sensor under 28 C): their gyro bias moves while they warm up, the
+    // first minutes, so the panels may creep a little; it settles as they reach their working
+    // temperature (the bias map and VQF follow it). Said once, at the start of tracking.
+    private static let coldStartC: Float = 28
+    private func warnIfCold() {
+        guard let t = (pose as? ImuPoseSource)?.temperature, t > 0, t < Self.coldStartC else { return }
+        log(String(format: "imu: glasses cold (%.1f C): tracking settles as they warm up (2-3 minutes)", t))
+        pendingFlash.append("Gafas frías: la imagen se estabiliza\nen 2-3 minutos, al calentarse")
+    }
+
     // A gyro far noisier than normal at rest (core/gyro_noise_monitor.h): the bias is learned
     // badly and the panels drift. Usually the cable or the USB port (a hub): said once a run.
     private var gyroNoiseWarned = false
@@ -2414,6 +2427,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
             renderer.setOverlayText(nil)
             overlayShown = false
             log("ready: tracking")
+            warnIfCold()
             if !pendingFlash.isEmpty {
                 let lines = pendingFlash
                 pendingFlash = []
@@ -2454,7 +2468,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if biasLogSeconds >= 10, s.tracking, let b = (pose as? ImuPoseSource)?.gyroBias {
             biasLogSeconds = 0
             let noise = (pose as? ImuPoseSource)?.gyroNoise?.degs ?? 0
-            log(String(format: "imu: gyro bias %.3f %.3f %.3f deg/s (noise at rest %.2f)", b.x, b.y, b.z, noise))
+            let temp = (pose as? ImuPoseSource)?.temperature ?? 0
+            log(String(format: "imu: gyro bias %.3f %.3f %.3f deg/s (noise at rest %.2f, %.1f C)", b.x, b.y, b.z, noise, temp))
         }
         if depthPanel >= 0 {
             let d = depth3D.takeStats()

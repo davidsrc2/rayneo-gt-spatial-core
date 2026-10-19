@@ -110,6 +110,7 @@ struct Options {
     float depth_plane = 0.35f;             // depth left on the panel's plane, 0 far .. 1 near
     float zoom = 1.0f;                     // every panel this much larger (shortcuts), as left last time
     bool grow_by_gaze = true;              // glasses' pinned mode: the panel looked at takes over (else mouse only)
+    bool vehicle_mode = false;             // a quarter of the head's heading followed (core::scale_heading)
     int background = 0;                    // around the panels (win::RenderOptions::background)
     float background_brightness = 0.6f;
     std::string background_image;          // UTF-8
@@ -176,6 +177,7 @@ Options from_c(const nimbo_options& c) {
     o.depth_plane = std::clamp(c.depth_plane, 0.0f, 1.0f);
     if (c.zoom > 0) o.zoom = std::clamp(c.zoom, 0.5f, 3.0f);
     o.grow_by_gaze = c.grow_by_gaze;
+    o.vehicle_mode = c.vehicle_mode;
     o.background = std::clamp(c.background, 0, 5);
     o.background_brightness = std::clamp(c.background_brightness, 0.0f, 1.0f);
     o.background_image.assign(c.background_image, strnlen(c.background_image, sizeof(c.background_image)));
@@ -243,6 +245,7 @@ struct PoseSample {
     float panels_pitch_rad = 0.0f;  // the panels lifted to the last recentre's elevation
     float gyro_noise_degs = 0.0f;   // gyro white noise at rest (deg/s per axis)
     bool gyro_noisy = false;        // far above normal: a poor cable or USB port
+    float temp_c = 0.0f;            // the IMU's temperature (C)
 };
 
 class PoseSource {
@@ -304,7 +307,7 @@ public:
         rayneo_pose p;
         if (!rayneo_engine_latest_pose(engine_, &p)) return std::nullopt;
         return PoseSample{{p.qw, p.qx, p.qy, p.qz}, {p.wx, p.wy, p.wz}, p.host_time_ns, p.tracking, p.panels_pitch_rad,
-                          p.gyro_noise_degs, p.gyro_noisy};
+                          p.gyro_noise_degs, p.gyro_noisy, p.temp_c};
     }
 
 private:
@@ -1477,6 +1480,11 @@ void Server::periodic() {
         renderer_.set_overlay_text(L"");
         overlay_shown_ = false;
         logln("ready: tracking");
+        // Glasses that start cold (sensor under 28 C): the bias moves while they warm up, as macOS.
+        if (const auto c = pose_ ? pose_->latest() : std::nullopt; imu_ && c && c->temp_c > 0.0f && c->temp_c < 28.0f) {
+            logln("imu: glasses cold (%.1f C): tracking settles as they warm up (2-3 minutes)", c->temp_c);
+            pending_flash_.push_back(L"Gafas fr\u00edas: la imagen se estabiliza\nen 2-3 minutos, al calentarse");
+        }
         redraw_ = true;
         const auto waiting = std::move(pending_flash_);
         pending_flash_.clear();
@@ -1666,6 +1674,7 @@ void Server::apply_pinned(const Options& o) {
     // reached by looking up.
     if (o.glasses_pinned) ro.tracking_axes = core::TrackingAxes::Both;
     ro.tilt = o.tilt;
+    ro.vehicle_mode = o.vehicle_mode && !o.glasses_pinned;
     ro.neck_model = !o.glasses_pinned && o.real_size;  // the eyes turn about the neck (core::view_matrix)
     // Space at real size (glasses in follow): every panel nearly as large as the glasses' own
     // image, fixed in the room on both axes. It fits both ways (a 16:10 laptop screen is taller
@@ -2755,6 +2764,8 @@ void Server::apply_pending() {
     opt_.gather_windows = o->gather_windows;
     opt_.depth3d = o->depth3d;
     opt_.grow_by_gaze = o->grow_by_gaze;
+    opt_.vehicle_mode = o->vehicle_mode;
+    renderer_.options.vehicle_mode = o->vehicle_mode && !o->glasses_pinned;
     opt_.depth_strength = o->depth_strength;
     opt_.depth_plane = o->depth_plane;
     update_depth3d();
@@ -2828,6 +2839,7 @@ core::Settings to_core(const nimbo_settings& c) {
     s.depth_plane = c.depth_plane;
     s.zoom = c.zoom > 0 ? c.zoom : 1.0f;
     s.grow_by_gaze = c.grow_by_gaze;
+    s.vehicle_mode = c.vehicle_mode;
     s.background = std::clamp(c.background, 0, 5);
     s.background_brightness = std::clamp(c.background_brightness, 0.0f, 1.0f);
     s.background_image.assign(c.background_image, strnlen(c.background_image, sizeof(c.background_image)));
@@ -2871,6 +2883,7 @@ nimbo_settings to_c(const core::Settings& s) {
     c.depth_plane = s.depth_plane;
     c.zoom = s.zoom;
     c.grow_by_gaze = s.grow_by_gaze;
+    c.vehicle_mode = s.vehicle_mode;
     c.background = s.background;
     c.background_brightness = s.background_brightness;
     copy_str(c.background_image, sizeof(c.background_image), s.background_image);
@@ -3131,6 +3144,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.depth_plane = s.depth_plane;
     o.zoom = s.zoom;
     o.grow_by_gaze = s.grow_by_gaze;
+    o.vehicle_mode = s.vehicle_mode;
     o.background = s.background;
     o.background_brightness = s.background_brightness;
     copy_str(o.background_image, sizeof(o.background_image), s.background_image);
