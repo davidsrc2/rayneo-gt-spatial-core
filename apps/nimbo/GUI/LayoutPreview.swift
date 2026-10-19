@@ -2,8 +2,9 @@ import SwiftUI
 import simd
 
 // What the monitors look like from inside the glasses: perspective from the head, with a
-// soft frame showing how much the glasses show at once. Same geometry as the renderer
-// (core::grid_layout, flat panels tangent to the viewing circle, rows tilted by pitch).
+// soft frame showing how much the glasses show at once. Same geometry as the renderer: the
+// flat wall (core::wall_grid_layout / wall_panel_mesh: one plane, upright, edge to edge) or,
+// with it off, core::grid_layout (flat panels tangent to the viewing circle, rows tilted).
 struct LayoutPreview: View {
     @ObservedObject var model: AppModel
 
@@ -29,10 +30,21 @@ struct LayoutPreview: View {
             let width = 2 * r * tan(arc / 2)
             let height = width / aspect
 
+            let wall = model.flatWall && !model.glassesPinned
             for (i, c) in cells.enumerated() {
                 let yaw = (Double(c.col) - midC) * (arc + gap)
                 let pitch = (midR - Double(c.row)) * (varc + gap)
-                let outline = panelOutline(yaw: yaw, pitch: pitch, r: r, width: width, height: height, curvature: k)
+                let outline: [SIMD3<Double>]
+                let mid3: SIMD3<Double>
+                if wall {  // one plane z = r, no gap: columns `width` apart, rows `height` apart
+                    let x = (Double(c.col) - midC) * width, y = (midR - Double(c.row)) * height
+                    outline = [SIMD3(x - width / 2, y + height / 2, r), SIMD3(x + width / 2, y + height / 2, r),
+                               SIMD3(x + width / 2, y - height / 2, r), SIMD3(x - width / 2, y - height / 2, r)]
+                    mid3 = SIMD3(x, y, r)
+                } else {
+                    outline = panelOutline(yaw: yaw, pitch: pitch, r: r, width: width, height: height, curvature: k)
+                    mid3 = rotate(SIMD3(0, 0, r), yaw: yaw, pitch: pitch)
+                }
                 let pts = outline.compactMap(project)
                 guard pts.count == outline.count, let first = pts.first else { continue }
                 var path = Path()
@@ -41,7 +53,7 @@ struct LayoutPreview: View {
                 path.closeSubpath()
                 ctx.fill(path, with: .color((i == 0 ? Theme.cardMain : Theme.card).opacity(0.55)))
                 ctx.stroke(path, with: .color(Theme.text.opacity(0.35)), lineWidth: 1)
-                if let mid = project(rotate(SIMD3(0, 0, r), yaw: yaw, pitch: pitch)) {
+                if let mid = project(mid3) {
                     ctx.draw(Text("\(i + 1)").font(.system(size: 18, weight: .light)).foregroundColor(Theme.text), at: mid)
                 }
             }
@@ -58,6 +70,7 @@ struct LayoutPreview: View {
         .frame(height: 220)
         .animation(Theme.ease, value: model.cells)
         .animation(Theme.ease, value: model.curvature)
+        .animation(Theme.ease, value: model.flatWall)
     }
 
     private func rotate(_ p: SIMD3<Double>, yaw: Double, pitch: Double) -> SIMD3<Double> {

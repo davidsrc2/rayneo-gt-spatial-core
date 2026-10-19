@@ -143,7 +143,11 @@ public sealed partial class SettingsWindow : Window
         _server.SettingsChanged();
     }
 
-    private void Changed(object sender, RoutedEventArgs e) => Save();
+    private void Changed(object sender, RoutedEventArgs e)
+    {
+        Save();
+        if (sender == FlatWallToggle) DrawLayout();  // the preview shows the wall or the gaps
+    }
 
     private void BackgroundChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -481,10 +485,12 @@ public sealed partial class SettingsWindow : Window
         DrawLayout();
     }
 
-    // The grid of monitors as seen from the front, numbered in panel order.
+    // The grid of monitors as seen from the front, numbered in panel order. On the flat wall
+    // (the default) they touch edge to edge, a thin line between them; otherwise apart.
     private void DrawLayout()
     {
         LayoutPreview.Children.Clear();
+        double inset = _model.FlatWall ? 0.5 : 3;
         var cells = _model.Cells;
         if (cells.Length == 0) return;
         int c0 = cells.Min(c => c.Col), r0 = cells.Min(c => c.Row);
@@ -496,14 +502,14 @@ public sealed partial class SettingsWindow : Window
         {
             var rect = new Microsoft.UI.Xaml.Shapes.Rectangle
             {
-                Width = cw - 6,
-                Height = ch - 6,
-                RadiusX = 4,
-                RadiusY = 4,
+                Width = cw - 2 * inset,
+                Height = ch - 2 * inset,
+                RadiusX = _model.FlatWall ? 0 : 4,
+                RadiusY = _model.FlatWall ? 0 : 4,
                 Fill = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(140, 165, 205, 200)),
             };
-            Microsoft.UI.Xaml.Controls.Canvas.SetLeft(rect, ox + (cells[i].Col - c0) * cw + 3);
-            Microsoft.UI.Xaml.Controls.Canvas.SetTop(rect, oy + (cells[i].Row - r0) * ch + 3);
+            Microsoft.UI.Xaml.Controls.Canvas.SetLeft(rect, ox + (cells[i].Col - c0) * cw + inset);
+            Microsoft.UI.Xaml.Controls.Canvas.SetTop(rect, oy + (cells[i].Row - r0) * ch + inset);
             LayoutPreview.Children.Add(rect);
             var label = new Microsoft.UI.Xaml.Controls.TextBlock { Text = (i + 1).ToString(), FontSize = 13 };
             Microsoft.UI.Xaml.Controls.Canvas.SetLeft(label, ox + (cells[i].Col - c0) * cw + cw / 2 - 4);
