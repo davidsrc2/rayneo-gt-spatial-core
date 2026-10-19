@@ -61,6 +61,12 @@ struct rayneo_engine {
     std::ofstream record_file;             // fusion thread
     std::vector<uint8_t> record_buf;       // fusion thread: flushed about once a second
     std::vector<rayneo::core::ImuRecord> replay;
+
+    // The last 30 s of raw reports (and recentres), always kept for a problem report
+    // (rayneo_engine_dump_recent): ~1 MB.
+    std::mutex recent_mutex;
+    std::vector<rayneo::core::ImuRecord> recent;  // ring
+    size_t recent_next = 0;
 };
 
 namespace {
@@ -138,6 +144,24 @@ void fusion_loop(rayneo_engine* e) {
         while (next_report(rr)) {
             // A user recentre: recorded as its marker, so a replay recentres where the session did.
             const bool recenter = e->recenter.exchange(false) || rr.length == 0;  // 0: a replayed marker
+            {
+                std::lock_guard<std::mutex> lock(e->recent_mutex);
+                constexpr size_t kRecent = 457 * 30;
+                rayneo::core::ImuRecord r;
+                r.host_ns = rr.host_time_ns;
+                r.length = rr.length;
+                std::memcpy(r.data, rr.data, rr.length);
+                auto push = [&](const rayneo::core::ImuRecord& x) {
+                    if (e->recent.size() < kRecent) {
+                        e->recent.push_back(x);
+                    } else {
+                        e->recent[e->recent_next] = x;
+                        e->recent_next = (e->recent_next + 1) % kRecent;
+                    }
+                };
+                if (recenter && rr.length > 0) push(rayneo::core::ImuRecord{rr.host_time_ns, 0, {}});
+                push(r);
+            }
             if (e->record_file.is_open()) {
                 if (recenter && rr.length > 0) rayneo::core::append_imu_record(e->record_buf, rr.host_time_ns, nullptr, 0);
                 if (rr.length > 0) rayneo::core::append_imu_record(e->record_buf, rr.host_time_ns, rr.data, rr.length);
@@ -372,6 +396,23 @@ void rayneo_engine_set_bias_map_path(rayneo_engine* e, const char* path) {
 
 void rayneo_engine_simulate_stall(rayneo_engine* e, int ms) {
     if (e != nullptr && e->reader && ms > 0) e->reader->simulate_stall(static_cast<uint64_t>(ms) * 1000000ull);
+}
+
+bool rayneo_engine_dump_recent(rayneo_engine* e, const char* path) {
+    if (e == nullptr || path == nullptr) return false;
+    std::vector<uint8_t> out;
+    rayneo::core::append_imu_recording_header(out);
+    {
+        std::lock_guard<std::mutex> lock(e->recent_mutex);
+        const size_t n = e->recent.size();
+        for (size_t k = 0; k < n; ++k) {
+            const auto& r = e->recent[(e->recent_next + k) % n];  // oldest first
+            rayneo::core::append_imu_record(out, r.host_ns, r.data, r.length);
+        }
+    }
+    std::ofstream f(std::filesystem::u8path(path), std::ios::binary | std::ios::trunc);
+    f.write(reinterpret_cast<const char*>(out.data()), static_cast<std::streamsize>(out.size()));
+    return f.good();
 }
 
 void rayneo_engine_set_record_path(rayneo_engine* e, const char* path) {

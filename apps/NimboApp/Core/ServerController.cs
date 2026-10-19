@@ -60,6 +60,66 @@ internal sealed class ServerController : IDisposable
 
     public static string LogPath => Path.Combine(AppModel.DataDirectory, "nimbo.log");
 
+    // The last status read (diagnostics in Settings).
+    public NimboNative.Status LastStatus { get; private set; }
+
+    // The diagnostics in plain terms (Settings, the report).
+    public static string Describe(NimboNative.Status s, bool running)
+    {
+        if (!running) return "Con Nimbo en marcha verás aquí cómo van la imagen y el sensor.";
+        string lvl(bool good, bool fair) => good ? "bien" : fair ? "regular" : "mal";
+        return
+            $"Latencia (cabeza → imagen): {s.LatencyMs:0} ms ({lvl(s.LatencyMs <= 22, s.LatencyMs <= 30)})\n" +
+            $"Imágenes que llegan tarde: {s.MissedPerS:0} por segundo ({lvl(s.MissedPerS <= 2, s.MissedPerS <= 10)})\n" +
+            $"Refresco: {s.RenderFps:0} Hz · GPU por imagen: {s.GpuMs:0.0} ms\n" +
+            $"Nitidez del texto: {(s.Supersample >= 2 ? "máxima" : "reducida un momento (fluidez)")}\n" +
+            $"Ruido del sensor: {s.GyroNoise:0.00} °/s ({lvl(s.GyroNoise < 0.25f, s.GyroNoise < 0.5f)})\n" +
+            $"Temperatura de las gafas: {s.TempC:0.0} °C{(s.TempC > 0 && s.TempC < 28 ? " (frías: se estabiliza en 2-3 min)" : "")}\n" +
+            $"Estabilidad del sensor (último minuto): {s.BiasChange:0.00} °/s ({lvl(s.BiasChange < 0.05f, s.BiasChange < 0.15f)})\n" +
+            $"Gafas puestas: {(s.Worn != 0 ? "sí" : "no (en pausa)")} · Cortes del sensor recuperados: {s.Stalls}";
+    }
+
+    // "Enviar informe": the log's last 5000 lines, the settings, the calibration, the bias map,
+    // the last 30 s of the IMU (replayable) and the diagnostics, zipped in Downloads.
+    public string? MakeReport()
+    {
+        try
+        {
+            var name = $"Nimbo informe {DateTime.Now:yyyy-MM-dd HH.mm.ss}";
+            var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            var dir = Path.Combine(Path.GetTempPath(), name);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            Directory.CreateDirectory(dir);
+            if (File.Exists(LogPath))
+            {
+                using var fs = new FileStream(LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(fs);
+                var lines = reader.ReadToEnd().Split('\n');
+                File.WriteAllText(Path.Combine(dir, "nimbo.log"), string.Join("\n", lines.Skip(Math.Max(0, lines.Length - 5000))));
+            }
+            foreach (var f in new[] { AppModel.SettingsPath, AppModel.CalibrationPath,
+                                      Path.Combine(AppModel.DataDirectory, "rayneo_biasmap.json"),
+                                      Path.Combine(AppModel.DataDirectory, "crash.log") })
+            {
+                if (File.Exists(f)) File.Copy(f, Path.Combine(dir, Path.GetFileName(f)), true);
+            }
+            if (IsRunning) NimboNative.nimbo_dump_recent_imu(_server, Path.Combine(dir, "imu-last-30s.imu"));
+            File.WriteAllText(Path.Combine(dir, "diagnostico.txt"),
+                              $"Nimbo {typeof(ServerController).Assembly.GetName().Version} · {Environment.OSVersion}\n{Describe(LastStatus, IsRunning)}\n");
+            Directory.CreateDirectory(downloads);
+            var zip = Path.Combine(downloads, name + ".zip");
+            if (File.Exists(zip)) File.Delete(zip);
+            System.IO.Compression.ZipFile.CreateFromDirectory(dir, zip);
+            Directory.Delete(dir, true);
+            return zip;
+        }
+        catch (Exception e)
+        {
+            App.CrashLog("report", e);
+            return null;
+        }
+    }
+
     private static void OnLog(IntPtr ctx, IntPtr line)
     {
         try
@@ -179,6 +239,7 @@ internal sealed class ServerController : IDisposable
         if (!_busy)
         {
             var st = NimboNative.GetStatus(_server);
+            LastStatus = st;
             var previous = State;
             State = _running != null ? st.State : NimboNative.State.Stopped;
             GazePanel = st.GazePanel;

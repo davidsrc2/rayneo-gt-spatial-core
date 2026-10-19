@@ -45,6 +45,12 @@ public sealed partial class SettingsWindow : Window
         InitializeComponent();
         _updating = false;
         Title = "Nimbo · Ajustes";
+        // Diagnóstico: the running server's figures, every second.
+        var diagnostics = DispatcherQueue.CreateTimer();
+        diagnostics.Interval = TimeSpan.FromSeconds(1);
+        diagnostics.Tick += (_, _) => LiveDiagnosticsText.Text = ServerController.Describe(_server.LastStatus, _server.IsRunning);
+        diagnostics.Start();
+        LiveDiagnosticsText.Text = ServerController.Describe(_server.LastStatus, _server.IsRunning);
         SystemBackdrop = new MicaBackdrop();
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Nimbo.ico"));
         if (AppWindow.Presenter is OverlappedPresenter p)
@@ -189,6 +195,17 @@ public sealed partial class SettingsWindow : Window
         var (_, message) = await DisplaySetup.RunAsync();
         SetupDisplaysText.Text = message;
         SetupDisplaysButton.IsEnabled = true;
+    }
+
+    private void Report_Click(object sender, RoutedEventArgs e)
+    {
+        var zip = _server.MakeReport();
+        if (zip == null)
+        {
+            LiveDiagnosticsText.Text = "No se pudo crear el informe (detalles en crash.log).";
+            return;
+        }
+        Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{zip}\"") { UseShellExecute = true });
     }
 
     private void OpenLog_Click(object sender, RoutedEventArgs e)

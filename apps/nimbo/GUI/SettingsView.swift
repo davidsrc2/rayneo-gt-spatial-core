@@ -125,6 +125,10 @@ struct SettingsView: View {
                 ShortcutSheet()
             }
 
+            Section(title: "Diagnóstico") {
+                DiagnosticsView(server: server)
+            }
+
             Section(title: "Actualizaciones") {
                 UpdatesRow(updater: Updater.shared)
             }
@@ -281,6 +285,65 @@ private struct UpdatesRow: View {
             }
             Text(updater.status.isEmpty ? "Versión \(Updater.current)" : updater.status)
                 .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        }
+    }
+}
+
+
+// Ajustes > Diagnóstico: how the glasses are doing, in plain terms, while Nimbo runs; and a
+// problem report (the log, settings, calibration, bias map, the last 30 s of the IMU) to send.
+@available(macOS 14.0, *)
+struct DiagnosticsView: View {
+    @ObservedObject var server: ServerController
+
+    private enum Level { case good, fair, poor, info }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let d = server.diagnostics {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
+                    row("Latencia (cabeza → imagen)", String(format: "%.0f ms", d.latencyMs),
+                        d.latencyMs <= 0 ? .info : d.latencyMs <= 22 ? .good : d.latencyMs <= 30 ? .fair : .poor)
+                    row("Imágenes que llegan tarde", "\(d.missedPerS) por segundo",
+                        d.missedPerS <= 2 ? .good : d.missedPerS <= 10 ? .fair : .poor)
+                    row("Refresco", "\(d.fps) Hz", .info)
+                    row("GPU por imagen", String(format: "%.1f ms", d.gpuMs), d.gpuMs <= 3 ? .good : d.gpuMs <= 5 ? .fair : .poor)
+                    row("Nitidez del texto", d.supersample >= 2 ? "máxima" : "reducida un momento (fluidez)",
+                        d.supersample >= 2 ? .good : .fair)
+                    row("Ruido del sensor", String(format: "%.2f °/s", d.gyroNoise),
+                        d.gyroNoise <= 0 ? .info : d.gyroNoise < 0.25 ? .good : d.gyroNoise < 0.5 ? .fair : .poor)
+                    row("Temperatura de las gafas", String(format: "%.1f °C", d.tempC),
+                        d.tempC <= 0 ? .info : d.tempC >= 28 ? .good : .fair)
+                    row("Estabilidad del sensor (último minuto)", String(format: "%.2f °/s", d.biasChange),
+                        d.biasChange < 0.05 ? .good : d.biasChange < 0.15 ? .fair : .poor)
+                    row("Gafas puestas", d.worn ? "sí" : "no (en pausa)", .info)
+                    row("Cortes del sensor recuperados", "\(d.stalls)", d.stalls == 0 ? .good : .fair)
+                }
+            } else {
+                Text("Con Nimbo en marcha verás aquí cómo van la imagen y el sensor.")
+                    .font(Theme.body).foregroundStyle(Theme.secondary)
+            }
+            Button("Enviar informe") { server.sendReport() }.buttonStyle(CalmButtonStyle())
+            Text("Crea un zip en Descargas con el registro, tus ajustes, la calibración y los últimos 30 s del sensor, y abre un correo con él adjunto.")
+                .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ label: String, _ value: String, _ level: Level) -> some View {
+        GridRow {
+            Circle().fill(color(level)).frame(width: 8, height: 8)
+            Text(label).font(Theme.body).foregroundStyle(Theme.text)
+            Text(value).font(Theme.body.monospacedDigit()).foregroundStyle(Theme.secondary)
+        }
+    }
+
+    private func color(_ l: Level) -> Color {
+        switch l {
+        case .good: return Color(red: 0.48, green: 0.78, blue: 0.60)
+        case .fair: return Color(red: 0.89, green: 0.71, blue: 0.40)
+        case .poor: return Color(red: 0.88, green: 0.42, blue: 0.40)
+        case .info: return Color(white: 0.55)
         }
     }
 }

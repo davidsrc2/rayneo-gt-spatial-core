@@ -100,6 +100,10 @@ void rayneo_engine_set_record_path(rayneo_engine* e, const char* path);
  * the bias map is read, not saved). Before start; empty: the glasses. */
 void rayneo_engine_set_replay_path(rayneo_engine* e, const char* path);
 
+/* The last 30 s of raw IMU reports (and recentres) to a recording file (core/imu_recording.h),
+ * for a problem report; replayable with --replay-imu / replay_eval. Any thread. */
+bool rayneo_engine_dump_recent(rayneo_engine* e, const char* path);
+
 /* Test hook: the IMU stream stops (stream-off) and no sample is let through for ms. */
 void rayneo_engine_simulate_stall(rayneo_engine* e, int ms);
 

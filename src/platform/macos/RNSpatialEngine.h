@@ -40,6 +40,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)streamStallsResent:(uint64_t*)resent acked:(uint64_t*)acked recovered:(uint64_t*)recovered lastMs:(double*)lastMs;
 // Test hook: the stream stops and no sample gets through for ms.
 - (void)simulateStallMs:(NSInteger)ms;
+// The last 30 s of raw IMU reports to a recording file (for a problem report).
+- (BOOL)dumpRecentImuToPath:(NSString*)path;
 
 // Before start: the session's raw IMU reports written to this file / a recording played back
 // instead of the glasses (core/imu_recording.h). nil: off.

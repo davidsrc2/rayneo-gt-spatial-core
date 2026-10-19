@@ -251,6 +251,7 @@ struct PoseSample {
     bool gyro_noisy = false;        // far above normal: a poor cable or USB port
     float temp_c = 0.0f;            // the IMU's temperature (C)
     bool worn = true;               // on a head (false after 30 s lying still)
+    core::Vec3 bias;                // gyro bias in use (deg/s)
 };
 
 class PoseSource {
@@ -263,6 +264,7 @@ public:
     virtual bool reconnect(std::string*) { return false; }  // IMU only: reopen the glasses' HID device
     virtual bool stats(rayneo_stats*) { return false; }  // IMU transport counters (IMU only)
     virtual void set_glasses_brightness(int) {}
+    virtual bool dump_recent(const char*) { return false; }  // IMU only: the last 30 s of reports
 };
 
 class ImuPose final : public PoseSource {
@@ -281,6 +283,7 @@ public:
             rayneo_engine_set_bias_map_path(engine_, utf8.c_str());
         }
     }
+    bool dump_recent(const char* path) override { return rayneo_engine_dump_recent(engine_, path); }
     ~ImuPose() override {
         rayneo_engine_stop(engine_);
         rayneo_engine_destroy(engine_);
@@ -312,7 +315,7 @@ public:
         rayneo_pose p;
         if (!rayneo_engine_latest_pose(engine_, &p)) return std::nullopt;
         return PoseSample{{p.qw, p.qx, p.qy, p.qz}, {p.wx, p.wy, p.wz}, p.host_time_ns, p.tracking, p.panels_pitch_rad,
-                          p.gyro_noise_degs, p.gyro_noisy, p.temp_c, p.worn};
+                          p.gyro_noise_degs, p.gyro_noisy, p.temp_c, p.worn, {p.bias_x, p.bias_y, p.bias_z}};
     }
 
 private:
@@ -456,6 +459,7 @@ public:
     void request_apply(const Options& o);
     void post(UINT msg, WPARAM wp = 0, LPARAM lp = 0);
     nimbo_status status();
+    bool dump_recent_imu(const char* path) { return pose_ && pose_->dump_recent(path); }
     std::string last_line;  // server thread: last log line (why start failed)
 
 private:
@@ -624,6 +628,7 @@ private:
     bool last_late_ = false;
     bool gyro_noise_warned_ = false;  // said once a run (as macOS)
     bool paused_off_ = false;         // glasses taken off: captures stopped until they move
+    std::vector<core::Vec3> bias_history_;  // a gyro bias a second, the last minute (diagnostics)
     int key_panel_tick_ = 0;
     void update_key_panel();
     core::SupersamplePolicy supersample_policy_;  // 1 while frames go a refresh late, as macOS
@@ -1551,6 +1556,17 @@ void Server::periodic() {
         status_.render_fps = static_cast<float>(s.frames);
         status_.capture_fps = static_cast<float>(cap_fps);
         status_.latency_ms = static_cast<float>(s.presented_sum / pn);
+        status_.missed_per_s = static_cast<float>(s.missed);
+        status_.gpu_ms = s.gpu_n > 0 ? static_cast<float>(s.gpu_sum / s.gpu_n) : 0.0f;
+        status_.supersample = renderer_.options.supersample;
+        if (const auto g = imu_ && pose_ ? pose_->latest() : std::nullopt) {
+            status_.gyro_noise = g->gyro_noise_degs;
+            status_.temp_c = g->temp_c;
+            status_.worn = g->worn ? 1 : 0;
+            bias_history_.push_back(g->bias);
+            if (bias_history_.size() > 60) bias_history_.erase(bias_history_.begin());
+            status_.bias_change = (g->bias - bias_history_.front()).norm();
+        }
     }
     // IMU health over the last second: samples received (457 expected), lost, dropped.
     std::string imu;
@@ -1570,6 +1586,8 @@ void Server::periodic() {
             logln("imu: samples again after %.0f ms (stream reconnected, nothing restarted)", st.last_stall_ms);
         }
         last_imu_ = st;
+        std::lock_guard<std::mutex> lock(shared_mutex_);
+        status_.stalls = static_cast<int>(st.stalls_recovered);
     }
     std::string wobble;
     if (s.still_n > 30) {
@@ -3189,6 +3207,12 @@ void nimbo_toggle_depth3d(nimbo_server* s) {
 void nimbo_toggle_focus(nimbo_server* s, bool cinema) {
     std::lock_guard<std::mutex> lock(s->mutex);
     if (s->server) s->server->post(WM_APP + 3, cinema ? 1 : 0);
+}
+
+bool nimbo_dump_recent_imu(nimbo_server* s, const char* path_utf8) {
+    if (s == nullptr || path_utf8 == nullptr) return false;
+    std::lock_guard<std::mutex> lock(s->mutex);
+    return s->server && s->server->dump_recent_imu(path_utf8);
 }
 
 void nimbo_get_status(nimbo_server* s, nimbo_status* out) {

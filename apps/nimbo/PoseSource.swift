@@ -62,6 +62,7 @@ final class ImuPoseSource: PoseSource {
         return (r, a, v, ms)
     }
     func simulateStall(ms: Int) { engine.simulateStallMs(ms) }
+    func dumpRecentImu(to path: String) -> Bool { engine.dumpRecentImu(toPath: path) }
 
     func latest() -> PoseSample? {
         guard let p = engine.latestPose() else { return nil }

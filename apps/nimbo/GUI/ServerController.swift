@@ -12,6 +12,7 @@ final class ServerController: ObservableObject {
     @Published private(set) var glassesConnected = Displays.glassesConnected
     @Published var notice: String?  // transient, shown softly under the status line
     @Published private(set) var gazePanel: Int?  // monitor you are looking at, for the panel
+    @Published private(set) var diagnostics: Diagnostics?  // Ajustes > Diagnóstico, while running
 
     private var server: SpatialServer?
     private var pending: (server: SpatialServer, task: Task<Void, Never>)?  // while starting
@@ -74,6 +75,7 @@ final class ServerController: ObservableObject {
             if model.glassesPinned { model.fov = Double(fov) } else { model.opticalVFov = Double(fov) }
         }
         s.onVehicleModeChanged = { [weak self] on in self?.model?.vehicleMode = on }
+        s.onDiagnostics = { [weak self] d in if self?.diagnostics != d { self?.diagnostics = d } }
         s.onNotice = { [weak self] text in self?.notifier.post("Nimbo", text) }
         // Setup takes a few seconds (display modes, virtual monitors); the panel stays live.
         let task = Task { @MainActor [weak self] in
@@ -134,6 +136,21 @@ final class ServerController: ObservableObject {
 
     func recenter() { server?.recenter() }
     func startOpticsWizard() { server?.toggleOpticsWizard() }
+
+    // "Enviar informe": the zip in Downloads, then a new mail with it (or Finder showing it).
+    func sendReport() {
+        let zip = server?.makeReport(diagnostics: diagnostics) ?? SpatialServer.makeReport(imu: nil, diagnostics: nil)
+        guard let zip else {
+            notice = "No se pudo crear el informe"
+            return
+        }
+        if let mail = NSSharingService(named: .composeEmail), mail.canPerform(withItems: [zip]) {
+            mail.subject = "Informe de Nimbo"
+            mail.perform(withItems: ["Informe de Nimbo adjunto.", zip])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([zip])
+        }
+    }
     func toggleFocus(cinema: Bool) { server?.toggleFocus(cinema: cinema) }
     func toggleRecording() { server?.toggleRecording() }
     // A short message on the glasses (or a notification while Nimbo is stopped).

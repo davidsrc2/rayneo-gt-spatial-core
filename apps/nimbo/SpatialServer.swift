@@ -23,6 +23,21 @@ final class MetalView: NSView {
     required init?(coder: NSCoder) { fatalError("unused") }
 }
 
+// What the diagnostics page shows (Ajustes), once a second.
+struct Diagnostics: Equatable {
+    var latencyMs = 0.0        // head motion -> photons (sample -> presented)
+    var missedPerS = 0         // frames shown a refresh late
+    var fps = 0
+    var gpuMs = 0.0
+    var supersample = 1
+    var gyroNoise: Float = 0   // deg/s per axis at rest
+    var tempC: Float = 0
+    var biasChange: Float = 0  // deg/s the bias moved over the last minute
+    var worn = true
+    var stalls: UInt64 = 0     // IMU stream stalls recovered this run
+    var tracking = false
+}
+
 // A frame's work from the wake-up: to the commit (CPU, ms) and the GPU's end (CACurrentMediaTime),
 // read when it is presented.
 final class FrameCPU {
@@ -143,6 +158,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     var onStopRequest: ((String) -> Void)?
     var onFovChanged: ((Float) -> Void)?
     var onVehicleModeChanged: ((Bool) -> Void)?  // ⌘⌥V: the Ajustes switch follows
+    var onDiagnostics: ((Diagnostics) -> Void)?   // once a second, the diagnostics page
     var onNotice: ((String) -> Void)?  // short messages for the user (a notification in the app)
     private(set) var isTracking = false
 
@@ -2524,6 +2540,79 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         pendingFlash.append("Gafas frías: la imagen se estabiliza\nen 2-3 minutos, al calentarse")
     }
 
+    // The diagnostics page (Ajustes): the second's figures in plain terms; the bias' movement
+    // over the last minute from a sample a second.
+    private var biasHistory: [simd_float3] = []
+    private var lastGPUMs = 0.0
+    private func publishDiagnostics(_ s: LatencyStats) {
+        guard let onDiagnostics else { return }
+        var d = Diagnostics()
+        d.latencyMs = s.presentedN > 0 ? s.presentedSum / Double(s.presentedN) : 0
+        d.missedPerS = s.missed
+        d.fps = s.frames + s.idle
+        d.supersample = Int(renderer?.options.supersample ?? 1)
+        d.tracking = s.tracking
+        if let imu = pose as? ImuPoseSource {
+            if let n = imu.gyroNoise { d.gyroNoise = n.degs }
+            d.tempC = imu.temperature ?? 0
+            d.worn = imu.worn
+            d.stalls = imu.stalls.recovered
+            if let b = imu.gyroBias {
+                biasHistory.append(b)
+                if biasHistory.count > 60 { biasHistory.removeFirst(biasHistory.count - 60) }
+                if let first = biasHistory.first { d.biasChange = simd_length(b - first) }
+            }
+        }
+        d.gpuMs = lastGPUMs
+        onDiagnostics(d)
+    }
+
+    // A problem report: the log, the settings, the calibration, the bias map, the last 30 s of
+    // the IMU (replayable) and the diagnostics, zipped in Downloads. Returns the zip.
+    func makeReport(diagnostics: Diagnostics?) -> URL? {
+        Self.makeReport(imu: pose as? ImuPoseSource, diagnostics: diagnostics)
+    }
+
+    // The same with Nimbo stopped (no IMU to dump).
+    static func makeReport(imu: ImuPoseSource?, diagnostics: Diagnostics?) -> URL? {
+        let fm = FileManager.default
+        let stamp = DateFormatter()
+        stamp.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        let name = "Nimbo informe \(stamp.string(from: Date()))"
+        let downloads = fm.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        let dir = fm.temporaryDirectory.appendingPathComponent(name, isDirectory: true)
+        try? fm.removeItem(at: dir)
+        guard (try? fm.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else { return nil }
+        let support = Self.logURL.deletingLastPathComponent()
+        // The log's last 5000 lines (it grows over days).
+        if let text = try? String(contentsOf: Self.logURL, encoding: .utf8) {
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            try? lines.suffix(5000).joined(separator: "\n").write(to: dir.appendingPathComponent("nimbo.log"), atomically: true, encoding: .utf8)
+        }
+        for file in ["settings.json", "calibration.json"] {
+            try? fm.copyItem(at: support.appendingPathComponent(file), to: dir.appendingPathComponent(file))
+        }
+        if let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            try? fm.copyItem(at: caches.appendingPathComponent("Nimbo/rayneo_biasmap.json"), to: dir.appendingPathComponent("rayneo_biasmap.json"))
+        }
+        if let imu {
+            _ = imu.dumpRecentImu(to: dir.appendingPathComponent("imu-last-30s.imu").path)
+        }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        var info = "Nimbo \(version) · macOS \(ProcessInfo.processInfo.operatingSystemVersionString)\n"
+        if let d = diagnostics { info += "\(d)\n" }
+        try? info.write(to: dir.appendingPathComponent("diagnostico.txt"), atomically: true, encoding: .utf8)
+        let zip = downloads.appendingPathComponent(name + ".zip")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        p.arguments = ["-c", "-k", "--keepParent", dir.path, zip.path]
+        do { try p.run() } catch { return nil }
+        p.waitUntilExit()
+        try? fm.removeItem(at: dir)
+        appendToFile("report: \(zip.path)")
+        return p.terminationStatus == 0 ? zip : nil
+    }
+
     // Supersampling (crisper text) down to 1 while the glasses show frames a refresh late, then
     // tried again (core/supersample_policy.h: 20 s, doubling on relapses up to 2 min).
     private let supersamplePolicy = rayneo_supersample_create()
@@ -2636,11 +2725,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                    s.readyN > 0 ? s.readySum / Double(s.readyN) : 0,
                    (s.stillN > 30 ? String(format: " | still wobble %.4f°/frame", (s.stillSq / Double(s.stillN)).squareRoot()) : "")
                    + (s.movingN > 30 ? String(format: " | moving jitter %.3f°", (s.movingSq / Double(s.movingN)).squareRoot()) : "")
-                   + String(format: " | gpu %.1f ms (wait %.1f)", renderer.takeGPUMeanMs(), s.gpuWaitN > 0 ? s.gpuWaitSum / Double(s.gpuWaitN) : 0) as NSString))
+                   + String(format: " | gpu %.1f ms (wait %.1f)", { let g = renderer.takeGPUMeanMs(); lastGPUMs = g; return g }(), s.gpuWaitN > 0 ? s.gpuWaitSum / Double(s.gpuWaitN) : 0) as NSString))
         adaptFrameLatency(s)
         logStreamStalls()
         warnIfGyroNoisy()
         pauseWhileOff()
+        publishDiagnostics(s)
         if s.tracking && s.frames > 0 { adaptSupersample(missed: s.missed) }
         // Every 10 s: the gyro bias in use (a drift of the panels shows here as a bias that moves).
         biasLogSeconds += 1

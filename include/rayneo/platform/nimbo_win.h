@@ -117,6 +117,15 @@ typedef struct {
     float latency_ms;      /* IMU sample -> scanout, last second */
     char message[256];     /* why it stopped or failed to start; empty otherwise */
     float zoom;            /* current, after Ctrl+Alt++ / - / 0 / K (the app saves it) */
+    /* Diagnostics (the Settings page), last second / now: */
+    float missed_per_s;    /* frames shown a refresh late */
+    float gpu_ms;          /* GPU time per frame */
+    int supersample;       /* 2 crisp text, 1 lowered for a while (frames late) */
+    float gyro_noise;      /* deg/s per axis at rest */
+    float temp_c;          /* the glasses' sensor */
+    float bias_change;     /* deg/s the gyro bias moved over the last minute */
+    int worn;              /* 1 on a head, 0 lying still (paused) */
+    int stalls;            /* IMU stream stalls recovered this run */
 } nimbo_status;
 
 NIMBO_API nimbo_server* nimbo_create(void);
@@ -142,6 +151,8 @@ NIMBO_API void nimbo_toggle_depth3d(nimbo_server* s);
 /* A short message on the glasses for a few seconds (the app's own shortcuts: code mode...). UTF-8. */
 NIMBO_API void nimbo_show_message(nimbo_server* s, const char* text);
 NIMBO_API void nimbo_get_status(nimbo_server* s, nimbo_status* out);
+/* The last 30 s of raw IMU reports to a recording file (a problem report). False when not running. */
+NIMBO_API bool nimbo_dump_recent_imu(nimbo_server* s, const char* path_utf8);
 
 /* Log lines of every server in the process (and the calibration), from any thread. NULL:
  * stdout. */

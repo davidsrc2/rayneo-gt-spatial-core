@@ -98,6 +98,15 @@ internal static unsafe class NimboNative
         public float LatencyMs;
         public fixed byte Message[256];
         public float Zoom;
+        // Diagnostics (nimbo_status), last second / now.
+        public float MissedPerS;
+        public float GpuMs;
+        public int Supersample;
+        public float GyroNoise;
+        public float TempC;
+        public float BiasChange;
+        public int Worn;
+        public int Stalls;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -225,6 +234,9 @@ internal static unsafe class NimboNative
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern void nimbo_show_message(IntPtr s, byte[] utf8);
     public static void nimbo_show_message(IntPtr s, string text) => nimbo_show_message(s, System.Text.Encoding.UTF8.GetBytes(text + "\0"));
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_get_status(IntPtr s, Status* status);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool nimbo_dump_recent_imu(IntPtr s, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void nimbo_set_log(IntPtr fn, IntPtr ctx);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern byte nimbo_glasses_connected();

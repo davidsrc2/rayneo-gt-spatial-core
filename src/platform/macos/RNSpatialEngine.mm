@@ -89,6 +89,7 @@
 }
 
 - (void)simulateStallMs:(NSInteger)ms { rayneo_engine_simulate_stall(_engine, static_cast<int>(ms)); }
+- (BOOL)dumpRecentImuToPath:(NSString*)path { return rayneo_engine_dump_recent(_engine, path.fileSystemRepresentation) ? YES : NO; }
 
 - (void)setRecordPath:(NSString*)path { rayneo_engine_set_record_path(_engine, path != nil ? path.UTF8String : ""); }
 - (void)setReplayPath:(NSString*)path { rayneo_engine_set_replay_path(_engine, path != nil ? path.UTF8String : ""); }
