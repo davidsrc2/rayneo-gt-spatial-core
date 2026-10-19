@@ -89,6 +89,7 @@ typedef struct {
     float background_brightness;        /* 0..1 */
     char background_image[520];         /* UTF-8 path */
     bool vehicle_mode;                  /* a quarter of the head's heading followed (in a car) */
+    bool flat_wall;                     /* every panel in one plane, edge to edge (no gap / tilt / curvature) */
 } nimbo_options;
 
 NIMBO_API nimbo_options nimbo_default_options(void);
@@ -203,6 +204,7 @@ typedef struct {
     float background_brightness;  /* "backgroundBrightness" */
     char background_image[520];   /* "backgroundImage", UTF-8 */
     bool vehicle_mode;            /* "vehicleMode" */
+    bool flat_wall;               /* "flatWall" */
 } nimbo_settings;
 
 NIMBO_API nimbo_settings nimbo_default_settings(void);

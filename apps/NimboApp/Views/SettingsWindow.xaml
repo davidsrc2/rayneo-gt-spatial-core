@@ -84,6 +84,8 @@
                 <ToggleSwitch x:Name="DimToggle" Header="Atenuar los monitores que no miras" Toggled="Changed" />
                 <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
                            Text="Cada pantalla mide lo que la imagen de las gafas y queda quieta en la habitación: gira la cabeza para pasar de una a otra. Nimbo pone las gafas en follow y, al parar, las devuelve a pinned. Ctrl+Alt+C las vuelve a poner delante." />
+                <ToggleSwitch x:Name="FlatWallToggle" Toggled="Changed"
+                              Header="Pared plana continua: todas las pantallas en un mismo plano, rectas y pegadas borde con borde (desactivado: cada una girada hacia ti, con separación y curvatura)" />
                 <ToggleSwitch x:Name="VehicleToggle" Toggled="Changed"
                               Header="Modo vehículo (coche, tren, avión): las pantallas siguen solo una cuarta parte de los giros y acompañan las curvas del vehículo" />
                 <ToggleSwitch x:Name="AnchorToggle" Toggled="Changed"

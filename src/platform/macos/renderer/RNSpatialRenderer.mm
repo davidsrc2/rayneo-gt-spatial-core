@@ -97,6 +97,7 @@ struct Panel {
     float mesh_scale = 0.0f;
     float mesh_tilt = -1.0f;
     float mesh_zoom = 0.0f;
+    bool mesh_wall = false;
     float brightness = 1.0f;  // render thread: eased towards 1 (looked at) or dimOthers
 
     // AI 3D. Guarded by _sourceLock: the latest depth map, its range and whether it starts a scene.
@@ -133,6 +134,7 @@ struct Panel {
         _presentLateMs = 0.0f;
         _framePeriodMs = 1000.0f / 60;
         _sampleAgeMs = 0.0f;
+        _flatWall = YES;
         _supersample = 1;
         _dimOthers = 1.0f;
         _trackingAxes = 0;
@@ -155,6 +157,10 @@ struct Panel {
 static float panel_arc(RNRenderOptions* o) {
     return core::arc_at_distance(o.arcDegrees * kDegToRad, o.distanceMeters) * std::clamp(o.zoom, 0.2f, 4.0f);
 }
+
+// The flat wall (RNRenderOptions.flatWall): the space at real size and its overview; never in the
+// glasses' pinned mode, where the glasses anchor the image and the arrangement is fitted in it.
+static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; }
 
 @implementation RNSpatialRenderer {
     id<MTLCommandQueue> _queue;
@@ -495,9 +501,13 @@ static float panel_arc(RNRenderOptions* o) {
             w.push_back(panel_arc(o) * out[i].scale);
             h.push_back(core::panel_vertical_arc(w.back(), aspects[std::min<size_t>(i, kMaxPanels - 1)], true));
         }
-        core::separate_floating(out, w, h, count - floats, o.gapDegrees * kDegToRad);
+        core::separate_floating(out, w, h, count - floats, wall_mode(o) ? 0.0f : o.gapDegrees * kDegToRad);
     }
-    if (!o.staticHead) core::lift_placements(out, o.panelsPitchRadians);  // the recentre's elevation
+    if (wall_mode(o)) {
+        core::lift_wall(out, o.panelsPitchRadians);  // the recentre's elevation, rows still touching
+    } else if (!o.staticHead) {
+        core::lift_placements(out, o.panelsPitchRadians);
+    }
     // Cinema: the focused panel straight ahead, large (the others are not drawn), but never
     // larger than the glasses' image: at real size a panel nearly fills it already, and 1.6x
     // left the film cut on every side.
@@ -610,6 +620,7 @@ static float panel_arc(RNRenderOptions* o) {
         for (NSUInteger i = 0; i < count; ++i) cells.push_back({static_cast<int>(i), 0});
     }
     const float arc = panel_arc(o);
+    if (wall_mode(o)) return core::wall_grid_layout(cells, arc, aspect);  // one plane, edge to edge
     return core::grid_layout(cells, arc, core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
 }
 
@@ -703,8 +714,9 @@ static float panel_arc(RNRenderOptions* o) {
     const float arc = panel_arc(o);
     core::Quat head = core::track_axes(from_simd(orientation), static_cast<core::TrackingAxes>(o.trackingAxes));
     if (o.vehicleMode && !o.staticHead) head = core::scale_heading(head, core::kVehicleHeadingScale);
-    return core::panel_at_gaze(head, [self placements:self.panelCount aspect:aspect], arc,
-                               core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
+    const auto pls = [self placements:self.panelCount aspect:aspect];
+    if (wall_mode(o)) return core::panel_at_gaze_wall(head, pls, arc, aspect);
+    return core::panel_at_gaze(head, pls, arc, core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
 }
 
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pb {
@@ -809,19 +821,25 @@ static float effective_curvature(RNRenderOptions* o) {
     return o.curved && o.curvature <= 0.0f ? 1.0f : std::clamp(o.curvature, 0.0f, 1.0f);
 }
 
-- (void)rebuildMesh:(Panel&)p aspect:(float)aspect placement:(core::PanelPlacement)pl {
+- (void)rebuildMesh:(Panel&)p aspect:(float)aspect placement:(core::PanelPlacement)pl wall:(bool)wall {
     RNRenderOptions* o = _options;
     const float center = pl.yaw_rad;
-    const float k = [self fillingImage] ? 0.0f : effective_curvature(o);
+    const float k = [self fillingImage] || wall ? 0.0f : effective_curvature(o);
     if (p.vertices != nil && aspect == p.mesh_aspect && o.distanceMeters == p.mesh_distance &&
         o.arcDegrees == p.mesh_arc && center == p.mesh_center && pl.pitch_rad == p.mesh_pitch &&
-        k == p.mesh_curvature && pl.scale == p.mesh_scale && o.tilt == p.mesh_tilt && o.zoom == p.mesh_zoom) {
+        k == p.mesh_curvature && pl.scale == p.mesh_scale && o.tilt == p.mesh_tilt && o.zoom == p.mesh_zoom &&
+        wall == p.mesh_wall) {
         return;
     }
-    const float arc = panel_arc(o) * pl.scale;
-    const float width = core::panel_width(o.distanceMeters, arc, true);  // a sheet: bending keeps its width
-    core::ScreenMesh mesh = core::bent_screen_mesh(o.distanceMeters, arc, width / aspect, k > 0.0f ? 64 : 1, k, center);
-    core::place_pitched(mesh, pl.pitch_rad, o.tilt, o.distanceMeters);
+    core::ScreenMesh mesh;
+    if (wall) {  // flat wall: a plain rectangle in the shared plane, no rotation of its own
+        mesh = core::wall_panel_mesh(o.distanceMeters, panel_arc(o), aspect, pl);
+    } else {
+        const float arc = panel_arc(o) * pl.scale;
+        const float width = core::panel_width(o.distanceMeters, arc, true);  // a sheet: bending keeps its width
+        mesh = core::bent_screen_mesh(o.distanceMeters, arc, width / aspect, k > 0.0f ? 64 : 1, k, center);
+        core::place_pitched(mesh, pl.pitch_rad, o.tilt, o.distanceMeters);
+    }
     p.vertices = [_device newBufferWithBytes:mesh.vertices.data()
                                       length:mesh.vertices.size() * sizeof(core::ScreenVertex)
                                      options:MTLResourceStorageModeShared];
@@ -838,6 +856,7 @@ static float effective_curvature(RNRenderOptions* o) {
     p.mesh_scale = pl.scale;
     p.mesh_tilt = o.tilt;
     p.mesh_zoom = o.zoom;
+    p.mesh_wall = wall;
 }
 
 // Panels you are not looking at fade to dimOthers (core::PanelDimmer, shared with Windows).
@@ -851,8 +870,9 @@ static float effective_curvature(RNRenderOptions* o) {
     float dim = o.dimOthers;
     if (count > 1 && o.dimOthers < 1.0f) {
         const float arc = panel_arc(o);
-        gaze = core::panel_at_gaze(head, placements, arc, core::panel_vertical_arc(arc, aspect, true),
-                                   o.gapDegrees * kDegToRad);
+        gaze = wall_mode(o) ? core::panel_at_gaze_wall(head, placements, arc, aspect)
+                            : core::panel_at_gaze(head, placements, arc, core::panel_vertical_arc(arc, aspect, true),
+                                                  o.gapDegrees * kDegToRad);
     }
     // Glasses' pinned mode with a highlighted panel: the ones around it step back.
     if (o.staticHead && count > 1) {
@@ -989,7 +1009,11 @@ static float effective_curvature(RNRenderOptions* o) {
 
     // One layout for all panels (they share a size); per-panel aspect only shapes its mesh.
     const auto placements = [self placements:count aspect:aspects[0]];
-    for (NSUInteger i = 0; i < count; ++i) [self rebuildMesh:_panels[i] aspect:aspects[i] placement:placements[i]];
+    for (NSUInteger i = 0; i < count; ++i) {
+        // On the wall, but the cinema panel faces you wherever you looked when it opened.
+        const bool cinemaPanel = o.cinema && o.focusPanel == static_cast<NSInteger>(i);
+        [self rebuildMesh:_panels[i] aspect:aspects[i] placement:placements[i] wall:wall_mode(o) && !cinemaPanel];
+    }
 
     [self updateBrightness:count head:head aspect:aspects[0] placements:placements nowNs:targetHostNs];
 

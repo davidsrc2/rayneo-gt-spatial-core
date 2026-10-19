@@ -1530,7 +1530,7 @@ void test_settings_json() {
     CHECK(back->background == 5 && back->background_image == s.background_image && near(back->background_brightness, 0.4f, 1e-6f));
     CHECK(back->glasses_mode == 2 && back->brightness == 5);
     CHECK(near(back->tilt, 0.4f, 1e-6f) && back->anchor_at_rest && !back->mac_screen);
-    CHECK(near(settings_from_json("{}")->tilt, 1.0f, 1e-6f) && settings_from_json("{}")->mac_screen);
+    CHECK(near(settings_from_json("{}")->tilt, 0.0f, 1e-6f) && settings_from_json("{}")->mac_screen);  // flat wall: upright
     CHECK(back->depth3d && near(back->depth_strength, 0.02f, 1e-6f) && near(back->depth_plane, 0.5f, 1e-6f));
     CHECK(!settings_from_json("{}")->depth3d && near(settings_from_json("{}")->depth_strength, 0.03f, 1e-6f));
     CHECK(near(settings_from_json(R"({"depthStrength": 0.015})")->depth_strength, 0.03f, 1e-6f));  // first default moved
@@ -1541,7 +1541,7 @@ void test_settings_json() {
     const auto partial = settings_from_json(R"({"distance": 3, "unknown": {"a": [1, {"b": "}"}]}, "stereo": true})");
     CHECK(partial && near(partial->distance_m, 3.0f, 1e-6f) && partial->stereo && partial->cells.size() == 2);
     const auto wrong_type = settings_from_json(R"({"distance": "far", "ipd": 60})");
-    CHECK(wrong_type && near(wrong_type->distance_m, 2.0f, 1e-6f) && near(wrong_type->ipd_mm, 60.0f, 1e-6f));
+    CHECK(wrong_type && near(wrong_type->distance_m, 1.2f, 1e-6f) && near(wrong_type->ipd_mm, 60.0f, 1e-6f));
     const auto bad_cells = settings_from_json(R"({"layoutCells": [], "gap": 2})");
     CHECK(bad_cells && bad_cells->cells.size() == 2 && near(bad_cells->gap_deg, 2.0f, 1e-6f));
     CHECK(!settings_from_json("not json").has_value());
@@ -1836,6 +1836,50 @@ void test_vehicle_mode() {
     const auto back = settings_from_json(settings_to_json(st));
     CHECK(back && back->vehicle_mode);
     CHECK(settings_from_json("{}") && !settings_from_json("{}")->vehicle_mode);
+    // Flat wall by default (gap 0, upright rows, a closer plane), and it round-trips off.
+    const Settings def;
+    CHECK(def.flat_wall && def.gap_deg == 0.0f && def.tilt == 0.0f && def.distance_m < 2.0f);
+    st.flat_wall = false;
+    const auto off = settings_from_json(settings_to_json(st));
+    CHECK(off && !off->flat_wall);
+    CHECK(settings_from_json("{}")->flat_wall);
+}
+
+// Flat wall: one plane, one orientation, neighbours sharing their edges exactly.
+void test_wall_layout() {
+    const float d = 1.5f, arc = 38.0f * 0.0174533f, aspect = 16.0f / 9.0f;
+    const std::vector<GridCell> cells{{0, 0}, {1, 0}, {2, 0}, {1, 1}};
+    const auto pl = wall_grid_layout(cells, arc, aspect);
+    CHECK(pl.size() == 4 && near(pl[1].yaw_rad, 0.0f, 1e-6f));  // centre column straight ahead
+    std::vector<ScreenMesh> m;
+    for (const auto& p : pl) m.push_back(wall_panel_mesh(d, arc, aspect, p));
+    const float w = 2.0f * d * std::tan(arc * 0.5f), h = w / aspect;
+    for (const auto& mesh : m) {
+        CHECK(mesh.vertices.size() == 4);
+        for (const auto& v : mesh.vertices) CHECK(near(v.pz, d, 1e-5f));  // all in z = d
+    }
+    // X: -w, 0, +w; edges shared (left panel's right edge = centre panel's left edge).
+    CHECK(near(m[0].vertices[2].px, m[1].vertices[0].px, 1e-4f));
+    CHECK(near(m[1].vertices[2].px, m[2].vertices[0].px, 1e-4f));
+    CHECK(near(0.5f * (m[0].vertices[0].px + m[0].vertices[2].px), -w, 1e-4f));
+    CHECK(near(0.5f * (m[2].vertices[0].px + m[2].vertices[2].px), w, 1e-4f));
+    // Rows: the panel below touches the row above; same widths and heights everywhere.
+    CHECK(near(m[3].vertices[0].py, m[1].vertices[1].py, 1e-4f));
+    CHECK(near(m[0].vertices[0].py - m[0].vertices[1].py, h, 1e-4f));
+    CHECK(near(m[2].vertices[2].px - m[2].vertices[0].px, w, 1e-4f));
+    // Gaze: straight ahead hits the centre, slightly right of its edge the right panel.
+    CHECK(panel_at_gaze_wall(Quat{}, pl, arc, aspect) == 1);
+    const float edge = std::atan(0.5f * w / d);
+    // Turning right is about core Z negative (render X right): yaw just past the edge.
+    CHECK(panel_at_gaze_wall(Quat::from_axis_angle({0, 0, -1}, edge + 0.01f), pl, arc, aspect) == 2);
+    CHECK(panel_at_gaze_wall(Quat::from_axis_angle({0, 0, -1}, edge - 0.01f), pl, arc, aspect) == 1);
+    // Lifting keeps the rows touching.
+    auto lifted = pl;
+    lift_wall(lifted, 0.2f);
+    const auto a = wall_panel_mesh(d, arc, aspect, lifted[1]), b = wall_panel_mesh(d, arc, aspect, lifted[3]);
+    CHECK(near(b.vertices[0].py, a.vertices[1].py, 1e-4f));
+    const auto a0 = wall_panel_mesh(d, arc, aspect, pl[1]);  // the same panel, not lifted
+    CHECK(near(a.vertices[0].py - a0.vertices[0].py, d * std::tan(0.2f), 1e-4f));
 }
 
 int main() {
@@ -1925,6 +1969,7 @@ int main() {
     test_vqf_cold_rest_threshold();
     test_gyro_noise_monitor();
     test_vehicle_mode();
+    test_wall_layout();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

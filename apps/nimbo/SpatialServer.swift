@@ -423,6 +423,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         applyBackground(options, to: ro)
         ro.trackingAxes = options.trackingAxes
         ro.vehicleMode = options.vehicleMode
+        ro.flatWall = options.flatWall
         ro.depthStrength = options.depthStrength
         ro.depthConvergence = options.depthConvergence
         zoom = max(0.5, min(3, options.zoom))
@@ -910,6 +911,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         applyBackground(o, to: ro)
         ro.trackingAxes = o.trackingAxes
         ro.vehicleMode = o.vehicleMode
+        ro.flatWall = o.flatWall
         ro.depthStrength = o.depthStrength
         ro.depthConvergence = o.depthConvergence
         if let arc = o.arcDeg { ro.arcDegrees = arc }
@@ -932,6 +934,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.backgroundBrightness = o.backgroundBrightness
         options.trackingAxes = o.trackingAxes
         options.vehicleMode = o.vehicleMode
+        options.flatWall = o.flatWall
         options.panelPoses = o.panelPoses
         if let imu = pose as? ImuPoseSource {
             if o.glassesMode >= 0 && o.glassesMode != options.glassesMode { imu.setGlassesMode(o.glassesMode) }

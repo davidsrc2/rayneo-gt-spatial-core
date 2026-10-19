@@ -67,6 +67,7 @@ internal static unsafe class NimboNative
         public float BackgroundBrightness;
         public fixed byte BackgroundImage[520];  // UTF-8 path
         public byte VehicleMode;    // a quarter of the head's heading followed (in a car)
+        public byte FlatWall;       // every panel in one plane, edge to edge
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -135,6 +136,7 @@ internal static unsafe class NimboNative
         public float BackgroundBrightness;
         public fixed byte BackgroundImage[520];
         public byte VehicleMode;
+        public byte FlatWall;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -89,6 +89,8 @@ internal sealed unsafe class AppModel
     public bool AnchorAtRest { get => _s.AnchorAtRest != 0; set => _s.AnchorAtRest = B(value); }
     // In a car, train or plane: a quarter of the head's turns followed, the vehicle's turns carry the panels.
     public bool VehicleMode { get => _s.VehicleMode != 0; set => _s.VehicleMode = B(value); }
+    // Every panel in one plane, straight and edge to edge, like a wall of monitors.
+    public bool FlatWall { get => _s.FlatWall != 0; set => _s.FlatWall = B(value); }
     public bool LaptopScreen { get => _s.LaptopScreen != 0; set => _s.LaptopScreen = B(value); }
     // AI 3D in cinema mode: strength = parallax at the nearest depth (panel widths), plane = depth on the panel.
     public bool Depth3D { get => _s.Depth3D != 0; set => _s.Depth3D = B(value); }

@@ -69,6 +69,7 @@ final class AppModel: ObservableObject {
     @Published var glassesPinned: Bool { didSet { d.set(glassesPinned ? 1 : 0, forKey: "glassesMode") } }
     @Published var anchorAtRest: Bool { didSet { d.set(anchorAtRest, forKey: "anchorAtRest") } }  // panels frozen while the head is still
     @Published var vehicleMode: Bool { didSet { d.set(vehicleMode, forKey: "vehicleMode") } }  // a quarter of turns followed (in a car)
+    @Published var flatWall: Bool { didSet { d.set(flatWall, forKey: "flatWall") } }  // one plane, edge to edge
     @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
     // With the Mac's screen as panel 1, the virtual monitors at its exact resolution (the text
     // the same size on all of them) instead of the text size chosen.
@@ -94,10 +95,11 @@ final class AppModel: ObservableObject {
         floating = (Self.load([FloatingWindow].self, "floatingWindows") ?? [])
             .map { var w = $0; w.windowID = 0; return w }  // ids of an earlier session
         textSize = d.object(forKey: "textSize") as? Int ?? 3
-        distance = d.object(forKey: "distance") as? Double ?? 2.0
-        gap = d.object(forKey: "gap") as? Double ?? 1.0
+        distance = d.object(forKey: "distance") as? Double ?? 1.2
+        gap = d.object(forKey: "gap") as? Double ?? 0.0
         curvature = d.object(forKey: "curvature") as? Double ?? (d.bool(forKey: "curved") ? 1 : 0)
-        tilt = d.object(forKey: "tilt") as? Double ?? 1
+        tilt = d.object(forKey: "tilt") as? Double ?? 0
+        flatWall = d.object(forKey: "flatWall") as? Bool ?? true
         size = d.object(forKey: "size") as? Double ?? 38
         autoStart = d.bool(forKey: "autoStart")
         fov = d.object(forKey: "fovY") != nil ? Double(d.float(forKey: "fovY")) : 24.5
@@ -370,6 +372,7 @@ final class AppModel: ObservableObject {
         o.gatherWindows = gatherWindows
         o.trackingAxes = tracking
         o.vehicleMode = vehicleMode && !glassesPinned
+        o.flatWall = flatWall
         o.glassesPinned = glassesPinned
         o.recenterGlasses = glassesPinned
         // The two ways of seeing the panels set the glasses' mode themselves: pinned for one

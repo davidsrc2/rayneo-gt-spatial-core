@@ -181,6 +181,24 @@ float panel_vertical_arc(float arc_rad, float aspect, bool flat);
 std::vector<PanelPlacement> grid_layout(const std::vector<GridCell>& cells, float arc_rad, float vertical_arc_rad,
                                         float gap_rad);
 
+// Flat wall (edge to edge): every panel in one plane at the viewing distance, all with the same
+// orientation (facing straight back at the viewer, normal -Z: no yaw, pitch or roll of their
+// own, nothing turned towards the eye), touching their neighbours (no gap). A panel's
+// placement still says where its centre is as seen from the eye (yaw = atan(x / d), pitch =
+// atan(y / d)), so gaze, dimming and the layout editor keep working with angles; on the wall
+// its centre is (d tan yaw, d tan pitch, d), independent of d in proportion to the size.
+//
+// Grid on the wall: column c at x = (c - mid) w, row r at y = (mid - r) h, with w = 2 tan(arc / 2)
+// and h = w / aspect (in units of the distance), so neighbours share their edges exactly.
+std::vector<PanelPlacement> wall_grid_layout(const std::vector<GridCell>& cells, float arc_rad, float aspect);
+// The panel as a plain rectangle on the wall: width d * 2 tan(arc * scale / 2), height width /
+// aspect, centred at (d tan yaw, d tan pitch) in the plane z = d (render frame).
+ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const PanelPlacement& placement);
+// Panel of the wall the gaze ray meets (within its rectangle), or -1; arc_rad and aspect as above.
+int panel_at_gaze_wall(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad, float aspect);
+// The wall lifted to an elevation: y moved by tan(pitch_rad) (the rows stay edge to edge).
+void lift_wall(std::vector<PanelPlacement>& panels, float pitch_rad);
+
 // Rotates a mesh about the render X axis: pitch > 0 tilts it up.
 void pitch_mesh(ScreenMesh& mesh, float pitch_rad);
 

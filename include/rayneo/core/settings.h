@@ -15,8 +15,8 @@ struct Settings {
     std::vector<GridCell> cells = {{0, 0}, {1, 0}};  // "layoutCells": one cell per virtual monitor
     std::vector<PanelPose> panels;  // "panels": hand-placed position and size per monitor; empty = the grid
     int text_size = 3;           // "textSize": index into the app's text-size steps (0 = small text)
-    float distance_m = 2.0f;     // "distance"
-    float gap_deg = 1.0f;        // "gap"
+    float distance_m = 1.2f;     // "distance": the wall's plane (flat wall: no gap, no tilt, no curvature)
+    float gap_deg = 0.0f;        // "gap": edge to edge
     float curvature = 0.0f;      // "curvature": 0 flat .. 1 cylinder
     float size_deg = 38.0f;      // "size": panel width
     bool auto_start = false;     // "autoStart": start when the glasses connect
@@ -33,7 +33,7 @@ struct Settings {
     int glasses_mode = 0;        // "glassesMode": the glasses' own mode set by Nimbo: 0 follow, 1 pinned
                                  // (they anchor the image), 2 steady (reads the earlier "glassesPinned")
     int brightness = 0;          // "brightness": glasses' brightness 1..8 set by Nimbo; 0 = leave as is
-    float tilt = 1.0f;           // "tilt": panels above / below face you (1) .. stand upright (0)
+    float tilt = 0.0f;           // "tilt": panels above / below face you (1) .. stand upright (0)
     bool anchor_at_rest = false;  // "anchorAtRest": panels frozen while the head holds still
     bool mac_screen = true;      // "macScreen": the computer's own screen is panel 1 (laptop lid open)
     bool depth3d = false;        // "depth3D": cinema mode in depth from a depth map per frame (AI)
@@ -48,6 +48,7 @@ struct Settings {
     float k2 = 0.0f;             // "k2"
     bool onboarding_done = false;  // "onboardingDone"
     bool vehicle_mode = false;   // "vehicleMode": a quarter of the heading followed (core::kVehicleHeadingScale)
+    bool flat_wall = true;       // "flatWall": every panel in one plane, edge to edge (core::wall_grid_layout)
 };
 
 std::string settings_to_json(const Settings& s);

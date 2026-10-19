@@ -269,6 +269,57 @@ std::vector<PanelPlacement> grid_layout(const std::vector<GridCell>& cells, floa
     return out;
 }
 
+std::vector<PanelPlacement> wall_grid_layout(const std::vector<GridCell>& cells, float arc_rad, float aspect) {
+    std::vector<PanelPlacement> out;
+    if (cells.empty() || aspect <= 0.0f) return out;
+    int min_c = cells[0].col, max_c = cells[0].col, min_r = cells[0].row, max_r = cells[0].row;
+    for (const auto& c : cells) {
+        min_c = std::min(min_c, c.col);
+        max_c = std::max(max_c, c.col);
+        min_r = std::min(min_r, c.row);
+        max_r = std::max(max_r, c.row);
+    }
+    const float w = 2.0f * std::tan(arc_rad * 0.5f), h = w / aspect;  // per unit of distance
+    const float mid_c = 0.5f * static_cast<float>(min_c + max_c), mid_r = 0.5f * static_cast<float>(min_r + max_r);
+    out.reserve(cells.size());
+    for (const auto& c : cells) {
+        const float x = (static_cast<float>(c.col) - mid_c) * w;
+        const float y = (mid_r - static_cast<float>(c.row)) * h;
+        out.push_back({std::atan(x), std::atan(y), 1.0f});
+    }
+    return out;
+}
+
+ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const PanelPlacement& pl) {
+    ScreenMesh mesh;
+    if (aspect <= 0.0f || arc_rad <= 0.0f || arc_rad >= 3.0f) return mesh;
+    const float half_w = distance_m * std::tan(arc_rad * pl.scale * 0.5f), half_h = half_w / aspect;
+    const float cx = distance_m * std::tan(pl.yaw_rad), cy = distance_m * std::tan(pl.pitch_rad);
+    // Same plane z = d for every panel, no rotation: u left -> right, v top -> bottom.
+    mesh.vertices = {{cx - half_w, cy + half_h, distance_m, 0.0f, 0.0f}, {cx - half_w, cy - half_h, distance_m, 0.0f, 1.0f},
+                     {cx + half_w, cy + half_h, distance_m, 1.0f, 0.0f}, {cx + half_w, cy - half_h, distance_m, 1.0f, 1.0f}};
+    mesh.indices = {0, 2, 1, 1, 2, 3};
+    return mesh;
+}
+
+int panel_at_gaze_wall(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad, float aspect) {
+    const Vec3 f = render_rotation(head_rel).transform_point({0.0f, 0.0f, 1.0f});
+    if (f.z <= 1e-3f || aspect <= 0.0f) return -1;  // looking away from the wall
+    const float x = f.x / f.z, y = f.y / f.z;       // where the gaze meets the wall (units of d)
+    for (size_t i = 0; i < panels.size(); ++i) {
+        const float half_w = std::tan(arc_rad * panels[i].scale * 0.5f), half_h = half_w / aspect;
+        if (std::fabs(x - std::tan(panels[i].yaw_rad)) <= half_w && std::fabs(y - std::tan(panels[i].pitch_rad)) <= half_h) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void lift_wall(std::vector<PanelPlacement>& panels, float pitch_rad) {
+    const float dy = std::tan(pitch_rad);
+    for (auto& p : panels) p.pitch_rad = std::atan(std::tan(p.pitch_rad) + dy);
+}
+
 void pitch_mesh(ScreenMesh& mesh, float pitch_rad) {
     const float cp = std::cos(pitch_rad), sp = std::sin(pitch_rad);
     for (auto& v : mesh.vertices) {

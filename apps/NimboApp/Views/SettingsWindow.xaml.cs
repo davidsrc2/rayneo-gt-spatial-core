@@ -88,6 +88,7 @@ public sealed partial class SettingsWindow : Window
         AnchorToggle.IsOn = _model.AnchorAtRest;
         LaptopToggle.IsOn = _model.LaptopScreen;
         VehicleToggle.IsOn = _model.VehicleMode;
+        FlatWallToggle.IsOn = _model.FlatWall;
         GrowGazeToggle.IsOn = _model.GrowByGaze;
         FovSlider.Value = _model.Fov;
         IpdSlider.Value = _model.Ipd;
@@ -121,6 +122,7 @@ public sealed partial class SettingsWindow : Window
         _model.AnchorAtRest = AnchorToggle.IsOn;
         _model.LaptopScreen = LaptopToggle.IsOn;
         _model.VehicleMode = VehicleToggle.IsOn;
+        _model.FlatWall = FlatWallToggle.IsOn;
         _model.GrowByGaze = GrowGazeToggle.IsOn;
         _model.Fov = (float)FovSlider.Value;
         _model.Ipd = (float)IpdSlider.Value;

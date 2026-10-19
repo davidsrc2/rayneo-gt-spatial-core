@@ -208,6 +208,7 @@ std::string settings_to_json(const Settings& s) {
     put(out, "tilt", s.tilt);
     put(out, "anchorAtRest", s.anchor_at_rest);
     put(out, "vehicleMode", s.vehicle_mode);
+    put(out, "flatWall", s.flat_wall);
     put(out, "macScreen", s.mac_screen);
     put(out, "depth3D", s.depth3d);
     put(out, "depthStrength", s.depth_strength);
@@ -242,7 +243,7 @@ std::optional<Settings> settings_from_json(std::string_view json) {
     } bools[] = {{"autoStart", &s.auto_start},       {"stereo", &s.stereo},
                  {"gazeCursor", &s.gaze_cursor},     {"dimOthers", &s.dim_others},
                  {"gatherWindows", &s.gather_windows}, {"onboardingDone", &s.onboarding_done},
-                 {"anchorAtRest", &s.anchor_at_rest}, {"vehicleMode", &s.vehicle_mode}, {"macScreen", &s.mac_screen},
+                 {"anchorAtRest", &s.anchor_at_rest}, {"vehicleMode", &s.vehicle_mode}, {"flatWall", &s.flat_wall}, {"macScreen", &s.mac_screen},
                  {"depth3D", &s.depth3d},             {"growByGaze", &s.grow_by_gaze}};
     bool has_mode = false, legacy_pinned = false;
     bool has_tracking = false, legacy_yaw_only = true, has_legacy = false;

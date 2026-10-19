@@ -111,6 +111,7 @@ struct Options {
     float zoom = 1.0f;                     // every panel this much larger (shortcuts), as left last time
     bool grow_by_gaze = true;              // glasses' pinned mode: the panel looked at takes over (else mouse only)
     bool vehicle_mode = false;             // a quarter of the head's heading followed (core::scale_heading)
+    bool flat_wall = true;                 // every panel in one plane, edge to edge (core::wall_grid_layout)
     int background = 0;                    // around the panels (win::RenderOptions::background)
     float background_brightness = 0.6f;
     std::string background_image;          // UTF-8
@@ -178,6 +179,7 @@ Options from_c(const nimbo_options& c) {
     if (c.zoom > 0) o.zoom = std::clamp(c.zoom, 0.5f, 3.0f);
     o.grow_by_gaze = c.grow_by_gaze;
     o.vehicle_mode = c.vehicle_mode;
+    o.flat_wall = c.flat_wall;
     o.background = std::clamp(c.background, 0, 5);
     o.background_brightness = std::clamp(c.background_brightness, 0.0f, 1.0f);
     o.background_image.assign(c.background_image, strnlen(c.background_image, sizeof(c.background_image)));
@@ -1675,6 +1677,7 @@ void Server::apply_pinned(const Options& o) {
     if (o.glasses_pinned) ro.tracking_axes = core::TrackingAxes::Both;
     ro.tilt = o.tilt;
     ro.vehicle_mode = o.vehicle_mode && !o.glasses_pinned;
+    ro.flat_wall = o.flat_wall;
     ro.neck_model = !o.glasses_pinned && o.real_size;  // the eyes turn about the neck (core::view_matrix)
     // Space at real size (glasses in follow): every panel nearly as large as the glasses' own
     // image, fixed in the room on both axes. It fits both ways (a 16:10 laptop screen is taller
@@ -2765,6 +2768,8 @@ void Server::apply_pending() {
     opt_.depth3d = o->depth3d;
     opt_.grow_by_gaze = o->grow_by_gaze;
     opt_.vehicle_mode = o->vehicle_mode;
+    opt_.flat_wall = o->flat_wall;
+    renderer_.options.flat_wall = o->flat_wall;
     renderer_.options.vehicle_mode = o->vehicle_mode && !o->glasses_pinned;
     opt_.depth_strength = o->depth_strength;
     opt_.depth_plane = o->depth_plane;
@@ -2840,6 +2845,7 @@ core::Settings to_core(const nimbo_settings& c) {
     s.zoom = c.zoom > 0 ? c.zoom : 1.0f;
     s.grow_by_gaze = c.grow_by_gaze;
     s.vehicle_mode = c.vehicle_mode;
+    s.flat_wall = c.flat_wall;
     s.background = std::clamp(c.background, 0, 5);
     s.background_brightness = std::clamp(c.background_brightness, 0.0f, 1.0f);
     s.background_image.assign(c.background_image, strnlen(c.background_image, sizeof(c.background_image)));
@@ -2884,6 +2890,7 @@ nimbo_settings to_c(const core::Settings& s) {
     c.zoom = s.zoom;
     c.grow_by_gaze = s.grow_by_gaze;
     c.vehicle_mode = s.vehicle_mode;
+    c.flat_wall = s.flat_wall;
     c.background = s.background;
     c.background_brightness = s.background_brightness;
     copy_str(c.background_image, sizeof(c.background_image), s.background_image);
@@ -2918,8 +2925,8 @@ nimbo_options nimbo_default_options(void) {
     o.vd_width = 1920;
     o.vd_height = 1080;
     o.vd_scale = 150;
-    o.gap_deg = 1.0f;
-    o.distance_m = 2.0f;
+    o.gap_deg = 0.0f;     // flat wall: edge to edge
+    o.distance_m = 1.2f;
     o.gather_windows = true;
     o.gaze_cursor = true;
     o.dim_others = 1.0f;
@@ -2932,7 +2939,8 @@ nimbo_options nimbo_default_options(void) {
     o.hotkeys = true;
     o.tracking_axes = 1;
     o.glasses_mode = -1;
-    o.tilt = 1.0f;
+    o.tilt = 0.0f;
+    o.flat_wall = true;
     o.depth_strength = 0.03f;
     o.depth_plane = 0.35f;
     o.zoom = 1.0f;
@@ -3145,6 +3153,7 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     o.zoom = s.zoom;
     o.grow_by_gaze = s.grow_by_gaze;
     o.vehicle_mode = s.vehicle_mode;
+    o.flat_wall = s.flat_wall;
     o.background = s.background;
     o.background_brightness = s.background_brightness;
     copy_str(o.background_image, sizeof(o.background_image), s.background_image);
