@@ -1,5 +1,7 @@
 #pragma once
 
+#include <limits>
+
 #include "rayneo/core/types.h"
 
 namespace rayneo::core {
@@ -27,6 +29,12 @@ struct VqfConfig {
     float tau_acc_s = 3.0f;
     float rest_filter_tau_s = 0.1f;
     float rest_gyro_degs = 1.5f;
+    // A cold sensor is noisier: below cold_from_c the gyro's rest threshold grows linearly, up to
+    // (1 + cold_rest_extra) x at cold_from_c - cold_span_c and below, so the head still counts as
+    // resting (and the bias is learned) on a cold start. Off until set_temperature is called.
+    float cold_from_c = 30.0f;
+    float cold_span_c = 8.0f;
+    float cold_rest_extra = 1.0f;
     float rest_acc_mps2 = 0.5f;
     float rest_min_s = 0.2f;
     float bias_smooth_tau_s = 1.0f;
@@ -49,6 +57,10 @@ public:
     // The starting bias (deg/s), e.g. the startup calibration's or the temperature map's, and
     // how sure it is (standard deviation, deg/s; <= 0: bias_start_std_degs).
     void set_bias(const Vec3& bias_degs, float std_degs = 0.0f);
+    // The sensor's temperature now (C): scales the rest threshold (cold_*). NaN: unknown, unscaled.
+    void set_temperature(float temp_c) { temp_c_ = temp_c; }
+    // The gyro rest threshold in use (deg/s).
+    float rest_gyro_threshold() const;
 
     // Raw gyro (rad/s, bias not removed), accelerometer, seconds since the previous sample.
     void update(const Vec3& gyro_rads, const Vec3& accel, float dt);
@@ -74,6 +86,7 @@ private:
     void clip_bias();
     Vec3 gyr_slow_;               // gyro averaged over bias_smooth_tau_s
     float elapsed_s_ = 0.0f;
+    float temp_c_ = std::numeric_limits<float>::quiet_NaN();  // unknown
 };
 
 }  // namespace rayneo::core

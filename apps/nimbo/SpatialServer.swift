@@ -2369,6 +2369,17 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         fallbackThread = thread
     }
 
+    // A gyro far noisier than normal at rest (core/gyro_noise_monitor.h): the bias is learned
+    // badly and the panels drift. Usually the cable or the USB port (a hub): said once a run.
+    private var gyroNoiseWarned = false
+    private func warnIfGyroNoisy() {
+        guard !gyroNoiseWarned, let n = (pose as? ImuPoseSource)?.gyroNoise, n.noisy else { return }
+        gyroNoiseWarned = true
+        log(String(format: "imu: gyro noise %.2f deg/s at rest, far above normal (0.05-0.16): try another cable or USB port", n.degs))
+        flash("Mucho ruido en el sensor de las gafas\nPrueba otro cable o puerto USB", seconds: 6)
+        onNotice?("El sensor de las gafas tiene mucho ruido: prueba otro cable o puerto USB (sin hub)")
+    }
+
     // The IMU stream stalling and coming back (core/stream_watchdog.h): in the log only, no
     // message on the glasses; the displays stay as they are.
     private var stallsSeen: (resent: UInt64, recovered: UInt64) = (0, 0)
@@ -2437,11 +2448,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                    + String(format: " | gpu %.1f ms (wait %.1f)", renderer.takeGPUMeanMs(), s.gpuWaitN > 0 ? s.gpuWaitSum / Double(s.gpuWaitN) : 0) as NSString))
         adaptFrameLatency(s)
         logStreamStalls()
+        warnIfGyroNoisy()
         // Every 10 s: the gyro bias in use (a drift of the panels shows here as a bias that moves).
         biasLogSeconds += 1
         if biasLogSeconds >= 10, s.tracking, let b = (pose as? ImuPoseSource)?.gyroBias {
             biasLogSeconds = 0
-            log(String(format: "imu: gyro bias %.3f %.3f %.3f deg/s", b.x, b.y, b.z))
+            let noise = (pose as? ImuPoseSource)?.gyroNoise?.degs ?? 0
+            log(String(format: "imu: gyro bias %.3f %.3f %.3f deg/s (noise at rest %.2f)", b.x, b.y, b.z, noise))
         }
         if depthPanel >= 0 {
             let d = depth3D.takeStats()

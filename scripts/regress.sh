@@ -40,7 +40,12 @@ for rec in "${recs[@]}"; do
     read -r missed over latch presented < <(awk -F'|' '/^\| TRACK moving/ {gsub(/ /,""); print $4, $6, $11, $14}' "$out/$name.md")
     wobble=$(awk -F'|' '/^\| TRACK still/ {gsub(/ /,""); print $19}' "$out/$name.md")
     verdict=ok
-    check() { awk -v v="$1" -v m="$2" 'BEGIN { exit !(v == "–" || v + 0 <= m + 0) }' || { verdict=FAIL; fail=1; echo "  $name: $3 $1 > $2"; }; }
+    # No reading is a failure (the run did not draw: no glasses, a crash), "–" only when the
+    # table says there was nothing of that kind to measure.
+    check() {
+        if [[ -z "$1" ]]; then verdict=FAIL; fail=1; echo "  $name: no $3 (see $out/$name.out)"; return; fi
+        LC_ALL=C awk -v v="$1" -v m="$2" 'BEGIN { exit !(v == "–" || v + 0 <= m + 0) }' || { verdict=FAIL; fail=1; echo "  $name: $3 $1 > $2"; }
+    }
     check "$err" $MAX_PRED_ERR_DEG "prediction error"
     check "$missed" $MAX_MISSED_MOVING "missed/s moving"
     check "$over" $MAX_SECONDS_OVER_30 "seconds > 30 missed"

@@ -29,6 +29,8 @@
 - (BOOL)isTracking { return _p.tracking ? YES : NO; }
 - (BOOL)isStale { return _p.stale ? YES : NO; }
 - (float)panelsPitch { return _p.panels_pitch_rad; }
+- (float)gyroNoise { return _p.gyro_noise_degs; }
+- (BOOL)isGyroNoisy { return _p.gyro_noisy ? YES : NO; }
 
 @end
 

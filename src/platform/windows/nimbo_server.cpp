@@ -241,6 +241,8 @@ struct PoseSample {
     uint64_t host_ns = 0;
     bool tracking = false;
     float panels_pitch_rad = 0.0f;  // the panels lifted to the last recentre's elevation
+    float gyro_noise_degs = 0.0f;   // gyro white noise at rest (deg/s per axis)
+    bool gyro_noisy = false;        // far above normal: a poor cable or USB port
 };
 
 class PoseSource {
@@ -301,7 +303,8 @@ public:
     std::optional<PoseSample> latest() override {
         rayneo_pose p;
         if (!rayneo_engine_latest_pose(engine_, &p)) return std::nullopt;
-        return PoseSample{{p.qw, p.qx, p.qy, p.qz}, {p.wx, p.wy, p.wz}, p.host_time_ns, p.tracking, p.panels_pitch_rad};
+        return PoseSample{{p.qw, p.qx, p.qy, p.qz}, {p.wx, p.wy, p.wz}, p.host_time_ns, p.tracking, p.panels_pitch_rad,
+                          p.gyro_noise_degs, p.gyro_noisy};
     }
 
 private:
@@ -611,6 +614,7 @@ private:
     void collect_gpu_times();
     ComPtr<IDXGISwapChainMedia> swap_media_;  // how each frame was presented (composed or not)
     bool last_late_ = false;
+    bool gyro_noise_warned_ = false;  // said once a run (as macOS)
     uint64_t last_motion_ns_ = 0;  // the last frame drawn with the head moving
     uint64_t last_shown_ns_ = 0;  // scanout of the last frame statistics collected
     UINT last_shown_count_ = 0;
@@ -1448,6 +1452,16 @@ void Server::periodic() {
                 }
                 imu_retry_ns_ = now + 2000000000ull;  // the new stream gets a moment to start
             }
+        }
+    }
+
+    // A gyro far noisier than normal at rest: the bias is learned badly and the panels drift.
+    if (imu_ && !gyro_noise_warned_) {
+        if (const auto g = pose_->latest(); g && g->gyro_noisy) {
+            gyro_noise_warned_ = true;
+            logln("imu: gyro noise %.2f deg/s at rest, far above normal (0.05-0.16): try another cable or USB port",
+                  g->gyro_noise_degs);
+            flash(L"Mucho ruido en el sensor de las gafas\nPrueba otro cable o puerto USB", 6.0);
         }
     }
 

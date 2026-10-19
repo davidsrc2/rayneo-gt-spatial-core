@@ -9,6 +9,7 @@
 #include "rayneo/core/frame_skip.h"
 #include "rayneo/core/gt_protocol.h"
 #include "rayneo/core/gyro_bias_estimator.h"
+#include "rayneo/core/gyro_noise_monitor.h"
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/imu_pipeline.h"
 #include "rayneo/core/imu_recording.h"
@@ -1755,6 +1756,69 @@ void test_recenter_lifts_panels_to_gaze() {
     CHECK(near(pl[0].pitch_rad, -0.2f, 1e-6f) && near(pl[1].pitch_rad, 0.1f, 1e-6f) && near(pl[1].yaw_rad, 0.5f, 1e-6f));
 }
 
+// Cold sensor: the gyro rest threshold grows below 30 C (x2 at 22 C and below); warm or unknown
+// temperature: unchanged. A cold head resting with noise above the warm threshold still rests.
+void test_vqf_cold_rest_threshold() {
+    Vqf6D f;
+    CHECK(near(f.rest_gyro_threshold(), 1.5f, 1e-6f));  // temperature unknown
+    f.set_temperature(35.0f);
+    CHECK(near(f.rest_gyro_threshold(), 1.5f, 1e-6f));
+    f.set_temperature(26.0f);
+    CHECK(near(f.rest_gyro_threshold(), 2.25f, 1e-5f));
+    f.set_temperature(15.0f);
+    CHECK(near(f.rest_gyro_threshold(), 3.0f, 1e-5f));
+    // 2 deg/s of slow wander around the bias (low-passed it stays above 1.5): warm, no rest;
+    // cold, rest.
+    const float dt = kRefDt, d2r = 0.0174533f;
+    auto rests = [&](float temp) {
+        Vqf6D v;
+        v.initialize_from_accel({0, 0, 9.81f});
+        v.set_temperature(temp);
+        int rest = 0;
+        for (int i = 0; i < 457 * 4; ++i) {
+            const float w = 2.0f * std::sin(2.0f * 3.14159f * 0.5f * i * dt);
+            v.update(Vec3{w, 0, 0} * d2r, {0, 0, 9.81f}, dt);
+            rest += v.rest() ? 1 : 0;
+        }
+        return rest;
+    };
+    CHECK(rests(35.0f) < rests(18.0f));
+}
+
+void test_gyro_noise_monitor() {
+    const float dt = kRefDt;
+    uint64_t rng = 1;
+    auto noise = [&](float sigma) {  // roughly gaussian (sum of uniforms)
+        float s = 0;
+        for (int k = 0; k < 6; ++k) {
+            rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+            s += static_cast<float>(rng >> 40) / static_cast<float>(1 << 24) - 0.5f;
+        }
+        return s * sigma;  // 6 uniforms of var 1/12: sigma
+    };
+    // Normal sensor (0.1 deg/s per axis) at rest: measured close to it, not noisy.
+    GyroNoiseMonitor ok;
+    for (int i = 0; i < 457 * 12; ++i) ok.update(Vec3{0.4f + noise(0.1f), 0.4f + noise(0.1f), noise(0.1f)}, true, dt);
+    CHECK(ok.windows_measured() >= 5 && near(ok.noise_degs(), 0.1f, 0.03f) && !ok.noisy());
+    // 1 deg/s of white noise: noisy after 5 rest windows (10 s), not before.
+    GyroNoiseMonitor bad;
+    for (int i = 0; i < 457 * 8; ++i) bad.update(Vec3{noise(1.0f), noise(1.0f), noise(1.0f)}, true, dt);
+    CHECK(!bad.noisy());
+    for (int i = 0; i < 457 * 3; ++i) bad.update(Vec3{noise(1.0f), noise(1.0f), noise(1.0f)}, true, dt);
+    CHECK(bad.noisy());
+    // A slow turn (tremor, head motion) with normal noise is not white noise: never noisy.
+    GyroNoiseMonitor slow;
+    for (int i = 0; i < 457 * 12; ++i) {
+        const float w = 3.0f * std::sin(2.0f * 3.14159f * 2.0f * i * dt);
+        slow.update(Vec3{w + noise(0.1f), noise(0.1f), noise(0.1f)}, true, dt);
+    }
+    CHECK(!slow.noisy());
+    // Motion in a window: it does not count.
+    GyroNoiseMonitor moving;
+    for (int i = 0; i < 457 * 12; ++i) moving.update(Vec3{noise(1.0f), 0, 0}, i % 400 != 0, dt);
+    CHECK(moving.windows_measured() == 0);
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -1839,6 +1903,8 @@ int main() {
     test_fixed_prediction_horizon();
     test_stream_watchdog();
     test_recenter_lifts_panels_to_gaze();
+    test_vqf_cold_rest_threshold();
+    test_gyro_noise_monitor();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }

@@ -117,6 +117,10 @@ struct Pose {
     // recenter_pitch: the elevation (rad, up positive) the arrangement of panels is lifted to:
     // where the head looked at the last user recentre, eased in with the recentre's glide.
     float panels_pitch_rad = 0.0f;
+    // The gyro's white noise at rest (deg/s per axis, GyroNoiseMonitor) and whether it is far
+    // above normal (a poor cable or port: drift likely).
+    float gyro_noise_degs = 0.0f;
+    bool gyro_noisy = false;
 };
 
 }  // namespace rayneo::core

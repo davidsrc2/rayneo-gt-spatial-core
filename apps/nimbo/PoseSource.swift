@@ -51,6 +51,8 @@ final class ImuPoseSource: PoseSource {
     func setGlassesMode(_ mode: Int) { engine.setGlassesMode(mode) }
     func setGlassesBrightness(_ level: Int) { engine.setGlassesBrightness(level) }
     var gyroBias: simd_float3? { engine.latestPose()?.gyroBias }
+    // The gyro's white noise at rest (deg/s per axis) and whether it is far above normal.
+    var gyroNoise: (degs: Float, noisy: Bool)? { engine.latestPose().map { ($0.gyroNoise, $0.isGyroNoisy) } }
     // Stream stalls so far: stream-on resent / acknowledged / stalls ended, the last one (ms).
     var stalls: (resent: UInt64, acked: UInt64, recovered: UInt64, lastMs: Double) {
         var r: UInt64 = 0, a: UInt64 = 0, v: UInt64 = 0, ms = 0.0

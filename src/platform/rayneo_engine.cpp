@@ -188,6 +188,8 @@ void fusion_loop(rayneo_engine* e) {
             p.sequence = ++seq;
             p.tracking = pose->tracking;
             p.panels_pitch_rad = pose->panels_pitch_rad;
+            p.gyro_noise_degs = pose->gyro_noise_degs;
+            p.gyro_noisy = pose->gyro_noisy;
 
             std::lock_guard<std::mutex> lock(e->pose_mutex);
             e->latest = p;

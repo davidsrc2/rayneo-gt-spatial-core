@@ -18,6 +18,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly, getter=isTracking) BOOL tracking;
 @property(nonatomic, readonly, getter=isStale) BOOL stale;  // no sample for 0.5 s: held, not predicted
 @property(nonatomic, readonly) float panelsPitch;  // rad, up > 0: the last recentre's elevation
+@property(nonatomic, readonly) float gyroNoise;    // deg/s per axis, white noise at rest
+@property(nonatomic, readonly, getter=isGyroNoisy) BOOL gyroNoisy;  // far above normal (cable / port)
 @property(nonatomic, readonly) simd_float3 gyroBias;          // deg/s, sensor frame (diagnostics)
 @end
 

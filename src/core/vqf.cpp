@@ -49,6 +49,12 @@ void Vqf6D::set_bias(const Vec3& bias_degs, float std_degs) {
     bias_var_ = {s * s, s * s, s * s};
 }
 
+float Vqf6D::rest_gyro_threshold() const {
+    if (!(temp_c_ == temp_c_) || cfg_.cold_span_c <= 0.0f) return cfg_.rest_gyro_degs;
+    const float cold = std::clamp((cfg_.cold_from_c - temp_c_) / cfg_.cold_span_c, 0.0f, 1.0f);
+    return cfg_.rest_gyro_degs * (1.0f + cfg_.cold_rest_extra * cold);
+}
+
 void Vqf6D::clip_bias() {
     const float n = bias_.norm();
     if (n > cfg_.bias_clip_degs) bias_ = bias_ * (cfg_.bias_clip_degs / n);
@@ -74,7 +80,7 @@ void Vqf6D::update(const Vec3& gyro_rads, const Vec3& accel, float dt) {
     const float ar = lp_alpha(cfg_.rest_filter_tau_s, dt);
     gyr_lp_ = gyr_lp_ + (gyr_degs - gyr_lp_) * ar;
     acc_lp_ = acc_lp_ + (accel - acc_lp_) * ar;
-    const bool calm = (gyr_lp_ - bias_).norm() < cfg_.rest_gyro_degs && (accel - acc_lp_).norm() < cfg_.rest_acc_mps2;
+    const bool calm = (gyr_lp_ - bias_).norm() < rest_gyro_threshold() && (accel - acc_lp_).norm() < cfg_.rest_acc_mps2;
     rest_s_ = calm ? rest_s_ + dt : 0.0f;
     rest_ = rest_s_ >= cfg_.rest_min_s;
 

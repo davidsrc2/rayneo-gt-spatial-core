@@ -22,13 +22,14 @@ Quat heading_of(const Vec3& forward) {
 
 ImuPipeline::ImuPipeline(ImuPipelineConfig cfg)
     : cfg_(cfg), filter_(cfg.madgwick_beta), bias_(cfg.bias), stabilizer_(cfg.stabilizer), vqf_(cfg.vqf),
-      convergence_(cfg.bias_convergence) {}
+      convergence_(cfg.bias_convergence), noise_(cfg.gyro_noise) {}
 
 void ImuPipeline::reset() {
     filter_.reset();
     vqf_.reset();
     bias_.reset();
     convergence_.reset();
+    noise_.reset();
     bias_seeded_ = false;
     bias_settled_ = false;
     have_prev_tick_ = false;
@@ -115,7 +116,9 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
             attitude_init_ = true;
             attitude_s_ = 0.0f;
         } else if (dt > 0.0f && dt < cfg_.bias.gap_reset_s) {
+            vqf_.set_temperature(s.temp_c);
             vqf_.update(s.gyro_degs * kDegToRad, s.accel_mps2, dt);
+            noise_.update(s.gyro_degs, vqf_.rest(), dt);
             attitude_s_ += dt;
             if (!bias_settled_) {
                 convergence_.update(vqf_.bias_degs(), s.temp_c, vqf_.rest(), dt);
@@ -153,6 +156,8 @@ Pose ImuPipeline::process_sample(const ImuSample& s) {
     Pose p;
     p.absolute = cfg_.use_vqf ? vqf_.quaternion() : filter_.quaternion();
     p.tracking = bias_.tracking();
+    p.gyro_noise_degs = noise_.noise_degs();
+    p.gyro_noisy = noise_.noisy();
     if (cfg_.use_vqf && cfg_.hold_until_bias_settles && p.tracking) {
         p.tracking = attitude_init_ && (bias_seeded_ || bias_settled_ || attitude_s_ >= cfg_.bias_settle_max_s);
     }

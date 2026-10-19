@@ -7,6 +7,7 @@
 #include "rayneo/core/bias_convergence.h"
 #include "rayneo/core/bias_map.h"
 #include "rayneo/core/gyro_bias_estimator.h"
+#include "rayneo/core/gyro_noise_monitor.h"
 #include "rayneo/core/madgwick.h"
 #include "rayneo/core/pose_stabilizer.h"
 #include "rayneo/core/types.h"
@@ -34,6 +35,7 @@ struct ImuPipelineConfig {
     float bias_trend_std_degs = 0.15f;
     bool hold_until_bias_settles = false;
     BiasConvergenceConfig bias_convergence;
+    GyroNoiseConfig gyro_noise;
     float bias_settle_max_s = 12.0f;
     bool use_magnetometer = false;  // Off: desk/laptop interference spins yaw.
     bool stabilize = true;          // PoseStabilizer on `relative` and its angular velocity
@@ -137,6 +139,7 @@ private:
     Vqf6D vqf_;
     BiasMap bias_map_;
     BiasConvergence convergence_;
+    GyroNoiseMonitor noise_;
     bool bias_seeded_ = false;
     bool bias_settled_ = false;
 
