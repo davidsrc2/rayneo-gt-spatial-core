@@ -11,6 +11,10 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private let queue = DispatchQueue(label: "rayneo.capture", qos: .userInteractive)
     private let onFrame: (CVPixelBuffer) -> Void
     private(set) var frames: UInt64 = 0
+    var panel = -1                       // the panel it feeds (setInView), -1: none
+    private var baseFps = 60             // the rate it was started at
+    private var slowed = false           // main thread: captured at hiddenFps (out of view)
+    static let hiddenFps = 8
 
     init(onFrame: @escaping (CVPixelBuffer) -> Void) {
         self.onFrame = onFrame
@@ -67,6 +71,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             cfg.height = Int(crop.height * scale)
         }
         cfg.scalesToFit = true
+        baseFps = fps
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
         // The Mac's screen is Display P3: its pixels drawn as sRGB (the renderer's and the
@@ -81,6 +86,17 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         try await s.startCapture()
         stream = s
         return (cfg.width, cfg.height)
+    }
+
+    // A panel out of the glasses' image (and a quick turn away) is captured at hiddenFps: each
+    // frame captured is WindowServer and GPU work, and with four monitors most of them are out
+    // of view. Back in view, the full rate again. Main thread; the updates are issued in order.
+    func setInView(_ inView: Bool) {
+        guard let stream, let cfg = config, slowed == inView else { return }
+        slowed = !inView
+        let rate = inView ? baseFps : min(baseFps, Self.hiddenFps)
+        cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(rate))
+        stream.updateConfiguration(cfg) { _ in }
     }
 
     // A new crop for a display capture started with one (the window moved or was resized).
@@ -124,6 +140,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         cfg.width = Int(window.frame.width * scale)
         cfg.height = Int(window.frame.height * scale)
         cfg.scalesToFit = true
+        baseFps = fps
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
         // The Mac's screen is Display P3: its pixels drawn as sRGB (the renderer's and the

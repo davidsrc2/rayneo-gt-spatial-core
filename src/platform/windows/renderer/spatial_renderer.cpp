@@ -263,7 +263,7 @@ std::vector<core::PanelPlacement> SpatialRenderer::placements(float aspect) cons
             cells.clear();
             for (int i = 0; i < monitors; ++i) cells.push_back({i, 0});
         }
-        out = wall_mode() ? core::wall_grid_layout(cells, panel_arc(), aspect)  // one plane, edge to edge
+        out = wall_mode() ? core::wall_grid_layout(cells, panel_arc(), aspect)  // edge to edge, each panel square to the eye
                           : core::grid_layout(cells, panel_arc(), vertical_arc(aspect), options.gap_deg * kDegToRad);
     }
     std::vector<core::PanelPose> fl(floating_.begin(), floating_.begin() + floats);
@@ -493,7 +493,7 @@ float SpatialRenderer::fit_arc_deg(int columns) const {
 int SpatialRenderer::panel_at_gaze(const core::Quat& head) const {
     if (options.focus_panel >= 0 && options.focus_panel < count_) return options.focus_panel;
     const float aspect = panels_[0].aspect;
-    core::Quat h = core::track_axes(head, options.tracking_axes);
+    core::Quat h = core::track_axes(head, tracking_axes());
     if (options.vehicle_mode && !options.static_head) h = core::scale_heading(h, core::kVehicleHeadingScale);
     if (wall_mode()) return core::panel_at_gaze_wall(h, placements(aspect), panel_arc(), aspect, options.panels_pitch_rad);
     return core::panel_at_gaze(h, placements(aspect), panel_arc(), vertical_arc(aspect),
@@ -527,7 +527,7 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl, boo
         return;
     }
     core::ScreenMesh mesh;
-    if (wall) {  // flat wall: a plain rectangle in the shared plane, no rotation of its own
+    if (wall) {  // wall: a flat rectangle square to the eye
         mesh = core::wall_panel_mesh(options.distance_m, panel_arc(), p.aspect, pl, wall_pitch);
     } else {
         const float arc = panel_arc() * pl.scale;
@@ -943,7 +943,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         wp = core::without_roll(orientation, angular_velocity);  // PredXY: turning and nodding
     }
     core::Quat head = core::predict_orientation(orientation, wp, horizon_s);
-    head = core::track_axes(head, options.tracking_axes);
+    head = core::track_axes(head, tracking_axes());
     if (options.vehicle_mode && !options.static_head) head = core::scale_heading(head, core::kVehicleHeadingScale);
     // No horizon lock: the head's roll is compensated in full, so the panels stay level with the
     // floor when the head tilts (taking the roll out made them lean with the head). A diagonal

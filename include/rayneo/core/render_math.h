@@ -181,21 +181,20 @@ float panel_vertical_arc(float arc_rad, float aspect, bool flat);
 std::vector<PanelPlacement> grid_layout(const std::vector<GridCell>& cells, float arc_rad, float vertical_arc_rad,
                                         float gap_rad);
 
-// Flat wall (edge to edge): every panel in one plane at the viewing distance, all with the same
-// orientation (facing straight back at the viewer, normal -Z: no yaw, pitch or roll of their
-// own, nothing turned towards the eye), touching their neighbours (no gap). A panel's
-// placement still says where its centre is as seen from the eye (yaw = atan(x / d), pitch =
-// atan(y / d)), so gaze, dimming and the layout editor keep working with angles; on the wall
-// its centre is (d tan yaw, d tan pitch, d), independent of d in proportion to the size.
+// Wall (edge to edge, as RealWarp's flat screens): flat panels on a sphere about the eye at the
+// viewing distance, each square to the eye (turned to its column left / right, then its row
+// tilted up / down like a tilted cylinder), so the block curves towards you and every panel is
+// seen straight on. One panel's angle per column and per row: neighbours in a row share their
+// edges, and so do the centre column's; a side column's rows meet a little off, as on a sphere.
+// A panel's placement is its yaw and its row's pitch (the yawed panel turned about render X).
 //
-// Grid on the wall: column c at x = (c - mid) w, row r at y = (mid - r) h, with w = 2 tan(arc / 2)
-// and h = w / aspect (in units of the distance), so neighbours share their edges exactly.
+// Grid: column c at yaw (c - mid) arc, row r at pitch (mid - r) panel_vertical_arc(arc, aspect).
 std::vector<PanelPlacement> wall_grid_layout(const std::vector<GridCell>& cells, float arc_rad, float aspect);
-// The panel as a plain rectangle on the wall: width d * 2 tan(arc * scale / 2), height width /
-// aspect, centred at (d tan yaw, d tan pitch) in the plane z = d (render frame).
-// `wall_pitch_rad`: the whole wall turned up (> 0) or down about the eye to the recentre's
+// The flat panel square to the eye at its placement: width d * 2 tan(arc * scale / 2), height
+// width / aspect, its centre at distance d.
+// `wall_pitch_rad`: the whole block turned up (> 0) or down about the eye to the recentre's
 // elevation (Pose::panels_pitch_rad), so it faces the eye square there as it does straight
-// ahead. Lifted along its own plane instead, a wall recentred looking up or down was seen at
+// ahead. Lifted along its own surface instead, a wall recentred looking up or down was seen at
 // a slant (keystoned).
 ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const PanelPlacement& placement,
                            float wall_pitch_rad = 0.0f);
@@ -240,6 +239,12 @@ PanelPlacement gaze_placement(const Quat& head_rel);
 
 int panel_at_gaze(const Quat& head_rel, const std::vector<PanelPlacement>& panels, float arc_rad,
                   float vertical_arc_rad, float gap_rad);
+
+// Whether any part of a panel (its mesh's vertices, render frame) is within the view of `view`
+// (world -> eye) widened by `margin_rad` on every side. Panels out of it are captured slowly and
+// not mipmapped: with four monitors only one or two are in the glasses' image at once.
+bool panel_in_view(const ScreenVertex* vertices, size_t count, const Mat4& view, float fovy_rad, float aspect,
+                   float margin_rad);
 
 // Horizontal FOV from the vertical FOV and the perceived per-eye aspect.
 float horizontal_fov(float fovy_rad, float aspect);

@@ -57,7 +57,7 @@ struct SettingsView: View {
                 Text("Cada pantalla mide lo que la imagen de las gafas y queda quieta en la habitación: gira la cabeza para pasar de una a otra. Nimbo pone las gafas en follow y, al parar, las devuelve a pinned. ⌘⌥C las vuelve a poner delante.")
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 VStack(alignment: .leading, spacing: 6) {
-                    Toggle("Pared plana continua", isOn: $model.flatWall)
+                    Toggle("Pared continua", isOn: $model.flatWall)
                     Text("Todas las pantallas en un mismo plano, rectas y pegadas borde con borde, como un muro de monitores. Desactivado: cada pantalla girada hacia ti, con su separación, curvatura e inclinación.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     Toggle("Resaltar la pantalla que recibe el teclado", isOn: $model.keyHighlight)

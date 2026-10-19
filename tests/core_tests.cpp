@@ -1848,50 +1848,61 @@ void test_vehicle_mode() {
     CHECK(settings_from_json("{}")->flat_wall);
 }
 
-// Flat wall: one plane, one orientation, neighbours sharing their edges exactly.
+// Wall: flat panels square to the eye on a sphere, neighbours sharing their edges.
 void test_wall_layout() {
     const float d = 1.5f, arc = 38.0f * 0.0174533f, aspect = 16.0f / 9.0f;
     const std::vector<GridCell> cells{{0, 0}, {1, 0}, {2, 0}, {1, 1}};
     const auto pl = wall_grid_layout(cells, arc, aspect);
+    const float vert = panel_vertical_arc(arc, aspect, true);
     CHECK(pl.size() == 4 && near(pl[1].yaw_rad, 0.0f, 1e-6f));  // centre column straight ahead
+    CHECK(near(pl[0].yaw_rad, -arc, 1e-6f) && near(pl[2].yaw_rad, arc, 1e-6f));
+    CHECK(near(pl[1].pitch_rad - pl[3].pitch_rad, vert, 1e-6f));  // one row's angle apart
     std::vector<ScreenMesh> m;
     for (const auto& p : pl) m.push_back(wall_panel_mesh(d, arc, aspect, p));
     const float w = 2.0f * d * std::tan(arc * 0.5f), h = w / aspect;
-    for (const auto& mesh : m) {
-        CHECK(mesh.vertices.size() == 4);
-        for (const auto& v : mesh.vertices) CHECK(near(v.pz, d, 1e-5f));  // all in z = d
+    for (size_t i = 0; i < m.size(); ++i) {
+        CHECK(m[i].vertices.size() == 4);
+        // Square to the eye: every corner at depth d along the centre's direction.
+        const Vec3 c{std::sin(pl[i].yaw_rad), std::cos(pl[i].yaw_rad) * std::sin(pl[i].pitch_rad),
+                     std::cos(pl[i].yaw_rad) * std::cos(pl[i].pitch_rad)};
+        for (const auto& v : m[i].vertices) CHECK(near(v.px * c.x + v.py * c.y + v.pz * c.z, d, 1e-4f));
+        const auto& a = m[i].vertices;
+        CHECK(near(std::sqrt((a[2].px - a[0].px) * (a[2].px - a[0].px) + (a[2].py - a[0].py) * (a[2].py - a[0].py) +
+                             (a[2].pz - a[0].pz) * (a[2].pz - a[0].pz)), w, 1e-4f));
+        CHECK(near(std::sqrt((a[0].px - a[1].px) * (a[0].px - a[1].px) + (a[0].py - a[1].py) * (a[0].py - a[1].py) +
+                             (a[0].pz - a[1].pz) * (a[0].pz - a[1].pz)), h, 1e-4f));
     }
-    // X: -w, 0, +w; edges shared (left panel's right edge = centre panel's left edge).
-    CHECK(near(m[0].vertices[2].px, m[1].vertices[0].px, 1e-4f));
-    CHECK(near(m[1].vertices[2].px, m[2].vertices[0].px, 1e-4f));
-    CHECK(near(0.5f * (m[0].vertices[0].px + m[0].vertices[2].px), -w, 1e-4f));
-    CHECK(near(0.5f * (m[2].vertices[0].px + m[2].vertices[2].px), w, 1e-4f));
-    // Rows: the panel below touches the row above; same widths and heights everywhere.
-    CHECK(near(m[3].vertices[0].py, m[1].vertices[1].py, 1e-4f));
-    CHECK(near(m[0].vertices[0].py - m[0].vertices[1].py, h, 1e-4f));
-    CHECK(near(m[2].vertices[2].px - m[2].vertices[0].px, w, 1e-4f));
-    // Gaze: straight ahead hits the centre, slightly right of its edge the right panel.
+    // Edges shared: the left panel's right edge is the centre panel's left edge; the panel below
+    // hangs from the centre panel's bottom edge.
+    const auto same = [](const ScreenVertex& a, const ScreenVertex& b) {
+        return near(a.px, b.px, 1e-4f) && near(a.py, b.py, 1e-4f) && near(a.pz, b.pz, 1e-4f);
+    };
+    CHECK(same(m[0].vertices[2], m[1].vertices[0]) && same(m[0].vertices[3], m[1].vertices[1]));
+    CHECK(same(m[1].vertices[2], m[2].vertices[0]) && same(m[1].vertices[3], m[2].vertices[1]));
+    CHECK(same(m[3].vertices[0], m[1].vertices[1]) && same(m[3].vertices[2], m[1].vertices[3]));
+    // Gaze: straight ahead hits the centre; just either side of the shared edge (half an arc).
     CHECK(panel_at_gaze_wall(Quat{}, pl, arc, aspect) == 1);
-    const float edge = std::atan(0.5f * w / d);
+    const float edge = 0.5f * arc;
     // Turning right is about core Z negative (render X right): yaw just past the edge.
     CHECK(panel_at_gaze_wall(Quat::from_axis_angle({0, 0, -1}, edge + 0.01f), pl, arc, aspect) == 2);
     CHECK(panel_at_gaze_wall(Quat::from_axis_angle({0, 0, -1}, edge - 0.01f), pl, arc, aspect) == 1);
-    // Recentred looking up: the wall turns about the eye and faces the gaze square (every corner
-    // as far along it as straight ahead), the rows still touching, and that gaze finds the
-    // centre panel.
+    CHECK(panel_at_gaze_wall(Quat::from_axis_angle({0, 0, -1}, 1.5f * arc + 0.01f), pl, arc, aspect) == -1);
+    // Looking down just past the centre panel's bottom edge: the panel below.
+    CHECK(panel_at_gaze_wall(Quat::from_axis_angle({0, -1, 0}, pl[1].pitch_rad - 0.5f * vert - 0.01f), pl, arc, aspect) == 3);
+    // Recentred looking up: the block turns about the eye (every corner as far away as before),
+    // the rows still touching, and that gaze finds the same panel.
     const float up = 0.3f;
     const auto a = wall_panel_mesh(d, arc, aspect, pl[1], up), b = wall_panel_mesh(d, arc, aspect, pl[3], up);
-    const float gy = std::sin(up), gz = std::cos(up);
     const auto a0 = wall_panel_mesh(d, arc, aspect, pl[1]);
     for (size_t k = 0; k < 4; ++k) {
-        CHECK(near(a.vertices[k].py * gy + a.vertices[k].pz * gz, d, 1e-4f));
-        CHECK(near(std::hypot(a.vertices[k].py, a.vertices[k].pz), std::hypot(a0.vertices[k].py, a0.vertices[k].pz), 1e-4f));
+        const auto& v = a.vertices[k];
+        const auto& v0 = a0.vertices[k];
+        CHECK(near(std::sqrt(v.px * v.px + v.py * v.py + v.pz * v.pz), std::sqrt(v0.px * v0.px + v0.py * v0.py + v0.pz * v0.pz), 1e-4f));
     }
-    CHECK(near(b.vertices[0].py, a.vertices[1].py, 1e-4f) && near(b.vertices[0].pz, a.vertices[1].pz, 1e-4f));
-    // The grid's centre is the seam between its rows: a little above it, the top row's middle.
-    const Quat lookUp = Quat::from_axis_angle({0, -1, 0}, up + 0.1f);
+    CHECK(same(b.vertices[0], a.vertices[1]));
+    const Quat lookUp = Quat::from_axis_angle({0, -1, 0}, up + pl[1].pitch_rad);
     CHECK(panel_at_gaze_wall(lookUp, pl, arc, aspect, up) == 1);
-    CHECK(panel_at_gaze_wall(lookUp, pl, arc, aspect) == -1);  // the upright wall: above it
+    CHECK(panel_at_gaze_wall(lookUp, pl, arc, aspect) != 1);  // not recentred: the centre panel is lower
 }
 
 // Hand-placed monitors: their box's centre, whatever their order or sizes.

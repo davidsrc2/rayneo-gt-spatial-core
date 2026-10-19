@@ -51,8 +51,9 @@ struct RenderOptions {
     float cinema_pitch_rad = 0.0f;
     float panels_pitch_rad = 0.0f;  // the arrangement lifted to the recentre's elevation (up > 0)
     bool vehicle_mode = false;      // a quarter of the head's heading followed (core::scale_heading)
-    // Flat wall: every panel in one plane at distance_m, facing straight back, edge to edge (no
-    // gap, curvature or tilt; core::wall_grid_layout / wall_panel_mesh), as macOS.
+    // Wall: flat panels at distance_m, each square to the eye (as RealWarp's flat
+    // screens), edge to edge as one block curving towards you (no gap, curvature or tilt; core::wall_grid_layout / wall_panel_mesh), fixed in
+    // the room on every axis, as macOS.
     bool flat_wall = true;
     int key_panel = -1;  // the panel that gets the keyboard (foreground window), framed; -1 none
     float zoom = 1.0f;           // every panel this much larger (and the arrangement with them), 1 = off
@@ -164,6 +165,9 @@ private:
     std::vector<core::PanelPlacement> placements(float aspect) const;
     void rebuild_mesh(Panel& p, const core::PanelPlacement& pl, bool wall);
     bool wall_mode() const { return options.flat_wall && !options.static_head; }
+    // The wall is a poster in the room (as RealWarp, anchored to gravity): every head rotation
+    // moves it, so a brisk turn's bob or nod can not carry it up and down against the room.
+    core::TrackingAxes tracking_axes() const { return wall_mode() ? core::TrackingAxes::Both : options.tracking_axes; }
     void compose(Panel& p);
     // compose in two steps: the frame copied into the composite, then its mipmaps.
     bool compose_copy(Panel& p, ID3D11Texture2D* frame, int width, int height);

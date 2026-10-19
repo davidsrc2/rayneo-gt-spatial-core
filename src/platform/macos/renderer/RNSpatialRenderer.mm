@@ -6,6 +6,7 @@
 #import <QuartzCore/QuartzCore.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -72,6 +73,7 @@ simd_float4x4 to_simd(const core::Mat4& m) {
 core::Quat from_simd(simd_quatf q) { return core::Quat{q.vector.w, q.vector.x, q.vector.y, q.vector.z}; }
 
 constexpr NSUInteger kMaxPanels = 8;
+constexpr float kViewMarginRad = 0.30f;  // ~17 deg around the image: panels a quick turn away count as in view
 constexpr float kCinemaScale = 1.6f;  // cinema mode: the panel this much larger than a monitor
 constexpr double kGrowSeconds = 0.5;       // glasses' pinned mode: pan and zoom to another highlighted panel
 constexpr float kGrowDim = 0.45f;          // glasses' pinned mode: the panels around the highlighted one
@@ -163,6 +165,11 @@ static float panel_arc(RNRenderOptions* o) {
 // The flat wall (RNRenderOptions.flatWall): the space at real size and its overview; never in the
 // glasses' pinned mode, where the glasses anchor the image and the arrangement is fitted in it.
 static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; }
+// The wall is a poster in the room (as RealWarp, anchored to gravity): every head rotation moves
+// it, so a brisk turn's bob or nod can not carry it up and down against the room.
+static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
+    return wall_mode(o) ? core::TrackingAxes::Both : static_cast<core::TrackingAxes>(o.trackingAxes);
+}
 
 @implementation RNSpatialRenderer {
     id<MTLCommandQueue> _queue;
@@ -187,6 +194,7 @@ static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; 
     CVMetalTextureCacheRef _textureCache;
 
     os_unfair_lock _sourceLock;
+    std::atomic<NSUInteger> _visibleMask;  // render thread writes, the server reads (visiblePanelMask)
     Panel _panels[kMaxPanels];
     NSUInteger _panelCount;  // guarded by _sourceLock
     std::vector<core::GridCell> _cells;  // guarded by _sourceLock
@@ -251,6 +259,7 @@ static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; 
     _options = [RNRenderOptions new];
     _queue = [device newCommandQueue];
     _sourceLock = OS_UNFAIR_LOCK_INIT;
+    _visibleMask = ~NSUInteger{0};  // all in view until the first frame says otherwise
     _panelCount = 1;
     _cursorPanel = -1;
     _growPanel = -1;
@@ -647,7 +656,7 @@ static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; 
         for (NSUInteger i = 0; i < count; ++i) cells.push_back({static_cast<int>(i), 0});
     }
     const float arc = panel_arc(o);
-    if (wall_mode(o)) return core::wall_grid_layout(cells, arc, aspect);  // one plane, edge to edge
+    if (wall_mode(o)) return core::wall_grid_layout(cells, arc, aspect);  // edge to edge, each panel square to the eye
     return core::grid_layout(cells, arc, core::panel_vertical_arc(arc, aspect, true), o.gapDegrees * kDegToRad);
 }
 
@@ -739,7 +748,7 @@ static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; 
     const float aspect = _panels[0].aspect;
     os_unfair_lock_unlock(&_sourceLock);
     const float arc = panel_arc(o);
-    core::Quat head = core::track_axes(from_simd(orientation), static_cast<core::TrackingAxes>(o.trackingAxes));
+    core::Quat head = core::track_axes(from_simd(orientation), tracking_axes(o));
     if (o.vehicleMode && !o.staticHead) head = core::scale_heading(head, core::kVehicleHeadingScale);
     const auto pls = [self placements:self.panelCount aspect:aspect];
     if (wall_mode(o)) return core::panel_at_gaze_wall(head, pls, arc, aspect, o.panelsPitchRadians);
@@ -764,8 +773,10 @@ static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; 
     CVMetalTextureRef old = p.texture;
     p.texture = tex;
     p.dirty = true;
-    ++_sourceGeneration;
-    p.aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 16.0f / 9.0f;
+    const float aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 16.0f / 9.0f;
+    // Out of view nothing on the glasses changes: a still head keeps skipping frames.
+    if ((_visibleMask.load(std::memory_order_relaxed) & (NSUInteger{1} << panel)) != 0 || aspect != p.aspect) ++_sourceGeneration;
+    p.aspect = aspect;
     os_unfair_lock_unlock(&_sourceLock);
     if (old != nullptr) CFRelease(old);
 }
@@ -860,7 +871,7 @@ static float effective_curvature(RNRenderOptions* o) {
         return;
     }
     core::ScreenMesh mesh;
-    if (wall) {  // flat wall: a plain rectangle in the shared plane, no rotation of its own
+    if (wall) {  // wall: a flat rectangle square to the eye
         mesh = core::wall_panel_mesh(o.distanceMeters, panel_arc(o), aspect, pl, wallPitch);
     } else {
         const float arc = panel_arc(o) * pl.scale;
@@ -964,6 +975,10 @@ static float effective_curvature(RNRenderOptions* o) {
     return mean;
 }
 
+- (NSUInteger)visiblePanelMask {
+    return _visibleMask.load(std::memory_order_relaxed);
+}
+
 - (float)renderToDrawable:(id<CAMetalDrawable>)drawable
               orientation:(simd_quatf)orientation
           angularVelocity:(simd_float3)angularVelocity
@@ -998,7 +1013,7 @@ static float effective_curvature(RNRenderOptions* o) {
         wp = core::without_roll(from_simd(orientation), w);  // PredXY: turning and nodding
     }
     core::Quat head = core::predict_orientation(from_simd(orientation), wp, horizon_s);
-    head = core::track_axes(head, static_cast<core::TrackingAxes>(o.trackingAxes));
+    head = core::track_axes(head, tracking_axes(o));
     if (o.vehicleMode && !o.staticHead) head = core::scale_heading(head, core::kVehicleHeadingScale);
     if (o.staticHead) {  // the glasses' pinned mode moves the whole image: the panels stay put in it
         head = core::Quat{};
@@ -1021,8 +1036,9 @@ static float effective_curvature(RNRenderOptions* o) {
         if (textures[i] != nullptr) CFRetain(textures[i]);
         aspects[i] = p.aspect;
         depthRect[i] = p.depth_rect;
-        fresh[i] = p.dirty;
-        p.dirty = false;
+        // Out of view: the new frame waits (dirty) until the panel comes into view.
+        fresh[i] = p.dirty && (_visibleMask.load(std::memory_order_relaxed) & (NSUInteger{1} << i)) != 0;
+        if (fresh[i]) p.dirty = false;
         if (p.depth_dirty) {
             depthChanged[i] = true;
             depths[i] = p.depth;
@@ -1045,6 +1061,29 @@ static float effective_curvature(RNRenderOptions* o) {
     }
 
     [self updateBrightness:count head:head aspect:aspects[0] placements:placements nowNs:targetHostNs];
+
+    // Which panels the glasses show or are about to (a quick turn's worth of margin).
+    {
+        const float up = o.neckModel ? core::kNeckUpM : 0.0f, fwd = o.neckModel ? core::kNeckForwardM : 0.0f;
+        const core::Mat4 view = core::view_matrix(head, 0.0f, up, fwd);
+        NSUInteger mask = 0;
+        for (NSUInteger i = 0; i < count; ++i) {
+            const Panel& p = _panels[i];
+            const bool shown = o.focusPanel < 0 || static_cast<NSInteger>(i) == o.focusPanel;
+            if (shown && (p.vertices == nil ||
+                          core::panel_in_view(static_cast<const core::ScreenVertex*>(p.vertices.contents),
+                                              p.vertices.length / sizeof(core::ScreenVertex), view,
+                                              o.fovYDegrees * kDegToRad, o.eyeAspect, kViewMarginRad))) {
+                mask |= NSUInteger{1} << i;
+            }
+        }
+        const NSUInteger entered = mask & ~_visibleMask.exchange(mask, std::memory_order_relaxed);
+        if (entered != 0) {  // their waiting frames are drawn even if the head stops now
+            os_unfair_lock_lock(&_sourceLock);
+            ++_sourceGeneration;
+            os_unfair_lock_unlock(&_sourceLock);
+        }
+    }
 
     id<MTLTexture> target = drawable.texture;
     // Supersampling (space at real size): the eyes drawn larger, mipmapped down in the last pass.

@@ -45,8 +45,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) float panelsPitchRadians;
 // Vehicle mode: a quarter of the head's heading followed (core::scale_heading).
 @property(nonatomic) BOOL vehicleMode;
-// Flat wall: every panel in one plane at distanceMeters, facing straight back, edge to edge
-// (no gap, curvature or tilt; core::wall_grid_layout / wall_panel_mesh). Default YES.
+// Wall: flat panels at distanceMeters, each square to the eye (as RealWarp's flat
+// screens), edge to edge as one block curving towards you (no gap, curvature or tilt; core::wall_grid_layout / wall_panel_mesh), fixed
+// in the room on every axis. Default YES.
 @property(nonatomic) BOOL flatWall;
 // The panel that gets the keyboard (the front app's window), framed in the accent colour; -1 none.
 @property(nonatomic) NSInteger keyPanel;
@@ -143,6 +144,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 // GPU time of the last finished frame, ms (any thread).
 @property(atomic, readonly) double lastGPUMs;
+// Bit i set: panel i is in the glasses' image or about to be (core::panel_in_view, the last
+// frame's pose). The rest are not mipmapped until they come into view; the server slows their
+// captures.
+@property(atomic, readonly) NSUInteger visiblePanelMask;
 // Mean GPU time of the frames completed since the last call (ms; 0 without any).
 - (double)takeGPUMeanMs;
 

@@ -1161,6 +1161,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         for (i, w) in resolved.enumerated() {
             let panel = UInt(base + floatingCaptures.count)
             let cap = ScreenCapture { [weak self] pb in self?.deliver(pb, panel: Int(panel)) }
+            cap.panel = Int(panel)
             do {
                 // The window itself, not its part of its monitor: macOS drops other windows on a
                 // new monitor (the Terminal in front showed instead of the Safari picked).
@@ -1567,7 +1568,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         keyPanelTick += 1
         guard keyPanelTick % 8 == 0, let ro = renderer?.options else { return }
         var panel = -1
-        if options.keyHighlight, !options.glassesPinned, panelDisplays.count + floatingResolved.count > 1,
+        if !options.windowed,
            let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
            let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
            let w = list.first(where: { ($0[kCGWindowOwnerPID as String] as? pid_t) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }),
@@ -1578,8 +1579,12 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
                 panel = monitorPanels + f
             } else if let m = panelDisplays.firstIndex(where: { CGDisplayBounds($0).contains(center) }) {
                 panel = m
+            } else if pid != getpid() {  // never Nimbo's own surface
+                rescueStray(id, title: w[kCGWindowName as String] as? String ?? "",
+                            frame: CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0))
             }
         }
+        if !(options.keyHighlight && !options.glassesPinned && panelDisplays.count + floatingResolved.count > 1) { panel = -1 }
         if ro.keyPanel != panel {
             ro.keyPanel = panel
             renderer.invalidateSkippedFrame()
@@ -1587,7 +1592,43 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         }
     }
 
+    // The front window on no panel (the glasses' surface, a tucked-away screen, or full screen in a
+    // Space of its own there: a Terminal tab clicked slid to it and showed nothing): out of full
+    // screen first, then onto the panel you look at. At most every 3 s per window.
+    private var strayFixes: [CGWindowID: Date] = [:]
+    private func rescueStray(_ id: CGWindowID, title: String, frame: CGRect) {
+        guard id != 0, frame.width > 1, Date().timeIntervalSince(strayFixes[id] ?? .distantPast) > 3,
+              !panelDisplays.isEmpty else { return }
+        strayFixes[id] = Date()
+        if WindowGatherer.isFullScreen(windowID: id, title: title) {
+            WindowGatherer.exitFullScreen(windowID: id, title: title)
+            log("window: \(id) was full screen off the panels; full screen left")
+            return  // moved on the next check, once macOS has brought it out
+        }
+        let gaze = pose.latest().map { renderer.panel(atGaze: $0.orientation) } ?? 0
+        let display = panelDisplays[max(0, min(panelDisplays.count - 1, gaze))]
+        let area = Displays.visibleBounds(display) ?? CGDisplayBounds(display)
+        let size = CGSize(width: min(frame.width, area.width), height: min(frame.height, area.height))
+        let target = CGRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2, width: size.width, height: size.height)
+        if WindowGatherer.move(windowID: id, title: title, to: target) {
+            log("window: \(id) was off the panels; moved to panel \(panelDisplays.firstIndex(of: display).map { $0 + 1 } ?? 1)")
+        } else {
+            log("window: \(id) is off the panels and could not be moved")
+        }
+    }
+
+    // Captures of panels out of view slowed down (ScreenCapture.setInView), ~7 Hz.
+    private var inViewTick = 0
+    private func updateCapturesInView() {
+        inViewTick += 1
+        guard inViewTick % 4 == 0, let mask = renderer?.visiblePanelMask else { return }
+        for cap in captures + floatingCaptures where cap.panel >= 0 && cap.panel < UInt.bitWidth {
+            cap.setInView(mask & (UInt(1) << UInt(cap.panel)) != 0)
+        }
+    }
+
     private func followGaze() {
+        updateCapturesInView()
         updateKeyPanel()
         logCursorState()
         updateGrow()
@@ -2178,6 +2219,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         for (id, panel, exclude) in plan {
             let isVirtual = virtualIDs.contains(id)
             let cap = ScreenCapture { [weak self] pb in self?.deliver(pb, panel: panel) }
+            cap.panel = panel
             captures.append(cap)
             let renderWindow = CGWindowID(window.windowNumber)
             let (w, h) = try await cap.start(displayID: id, fps: fps, excludeOwnApp: exclude,
