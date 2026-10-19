@@ -54,6 +54,7 @@ struct RenderOptions {
     // Flat wall: every panel in one plane at distance_m, facing straight back, edge to edge (no
     // gap, curvature or tilt; core::wall_grid_layout / wall_panel_mesh), as macOS.
     bool flat_wall = true;
+    int key_panel = -1;  // the panel that gets the keyboard (foreground window), framed; -1 none
     float zoom = 1.0f;           // every panel this much larger (and the arrangement with them), 1 = off
     // AI 3D: this panel's frames go through the depth engine and it is drawn in depth when side
     // by side (-1: none).

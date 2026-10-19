@@ -19,8 +19,17 @@ cbuffer SceneUniforms : register(b0) {
 
 cbuffer PanelUniforms : register(b1) {
     float brightness;
-    float3 panel_pad;
+    float key_panel;  // 1: the panel that gets the keyboard (framed), as macOS
+    float2 panel_pad;
 };
+
+// A thin frame of accent colour along the panel's edges, 4 pixels of the eye image.
+float3 key_border(float3 c, float2 uv) {
+    if (key_panel < 0.5) return c;
+    float2 w = fwidth(uv);
+    float d = min(min(uv.x, 1.0 - uv.x) / max(w.x, 1e-6), min(uv.y, 1.0 - uv.y) / max(w.y, 1e-6));
+    return d < 4.0 ? lerp(c, float3(0.30, 0.62, 0.85), 0.85) : c;
+}
 
 cbuffer DistortUniforms : register(b2) {
     float k1;
@@ -49,7 +58,7 @@ VOut screen_vertex(ScreenVertex v) {
 float4 screen_fragment(VOut i) : SV_Target {
     // A slight bias towards the full-size level: a panel drawn a little smaller than its capture
     // blended in the half-size mipmap and softened the text.
-    return float4(source.SampleBias(samp, i.uv, -0.5).rgb * brightness, 1.0);
+    return float4(key_border(source.SampleBias(samp, i.uv, -0.5).rgb, i.uv) * brightness, 1.0);
 }
 
 // Pass 2: per-eye barrel pre-distortion into the back buffer viewport (half for SBS).
@@ -205,7 +214,7 @@ float4 screen_sharp_fragment(VOut i) : SV_Target {
     r += source.SampleLevel(samp, float2(c0.x, c3.y), lv).rgb * w0.x * w3.y;
     r += source.SampleLevel(samp, float2(c12.x, c3.y), lv).rgb * w12.x * w3.y;
     r += source.SampleLevel(samp, float2(c3.x, c3.y), lv).rgb * w3.x * w3.y;
-    return float4(max(r, 0.0) * brightness, 1.0);
+    return float4(key_border(max(r, 0.0), i.uv) * brightness, 1.0);
 }
 #endif  // NIMBO_SHARP
 

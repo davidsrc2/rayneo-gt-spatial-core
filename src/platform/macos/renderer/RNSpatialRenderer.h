@@ -48,6 +48,8 @@ NS_ASSUME_NONNULL_BEGIN
 // Flat wall: every panel in one plane at distanceMeters, facing straight back, edge to edge
 // (no gap, curvature or tilt; core::wall_grid_layout / wall_panel_mesh). Default YES.
 @property(nonatomic) BOOL flatWall;
+// The panel that gets the keyboard (the front app's window), framed in the accent colour; -1 none.
+@property(nonatomic) NSInteger keyPanel;
 @property(nonatomic) float zoom;             // every panel this much larger (and the arrangement with them), 1 = off
 // AI 3D: panels given a depth map (setSourcePixelBuffer:depth:...) are drawn in depth when side by side.
 @property(nonatomic) float depthStrength;    // parallax between the eyes at the nearest depth, in panel widths (0.03)

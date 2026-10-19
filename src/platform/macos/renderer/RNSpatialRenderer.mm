@@ -134,6 +134,7 @@ struct Panel {
         _presentLateMs = 0.0f;
         _framePeriodMs = 1000.0f / 60;
         _sampleAgeMs = 0.0f;
+        _keyPanel = -1;
         _flatWall = YES;
         _supersample = 1;
         _dimOthers = 1.0f;
@@ -1150,7 +1151,8 @@ static float effective_curvature(RNRenderOptions* o) {
                 [enc setFragmentTexture:p.smoothed[p.smoothed_index] atIndex:1];
                 [enc setFragmentSamplerState:_depthSampler atIndex:1];
             } else {
-                [enc setFragmentBytes:&p.brightness length:sizeof(float) atIndex:0];
+                const simd_float2 pu = {p.brightness, static_cast<NSInteger>(i) == o.keyPanel ? 1.0f : 0.0f};
+                [enc setFragmentBytes:&pu length:sizeof(pu) atIndex:0];
             }
             [enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                             indexCount:p.index_count
@@ -1175,10 +1177,10 @@ static float effective_curvature(RNRenderOptions* o) {
             [enc setRenderPipelineState:_screenPipeline];
             // Head-locked: straight ahead whatever the pose, slightly below the centre.
             SceneUniforms ou{to_simd(proj * core::view_matrix(core::Quat{}, offset))};
-            const float one = 1.0f;
+            const simd_float2 one = {1.0f, 0.0f};  // full brightness, no frame
             [enc setVertexBytes:&ou length:sizeof(ou) atIndex:1];
             [enc setVertexBuffer:_overlayVertices offset:0 atIndex:0];
-            [enc setFragmentBytes:&one length:sizeof(float) atIndex:0];
+            [enc setFragmentBytes:&one length:sizeof(one) atIndex:0];
             [enc setFragmentTexture:overlay atIndex:0];
             [enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                             indexCount:_overlayIndexCount

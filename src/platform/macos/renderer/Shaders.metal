@@ -28,14 +28,24 @@ vertex VOut screen_vertex(uint vid [[vertex_id]],
     return out;
 }
 
+// The panel that gets the keyboard: a thin frame of accent colour along its edges, 4 pixels of
+// the eye image whatever its size or distance (panel.y = 1 marks it).
+float3 key_border(float3 c, float2 uv, float on) {
+    if (on < 0.5) return c;
+    const float2 w = fwidth(uv);
+    const float d = min(min(uv.x, 1.0 - uv.x) / max(w.x, 1e-6), min(uv.y, 1.0 - uv.y) / max(w.y, 1e-6));
+    return d < 4.0 ? mix(c, float3(0.30, 0.62, 0.85), 0.85) : c;
+}
+
 // Textures are sRGB views: sampling, mipmaps and this brightness work on linear light.
+// panel: x brightness, y 1 for the panel that gets the keyboard.
 fragment float4 screen_fragment(VOut in [[stage_in]],
                                 texture2d<float> source [[texture(0)]],
                                 sampler s [[sampler(0)]],
-                                constant float& brightness [[buffer(0)]]) {
+                                constant float2& panel [[buffer(0)]]) {
     // A slight bias towards the full-size level: a panel drawn a little smaller than its capture
     // blended in the half-size mipmap and softened the text.
-    return float4(source.sample(s, in.uv, bias(-0.5)).rgb * brightness, 1.0);
+    return float4(key_border(source.sample(s, in.uv, bias(-0.5)).rgb, in.uv, panel.y) * panel.x, 1.0);
 }
 
 // The space at real size: bicubic Catmull-Rom (4x4 texels, 9 bilinear fetches) on the mipmap
@@ -57,7 +67,7 @@ fragment float4 cursor_fragment(VOut in [[stage_in]],
 fragment float4 screen_sharp_fragment(VOut in [[stage_in]],
                                       texture2d<float> source [[texture(0)]],
                                       sampler s [[sampler(0)]],
-                                      constant float& brightness [[buffer(0)]]) {
+                                      constant float2& panel [[buffer(0)]]) {
     const float top = float(source.get_num_mip_levels() - 1);
     const float lv = min(top, floor(max(0.0, source.calculate_clamped_lod(s, in.uv) - 0.5) + 0.5));
     const float2 size = float2(source.get_width(uint(lv)), source.get_height(uint(lv)));
@@ -80,7 +90,7 @@ fragment float4 screen_sharp_fragment(VOut in [[stage_in]],
     r += source.sample(s, float2(c0.x, c3.y), level(lv)).rgb * w0.x * w3.y;
     r += source.sample(s, float2(c12.x, c3.y), level(lv)).rgb * w12.x * w3.y;
     r += source.sample(s, float2(c3.x, c3.y), level(lv)).rgb * w3.x * w3.y;
-    return float4(max(r, 0.0) * brightness, 1.0);
+    return float4(key_border(max(r, 0.0), in.uv, panel.y) * panel.x, 1.0);
 }
 
 // AI 3D (cinema): a 2D video seen in depth. Each eye samples the frame shifted by a parallax

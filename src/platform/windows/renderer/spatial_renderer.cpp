@@ -25,7 +25,8 @@ struct SceneUniforms {
 };
 struct PanelUniforms {
     float brightness;
-    float pad[3];
+    float key_panel;  // 1: framed (gets the keyboard)
+    float pad[2];
 };
 struct DistortUniforms {
     float k1, k2, aspect, pad;
@@ -1054,7 +1055,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
             if (options.focus_panel >= 0 && i != options.focus_panel) continue;  // focus / cinema
             const Panel& p = panels_[i];
             if (!p.vertices || !p.indices) continue;
-            const PanelUniforms pu{p.brightness, {0, 0, 0}};
+            const PanelUniforms pu{p.brightness, i == options.key_panel ? 1.0f : 0.0f, {0, 0}};
             ctx_->UpdateSubresource(panel_cb_.Get(), 0, nullptr, &pu, 0, 0);
             const UINT stride = sizeof(core::ScreenVertex), offset0 = 0;
             ctx_->IASetVertexBuffers(0, 1, p.vertices.GetAddressOf(), &stride, &offset0);
@@ -1087,7 +1088,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
             SceneUniforms ou;
             std::memcpy(ou.view_projection, (proj * core::view_matrix(core::Quat{}, offset)).m, sizeof(ou.view_projection));
             ctx_->UpdateSubresource(scene_cb_.Get(), 0, nullptr, &ou, 0, 0);
-            const PanelUniforms pu{1.0f, {0, 0, 0}};
+            const PanelUniforms pu{1.0f, 0.0f, {0, 0}};
             ctx_->UpdateSubresource(panel_cb_.Get(), 0, nullptr, &pu, 0, 0);
             const UINT stride = sizeof(core::ScreenVertex), offset0 = 0;
             ctx_->IASetVertexBuffers(0, 1, overlay_vertices_.GetAddressOf(), &stride, &offset0);

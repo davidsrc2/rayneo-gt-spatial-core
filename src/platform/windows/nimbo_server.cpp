@@ -624,6 +624,8 @@ private:
     bool last_late_ = false;
     bool gyro_noise_warned_ = false;  // said once a run (as macOS)
     bool paused_off_ = false;         // glasses taken off: captures stopped until they move
+    int key_panel_tick_ = 0;
+    void update_key_panel();
     core::SupersamplePolicy supersample_policy_;  // 1 while frames go a refresh late, as macOS
     // Ctrl+Alt+F: the optics assistant (core/fov_tuner.h), as macOS.
     std::optional<core::FovTuner> optics_;
@@ -2488,7 +2490,35 @@ void Server::restore_glasses_mode() {
 // The cursor follows the panel you look at, keeping its relative position, once the mouse
 // has rested for a moment (the mouse wins). On the glasses surface it would be a second,
 // head-locked cursor: send it to the panel in view.
+// The panel that gets the keyboard (the foreground window: its own floating panel, or the
+// panel of the monitor it is on), framed on the glasses as macOS; every 8th gaze tick (~4 Hz).
+void Server::update_key_panel() {
+    if (++key_panel_tick_ % 8 != 0) return;
+    int panel = -1;
+    if (!opt_.glasses_pinned && monitor_panels_ + static_cast<int>(floating_hwnds_.size()) > 1) {
+        if (HWND fg = GetForegroundWindow(); fg != nullptr && fg != hwnd_) {
+            const auto it = std::find(floating_hwnds_.begin(), floating_hwnds_.end(), fg);
+            if (it != floating_hwnds_.end()) {
+                panel = monitor_panels_ + static_cast<int>(it - floating_hwnds_.begin());
+            } else if (HMONITOR mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONULL); mon != nullptr) {
+                MONITORINFOEXW mi{};
+                mi.cbSize = sizeof(mi);
+                if (GetMonitorInfoW(mon, &mi)) {
+                    for (size_t i = 0; i < panel_names_.size(); ++i) {
+                        if (panel_names_[i] == mi.szDevice) panel = static_cast<int>(i);
+                    }
+                }
+            }
+        }
+    }
+    if (renderer_.options.key_panel != panel) {
+        renderer_.options.key_panel = panel;
+        redraw_ = true;
+    }
+}
+
 void Server::follow_gaze(uint64_t now) {
+    update_key_panel();
     if (opt_.windowed || panel_rects_.empty()) return;
     // Mirrored glasses share a panel's area: there the cursor belongs where it is.
     for (const RECT& r : panel_rects_) {

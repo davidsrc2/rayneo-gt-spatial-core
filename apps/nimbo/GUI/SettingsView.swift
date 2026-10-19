@@ -40,6 +40,7 @@ struct SettingsView: View {
         .onChange(of: model.anchorAtRest) { server.settingsChanged() }
         .onChange(of: model.vehicleMode) { server.settingsChanged() }
         .onChange(of: model.flatWall) { server.settingsChanged() }
+        .onChange(of: model.keyHighlight) { server.settingsChanged() }
         .onChange(of: model.depthStrength) { server.settingsChanged() }
         .onChange(of: model.depthPlane) { server.settingsChanged() }
         .onChange(of: model.k1) { server.settingsChanged() }
@@ -74,6 +75,9 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("Pared plana continua", isOn: $model.flatWall)
                     Text("Todas las pantallas en un mismo plano, rectas y pegadas borde con borde, como un muro de monitores. Desactivado: cada pantalla girada hacia ti, con su separación, curvatura e inclinación.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                    Toggle("Resaltar la pantalla que recibe el teclado", isOn: $model.keyHighlight)
+                    Text("Un marco fino de color alrededor de la pantalla donde escribes (la ventana activa), para no escribir en la que no es.")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     Toggle("Modo vehículo", isOn: $model.vehicleMode)
                     Text("Para ir en coche, tren o avión: las pantallas siguen solo una cuarta parte de los giros, así acompañan las curvas del vehículo en vez de quedarse atrás. Mirar a los lados mueve menos las pantallas.")

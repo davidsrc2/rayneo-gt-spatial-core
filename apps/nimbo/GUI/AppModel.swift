@@ -70,6 +70,7 @@ final class AppModel: ObservableObject {
     @Published var anchorAtRest: Bool { didSet { d.set(anchorAtRest, forKey: "anchorAtRest") } }  // panels frozen while the head is still
     @Published var vehicleMode: Bool { didSet { d.set(vehicleMode, forKey: "vehicleMode") } }  // a quarter of turns followed (in a car)
     @Published var flatWall: Bool { didSet { d.set(flatWall, forKey: "flatWall") } }  // one plane, edge to edge
+    @Published var keyHighlight: Bool { didSet { d.set(keyHighlight, forKey: "keyHighlight") } }  // frame the keyboard's panel
     @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
     // With the Mac's screen as panel 1, the virtual monitors at its exact resolution (the text
     // the same size on all of them) instead of the text size chosen.
@@ -100,6 +101,7 @@ final class AppModel: ObservableObject {
         curvature = d.object(forKey: "curvature") as? Double ?? (d.bool(forKey: "curved") ? 1 : 0)
         tilt = d.object(forKey: "tilt") as? Double ?? 0
         flatWall = d.object(forKey: "flatWall") as? Bool ?? true
+        keyHighlight = d.object(forKey: "keyHighlight") as? Bool ?? true
         size = d.object(forKey: "size") as? Double ?? 38
         autoStart = d.bool(forKey: "autoStart")
         fov = d.object(forKey: "fovY") != nil ? Double(d.float(forKey: "fovY")) : 24.5
@@ -373,6 +375,7 @@ final class AppModel: ObservableObject {
         o.trackingAxes = tracking
         o.vehicleMode = vehicleMode && !glassesPinned
         o.flatWall = flatWall
+        o.keyHighlight = keyHighlight
         o.glassesPinned = glassesPinned
         o.recenterGlasses = glassesPinned
         // The two ways of seeing the panels set the glasses' mode themselves: pinned for one

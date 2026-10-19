@@ -936,6 +936,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         options.trackingAxes = o.trackingAxes
         options.vehicleMode = o.vehicleMode
         options.flatWall = o.flatWall
+        options.keyHighlight = o.keyHighlight
         options.panelPoses = o.panelPoses
         if let imu = pose as? ImuPoseSource {
             if o.glassesMode >= 0 && o.glassesMode != options.glassesMode { imu.setGlassesMode(o.glassesMode) }
@@ -1505,7 +1506,36 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // When the gaze moves to another panel, bring the cursor along, keeping its relative
     // position (the main display is invisible behind the glasses image otherwise).
+    // The panel that gets the keyboard: the front app's frontmost window, its monitor (or its own
+    // panel if it floats), framed on the glasses (RNRenderOptions.keyPanel). Every 8th gaze tick
+    // (~4 Hz): the window list is not free.
+    private var keyPanelTick = 0
+    private func updateKeyPanel() {
+        keyPanelTick += 1
+        guard keyPanelTick % 8 == 0, let ro = renderer?.options else { return }
+        var panel = -1
+        if options.keyHighlight, !options.glassesPinned, panelDisplays.count + floatingResolved.count > 1,
+           let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+           let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
+           let w = list.first(where: { ($0[kCGWindowOwnerPID as String] as? pid_t) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }),
+           let b = w[kCGWindowBounds as String] as? [String: CGFloat] {
+            let id = w[kCGWindowNumber as String] as? CGWindowID ?? 0
+            let center = CGPoint(x: (b["X"] ?? 0) + (b["Width"] ?? 0) / 2, y: (b["Y"] ?? 0) + (b["Height"] ?? 0) / 2)
+            if let f = floatingResolved.firstIndex(where: { $0.windowID == UInt32(id) }) {
+                panel = monitorPanels + f
+            } else if let m = panelDisplays.firstIndex(where: { CGDisplayBounds($0).contains(center) }) {
+                panel = m
+            }
+        }
+        if ro.keyPanel != panel {
+            ro.keyPanel = panel
+            renderer.invalidateSkippedFrame()
+            requestRedraw()
+        }
+    }
+
     private func followGaze() {
+        updateKeyPanel()
         logCursorState()
         updateGrow()
         // The glasses surface is head-locked: a cursor there would be a second, floating one.
