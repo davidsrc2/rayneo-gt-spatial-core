@@ -133,6 +133,7 @@ final class ServerController: ObservableObject {
     func toggle() { isRunning ? stop() : start() }
 
     func recenter() { server?.recenter() }
+    func startOpticsWizard() { server?.toggleOpticsWizard() }
     func toggleFocus(cinema: Bool) { server?.toggleFocus(cinema: cinema) }
     func toggleRecording() { server?.toggleRecording() }
     // A short message on the glasses (or a notification while Nimbo is stopped).

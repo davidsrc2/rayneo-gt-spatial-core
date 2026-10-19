@@ -28,6 +28,16 @@ float rayneo_latch_cap_ms(float frame_period_ms);
 /* Supersampling lowered to 1 while the glasses show frames a refresh late
  * (core/supersample_policy.h). Once a second: missed refreshes in it, the time (s), the factor
  * wanted; returns the factor to draw with. */
+/* The optics' field of view found from the wearer's answers (core/fov_tuner.h). */
+typedef struct {
+    float lo, hi, fov, step, min_step;
+    int last;
+    bool done;
+} rayneo_fov_tuner;
+void rayneo_fov_tuner_start(rayneo_fov_tuner* t, float start_fov, float lo, float hi);
+/* against_head: the panels drift against the head when turning (FOV too small). New FOV. */
+float rayneo_fov_tuner_answer(rayneo_fov_tuner* t, bool against_head);
+
 typedef struct rayneo_supersample rayneo_supersample;
 rayneo_supersample* rayneo_supersample_create(void);
 void rayneo_supersample_destroy(rayneo_supersample* p);

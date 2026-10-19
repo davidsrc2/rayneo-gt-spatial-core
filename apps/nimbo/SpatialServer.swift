@@ -855,7 +855,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         flashWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.overlayShown else { return }
-            self.renderer?.setOverlayText(nil)
+            self.renderer?.setOverlayText(self.opticsWizardText())  // the assistant's card, if open
             self.requestRedraw()
         }
         flashWork = work
@@ -1624,6 +1624,70 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: input
 
+    // ⌘⌥F: the optics assistant (core/fov_tuner.h). Turning the head slowly while looking at a
+    // panel's edge, the wearer answers with ⌘⌥⇧- (the panels drift WITH the head: FOV too large)
+    // or ⌘⌥⇧+ (AGAINST it: too small); each flip halves the step, done at 0.05 deg, saved.
+    // Space at real size only (the optics' range); outside it ⌘⌥⇧± keep their fixed steps.
+    private var opticsWizard: rayneo_fov_tuner?
+
+    func toggleOpticsWizard() {
+        guard options.realSize, !options.glassesPinned, let ro = renderer?.options else {
+            flash("Ajuste de la óptica: solo en el espacio a tamaño real")
+            return
+        }
+        if opticsWizard != nil {
+            finishOpticsWizard(early: true)
+            return
+        }
+        var t = rayneo_fov_tuner()
+        let r = NormalMode.opticalVFovRange
+        rayneo_fov_tuner_start(&t, ro.fovYDegrees, r.lowerBound, r.upperBound)
+        opticsWizard = t
+        log(String(format: "optics: assistant started at %.2f°", ro.fovYDegrees))
+        renderer.setOverlayText(opticsWizardText())
+        requestRedraw()
+    }
+
+    private func opticsWizardText() -> String? {
+        guard let t = opticsWizard else { return nil }
+        return String(format: "Ajuste de la óptica · %.2f°\nGira la cabeza despacio mirando el borde de una pantalla\n"
+                      + "Se mueve CON la cabeza: ⌘⌥⇧−   ·   EN CONTRA: ⌘⌥⇧+\nQuieta en su sitio: ⌘⌥F", t.fov)
+    }
+
+    private func fovKey(grow: Bool) {
+        guard var t = opticsWizard else {
+            adjustFov(grow ? 0.5 : -0.5)
+            return
+        }
+        let fov = rayneo_fov_tuner_answer(&t, grow)
+        opticsWizard = t
+        setOpticalFov(fov)
+        if t.done {
+            finishOpticsWizard(early: false)
+        } else {
+            renderer.setOverlayText(opticsWizardText())
+            requestRedraw()
+        }
+    }
+
+    private func finishOpticsWizard(early: Bool) {
+        guard let t = opticsWizard else { return }
+        opticsWizard = nil
+        setOpticalFov(t.fov)
+        renderer.setOverlayText(nil)
+        log(String(format: "optics: %@ at %.2f° (saved)", early ? "set by the wearer" : "found", t.fov))
+        flash(String(format: "Óptica ajustada: %.2f°", t.fov), seconds: 3)
+    }
+
+    private func setOpticalFov(_ fov: Float) {
+        guard let ro = renderer?.options else { return }
+        ro.fovYDegrees = fov
+        SettingsFile.shared.set(Double(fov), forKey: "opticalVFov")
+        options.fovYDeg = fov
+        onFovChanged?(fov)
+        requestRedraw()
+    }
+
     func adjustFov(_ delta: Float) {
         let ro = renderer.options
         if options.realSize && !options.glassesPinned {  // the optics' field of view, within its range
@@ -1958,8 +2022,9 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         reg(kVK_ANSI_0, "0") { [weak self] in self?.setZoom(1, message: "Zoom 100 %") }
         // Field-of-view tuning with the glasses on: if the panels drift WITH the head when
         // turning, the render FOV is too large (Cmd+Opt+Shift+-); against it, too small (+).
-        for key in minusKeys { regShift(key, "-") { [weak self] in self?.adjustFov(-0.5) } }
-        for key in plusKeys { regShift(key, "+") { [weak self] in self?.adjustFov(0.5) } }
+        for key in minusKeys { regShift(key, "-") { [weak self] in self?.fovKey(grow: false) } }
+        for key in plusKeys { regShift(key, "+") { [weak self] in self?.fovKey(grow: true) } }
+        reg(kVK_ANSI_F, "F") { [weak self] in self?.toggleOpticsWizard() }
         if let sim = pose as? SimPoseSource {
             let step: Float = 10
             hotKeys.register(keyCode: kVK_LeftArrow, modifiers: mods) { sim.nudge(yaw: step, pitch: 0) }

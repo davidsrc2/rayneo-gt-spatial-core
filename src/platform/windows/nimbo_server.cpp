@@ -34,6 +34,7 @@
 #include "displays.h"
 #include "rayneo/core/head_calibration.h"
 #include "rayneo/core/latch_controller.h"
+#include "rayneo/core/fov_tuner.h"
 #include "rayneo/core/supersample_policy.h"
 #include "rayneo/core/presets.h"
 #include "rayneo/core/settings.h"
@@ -395,7 +396,7 @@ constexpr UINT_PTR kRepinTimer = 1;  // recentre in the glasses' pinned mode: ba
 
 enum HotKey {
     kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema, kDepth3D,
-    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview, kVehicle
+    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview, kVehicle, kOptics
 };
 
 
@@ -624,6 +625,12 @@ private:
     bool gyro_noise_warned_ = false;  // said once a run (as macOS)
     bool paused_off_ = false;         // glasses taken off: captures stopped until they move
     core::SupersamplePolicy supersample_policy_;  // 1 while frames go a refresh late, as macOS
+    // Ctrl+Alt+F: the optics assistant (core/fov_tuner.h), as macOS.
+    std::optional<core::FovTuner> optics_;
+    void toggle_optics();
+    void optics_answer(bool against_head);
+    void finish_optics(bool early);
+    std::wstring optics_text() const;
     uint64_t last_motion_ns_ = 0;  // the last frame drawn with the head moving
     uint64_t last_shown_ns_ = 0;  // scanout of the last frame statistics collected
     UINT last_shown_count_ = 0;
@@ -1054,7 +1061,8 @@ bool Server::start() {
                              {kZoomReset, '0', "Ctrl+Alt+0"}, {kCodeMode, 'K', "Ctrl+Alt+K"},
                              {kOverview, 'A', "Ctrl+Alt+A"},
                              {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"},
-                             {kDepth3D, 'T', "Ctrl+Alt+T"}, {kVehicle, 'V', "Ctrl+Alt+V"}};
+                             {kDepth3D, 'T', "Ctrl+Alt+T"}, {kVehicle, 'V', "Ctrl+Alt+V"},
+                             {kOptics, 'F', "Ctrl+Alt+F"}};
     if (opt_.sim) {
         keys.push_back({kLeft, VK_LEFT, "Ctrl+Alt+Left"});
         keys.push_back({kRight, VK_RIGHT, "Ctrl+Alt+Right"});
@@ -1424,7 +1432,7 @@ void Server::periodic() {
         logln("wallpaper: copied to %d of %zu monitor(s) (again)", done, wallpaper_to_.size());
     }
     if (flash_until_ns_ != 0 && now >= flash_until_ns_ && !overlay_shown_) {
-        renderer_.set_overlay_text(L"");
+        renderer_.set_overlay_text(optics_text());  // the optics assistant's card, if open
         flash_until_ns_ = 0;
         redraw_ = true;
     }
@@ -2571,6 +2579,62 @@ void Server::adjust_fov(float delta) {
     logln("fov: %.1f deg (saved)", ro.fov_y_deg);
 }
 
+void Server::toggle_optics() {
+    if (!opt_.real_size || opt_.glasses_pinned) {
+        flash(L"Ajuste de la \u00f3ptica: solo en el espacio a tama\u00f1o real");
+        return;
+    }
+    if (optics_) {
+        finish_optics(true);
+        return;
+    }
+    core::FovTuner t;
+    t.start(renderer_.options.fov_y_deg, kOpticalVFovMin, kOpticalVFovMax);
+    optics_ = t;
+    logln("optics: assistant started at %.2f deg", t.fov);
+    renderer_.set_overlay_text(optics_text());
+    redraw_ = true;
+}
+
+std::wstring Server::optics_text() const {
+    if (!optics_) return L"";
+    wchar_t buf[320];
+    std::swprintf(buf, 320,
+                  L"Ajuste de la \u00f3ptica \u00b7 %.2f\u00b0\nGira la cabeza despacio mirando el borde de una pantalla\n"
+                  L"Se mueve CON la cabeza: Ctrl+Alt+Shift+-   \u00b7   EN CONTRA: Ctrl+Alt+Shift++\nQuieta en su sitio: Ctrl+Alt+F",
+                  optics_->fov);
+    return buf;
+}
+
+void Server::optics_answer(bool against_head) {
+    const float fov = optics_->answer(against_head);
+    renderer_.options.fov_y_deg = fov;
+    save_optical_fov(fov);
+    redraw_ = true;
+    if (optics_->done) {
+        finish_optics(false);
+    } else {
+        renderer_.set_overlay_text(optics_text());
+    }
+}
+
+void Server::finish_optics(bool early) {
+    const float fov = optics_->fov;
+    optics_.reset();
+    renderer_.options.fov_y_deg = fov;
+    save_optical_fov(fov);
+    {
+        std::lock_guard<std::mutex> lock(shared_mutex_);
+        status_.fov_y_deg = fov;
+    }
+    renderer_.set_overlay_text(L"");
+    redraw_ = true;
+    logln("optics: %s at %.2f deg (saved)", early ? "set by the wearer" : "found", fov);
+    wchar_t buf[64];
+    std::swprintf(buf, 64, L"\u00d3ptica ajustada: %.2f\u00b0", fov);
+    flash(buf, 3.0);
+}
+
 void Server::on_hotkey(int id) {
     constexpr float step = 10;
     switch (id) {
@@ -2593,8 +2657,15 @@ void Server::on_hotkey(int id) {
         break;
     // Field-of-view tuning with the glasses on: if the panel drifts WITH the head when
     // turning, the render FOV is too large (Ctrl+Alt+-); against it, too small (Ctrl+Alt+=).
-    case kFovDown: adjust_fov(-0.5f); break;
-    case kFovUp: adjust_fov(0.5f); break;
+    case kFovDown:
+        if (optics_) optics_answer(false);
+        else adjust_fov(-0.5f);
+        break;
+    case kFovUp:
+        if (optics_) optics_answer(true);
+        else adjust_fov(0.5f);
+        break;
+    case kOptics: toggle_optics(); break;
     case kLeft: pose_->nudge(step, 0); break;
     case kRight: pose_->nudge(-step, 0); break;
     case kUp: pose_->nudge(0, step); break;

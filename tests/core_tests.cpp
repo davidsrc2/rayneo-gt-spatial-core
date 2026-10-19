@@ -21,6 +21,7 @@
 #include "rayneo/core/vqf.h"
 #include "rayneo/core/wear_detector.h"
 #include "rayneo/core/supersample_policy.h"
+#include "rayneo/core/fov_tuner.h"
 #include "rayneo/core/bias_map.h"
 #include "rayneo/core/bias_convergence.h"
 #include "rayneo/core/presets.h"
@@ -1940,6 +1941,23 @@ void test_supersample_policy() {
     CHECK(one.update(100, 0, 1) == 1 && !one.lowered());  // nothing to lower
 }
 
+// A simulated wearer whose right FOV is 22.63: answers from what they would see; the tuner ends
+// within its final step of it, in a handful of answers, inside the range.
+void test_fov_tuner() {
+    for (const float truth : {22.63f, 23.71f, 22.25f}) {
+        FovTuner t;
+        t.start(23.0f, 22.2f, 23.8f);
+        int answers = 0;
+        while (!t.done && answers < 40) {
+            t.answer(t.fov < truth);  // too small: the panels drift against the head
+            ++answers;
+        }
+        CHECK(t.done && answers <= 16);
+        CHECK(std::fabs(t.fov - truth) <= 0.1f);
+        CHECK(t.fov >= 22.2f && t.fov <= 23.8f);
+    }
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -2030,6 +2048,7 @@ int main() {
     test_wall_layout();
     test_wear_detector();
     test_supersample_policy();
+    test_fov_tuner();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }
