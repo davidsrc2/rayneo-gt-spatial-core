@@ -73,6 +73,7 @@ final class ServerController: ObservableObject {
             guard let model = self?.model else { return }
             if model.glassesPinned { model.fov = Double(fov) } else { model.opticalVFov = Double(fov) }
         }
+        s.onVehicleModeChanged = { [weak self] on in self?.model?.vehicleMode = on }
         s.onNotice = { [weak self] text in self?.notifier.post("Nimbo", text) }
         // Setup takes a few seconds (display modes, virtual monitors); the panel stays live.
         let task = Task { @MainActor [weak self] in

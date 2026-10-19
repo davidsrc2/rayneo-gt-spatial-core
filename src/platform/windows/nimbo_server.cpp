@@ -393,7 +393,7 @@ constexpr UINT_PTR kRepinTimer = 1;  // recentre in the glasses' pinned mode: ba
 
 enum HotKey {
     kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema, kDepth3D,
-    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview
+    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview, kVehicle
 };
 
 
@@ -1050,7 +1050,7 @@ bool Server::start() {
                              {kZoomReset, '0', "Ctrl+Alt+0"}, {kCodeMode, 'K', "Ctrl+Alt+K"},
                              {kOverview, 'A', "Ctrl+Alt+A"},
                              {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"},
-                             {kDepth3D, 'T', "Ctrl+Alt+T"}};
+                             {kDepth3D, 'T', "Ctrl+Alt+T"}, {kVehicle, 'V', "Ctrl+Alt+V"}};
     if (opt_.sim) {
         keys.push_back({kLeft, VK_LEFT, "Ctrl+Alt+Left"});
         keys.push_back({kRight, VK_RIGHT, "Ctrl+Alt+Right"});
@@ -2575,6 +2575,18 @@ void Server::on_hotkey(int id) {
     case kZoomOutPad: zoom_step(-1); break;
     case kZoomReset: set_zoom(1.0f, L"Zoom 100 %"); break;
     case kOverview: toggle_overview(); break;
+    case kVehicle:  // vehicle mode on / off at once (a quarter of turns followed), as macOS
+        if (opt_.glasses_pinned) {
+            flash(L"Modo veh\u00edculo: no disponible\ncon las gafas en modo anclado");
+            break;
+        }
+        opt_.vehicle_mode = !opt_.vehicle_mode;
+        renderer_.options.vehicle_mode = opt_.vehicle_mode;
+        redraw_ = true;
+        logln("vehicle mode: %s", opt_.vehicle_mode ? "on (a quarter of turns followed)" : "off");
+        flash(opt_.vehicle_mode ? L"Modo veh\u00edculo activado\nLas pantallas acompa\u00f1an los giros"
+                                : L"Modo veh\u00edculo desactivado");
+        break;
     case kCodeMode:
         overview_ = false;
         code_mode_ = !code_mode_;

@@ -142,6 +142,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // GUI hooks. Without them (CLI) a stop request quits the process.
     var onStopRequest: ((String) -> Void)?
     var onFovChanged: ((Float) -> Void)?
+    var onVehicleModeChanged: ((Bool) -> Void)?  // ⌘⌥V: the Ajustes switch follows
     var onNotice: ((String) -> Void)?  // short messages for the user (a notification in the app)
     private(set) var isTracking = false
 
@@ -1836,6 +1837,22 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     // ⌘⌥K: the panels much closer (170 %, larger than the glasses' image if need be) or back.
+    // ⌘⌥V: vehicle mode on / off at once (a quarter of turns followed, core::scale_heading),
+    // remembered as the Ajustes switch.
+    func toggleVehicleMode() {
+        guard !options.glassesPinned, let ro = renderer?.options else {
+            flash("Modo vehículo: no disponible\ncon las gafas en modo anclado")
+            return
+        }
+        options.vehicleMode.toggle()
+        ro.vehicleMode = options.vehicleMode
+        renderer.invalidateSkippedFrame()
+        SettingsFile.shared.set(options.vehicleMode, forKey: "vehicleMode")
+        onVehicleModeChanged?(options.vehicleMode)
+        log("vehicle mode: " + (options.vehicleMode ? "on (a quarter of turns followed)" : "off"))
+        flash(options.vehicleMode ? "Modo vehículo activado\nLas pantallas acompañan los giros" : "Modo vehículo desactivado")
+    }
+
     func toggleCodeMode() {
         overview = false
         codeMode.toggle()
@@ -1934,6 +1951,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         reg(kVK_ANSI_T, "T") { [weak self] in self?.toggleDepth3D() }
         reg(kVK_ANSI_K, "K") { [weak self] in self?.toggleCodeMode() }
         reg(kVK_ANSI_A, "A") { [weak self] in self?.toggleOverview() }
+        reg(kVK_ANSI_V, "V") { [weak self] in self?.toggleVehicleMode() }
         // Zoom: every panel larger / smaller, the arrangement with them (closer / farther).
         for key in plusKeys { reg(key, "+") { [weak self] in self?.zoomStep(1) } }
         for key in minusKeys { reg(key, "-") { [weak self] in self?.zoomStep(-1) } }
