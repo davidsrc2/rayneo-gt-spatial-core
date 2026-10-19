@@ -199,6 +199,18 @@ int panel_at_gaze_wall(const Quat& head_rel, const std::vector<PanelPlacement>& 
 // The wall lifted to an elevation: y moved by tan(pitch_rad) (the rows stay edge to edge).
 void lift_wall(std::vector<PanelPlacement>& panels, float pitch_rad);
 
+// The message card on the glasses (start-up message, notices, assistants, shortcut help): 1400
+// px wide, a title line and any number of lines under it. Its height and each line's centre
+// (px from the top) and font size, the same on macOS and Windows; at most kOverlayMaxLines.
+inline constexpr int kOverlayCardWidth = 1400;
+inline constexpr int kOverlayMaxLines = 10;
+struct OverlayLine {
+    float center_y_px;
+    float font_px;
+};
+int overlay_card_height(int lines);
+OverlayLine overlay_line(int index, int lines);
+
 // Rotates a mesh about the render X axis: pitch > 0 tilts it up.
 void pitch_mesh(ScreenMesh& mesh, float pitch_rad);
 

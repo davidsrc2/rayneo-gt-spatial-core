@@ -402,7 +402,16 @@ void SpatialRenderer::set_overlay_text(const std::wstring& text) {
     if (text.empty()) return;
     // Dark card with white text, drawn with GDI into a 32-bit DIB (black would be see-through
     // on the glasses).
-    constexpr int w = 1400, h = 360;
+    // A title and any number of lines under it (core::overlay_line), as macOS.
+    std::vector<std::wstring> lines;
+    for (size_t start = 0;;) {
+        const size_t nl = text.find(L'\n', start);
+        lines.push_back(text.substr(start, nl == std::wstring::npos ? std::wstring::npos : nl - start));
+        if (nl == std::wstring::npos || static_cast<int>(lines.size()) == core::kOverlayMaxLines) break;
+        start = nl + 1;
+    }
+    const int n = static_cast<int>(lines.size());
+    const int w = core::kOverlayCardWidth, h = core::overlay_card_height(n);
     BITMAPINFO bi{};
     bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
     bi.bmiHeader.biWidth = w;
@@ -423,15 +432,15 @@ void SpatialRenderer::set_overlay_text(const std::wstring& text) {
     FillRect(dc, &all, bg);
     DeleteObject(bg);
     SetBkMode(dc, TRANSPARENT);
-    const size_t nl = text.find(L'\n');
-    const std::wstring lines[2] = {text.substr(0, nl), nl == std::wstring::npos ? L"" : text.substr(nl + 1)};
-    for (int i = 0; i < 2; ++i) {
-        HFONT font = CreateFontW(i == 0 ? 76 : 50, 0, 0, 0, i == 0 ? FW_SEMIBOLD : FW_NORMAL, FALSE, FALSE, FALSE,
+    for (int i = 0; i < n; ++i) {
+        const core::OverlayLine l = core::overlay_line(i, n);
+        HFONT font = CreateFontW(static_cast<int>(l.font_px), 0, 0, 0, i == 0 ? FW_SEMIBOLD : FW_NORMAL, FALSE, FALSE, FALSE,
                                  DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                  DEFAULT_PITCH, L"Segoe UI");
         HGDIOBJ oldFont = SelectObject(dc, font);
         SetTextColor(dc, i == 0 ? RGB(255, 255, 255) : RGB(190, 196, 200));
-        RECT r{0, i == 0 ? 70 : 200, w, i == 0 ? 170 : 280};
+        const int cy = static_cast<int>(l.center_y_px), half = static_cast<int>(l.font_px * 0.7f);
+        RECT r{0, cy - half, w, cy + half};
         DrawTextW(dc, lines[i].c_str(), static_cast<int>(lines[i].size()), &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         SelectObject(dc, oldFont);
         DeleteObject(font);
@@ -443,7 +452,10 @@ void SpatialRenderer::set_overlay_text(const std::wstring& text) {
     SelectObject(dc, old);
     DeleteObject(bmp);
     DeleteDC(dc);
-    if (!overlay_vertices_) {
+    if (!overlay_vertices_ || overlay_mesh_height_ != h) {
+        overlay_mesh_height_ = h;
+        overlay_vertices_.Reset();
+        overlay_indices_.Reset();
         // 20° wide card at 2 m, 4° below straight ahead, head-locked.
         core::ScreenMesh m =
             core::flat_screen_mesh(2.0f, 20.0f * kDegToRad, core::panel_width(2.0f, 20.0f * kDegToRad, true) * h / w, 1);

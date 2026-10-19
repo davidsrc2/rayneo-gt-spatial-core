@@ -194,6 +194,7 @@ static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; 
     id<MTLTexture> _placeholder;
     id<MTLTexture> _overlay;            // guarded by _sourceLock: start-up message, nil = none
     id<MTLBuffer> _overlayVertices;     // render thread
+    NSUInteger _overlayMeshHeight;      // render thread: the height its mesh was built for
     id<MTLBuffer> _overlayIndices;
     NSUInteger _overlayIndexCount;
     id<MTLTexture> _eyeTextures[2];
@@ -426,8 +427,11 @@ static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; 
 - (void)setOverlayText:(NSString*)text {
     id<MTLTexture> tex = nil;
     if (text.length > 0) {
-        // Dark rounded card with white text (black would be see-through on the glasses).
-        const size_t w = 1400, h = 360;
+        // Dark rounded card with white text (black would be see-through on the glasses); a title
+        // and any number of lines under it (core::overlay_line).
+        NSArray<NSString*>* lines = [text componentsSeparatedByString:@"\n"];
+        const int n = static_cast<int>(std::min<NSUInteger>(lines.count, core::kOverlayMaxLines));
+        const size_t w = core::kOverlayCardWidth, h = static_cast<size_t>(core::overlay_card_height(n));
         CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
         CGContextRef ctx = CGBitmapContextCreate(nullptr, w, h, 8, w * 4, cs,
                                                  kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
@@ -438,16 +442,17 @@ static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; 
         CGContextAddPath(ctx, card);
         CGContextFillPath(ctx);
         CGPathRelease(card);
-        NSArray<NSString*>* lines = [text componentsSeparatedByString:@"\n"];
-        for (NSUInteger i = 0; i < lines.count && i < 2; ++i) {
-            const CGFloat size = i == 0 ? 76 : 50;
+        for (int i = 0; i < n; ++i) {
+            const core::OverlayLine l = core::overlay_line(i, n);
+            const CGFloat size = l.font_px;
             CTFontRef font = CTFontCreateUIFontForLanguage(i == 0 ? kCTFontUIFontEmphasizedSystem : kCTFontUIFontSystem, size, nullptr);
             CGColorRef color = CGColorCreateSRGB(1, 1, 1, i == 0 ? 1.0 : 0.75);
             NSDictionary* attrs = @{(id)kCTFontAttributeName : (__bridge id)font, (id)kCTForegroundColorAttributeName : (__bridge id)color};
             CTLineRef line = CTLineCreateWithAttributedString(
                 (__bridge CFAttributedStringRef)[[NSAttributedString alloc] initWithString:lines[i] attributes:attrs]);
             const CGRect bounds = CTLineGetBoundsWithOptions(line, 0);
-            CGContextSetTextPosition(ctx, (w - bounds.size.width) / 2, i == 0 ? 200 : 90);
+            // Core Graphics counts from the bottom: the baseline a third of the size below the centre.
+            CGContextSetTextPosition(ctx, (w - bounds.size.width) / 2, h - l.center_y_px - 0.35 * size);
             CTLineDraw(line, ctx);
             CFRelease(line);
             CGColorRelease(color);
@@ -1063,10 +1068,12 @@ static float effective_curvature(RNRenderOptions* o) {
     os_unfair_lock_lock(&_sourceLock);
     id<MTLTexture> overlay = _overlay;
     os_unfair_lock_unlock(&_sourceLock);
-    if (overlay != nil && _overlayVertices == nil) {
-        // 20° wide card at 2 m, 4° below straight ahead.
+    if (overlay != nil && (_overlayVertices == nil || _overlayMeshHeight != overlay.height)) {
+        // 20° wide card at 2 m, 4° below straight ahead, as tall as its lines.
+        _overlayMeshHeight = overlay.height;
         core::ScreenMesh m = core::flat_screen_mesh(2.0f, 20.0f * kDegToRad,
-                                                    core::panel_width(2.0f, 20.0f * kDegToRad, true) * 360.0f / 1400.0f, 1);
+                                                    core::panel_width(2.0f, 20.0f * kDegToRad, true) *
+                                                        static_cast<float>(overlay.height) / static_cast<float>(overlay.width), 1);
         core::pitch_mesh(m, -4.0f * kDegToRad);
         _overlayVertices = [_device newBufferWithBytes:m.vertices.data()
                                                 length:m.vertices.size() * sizeof(core::ScreenVertex)

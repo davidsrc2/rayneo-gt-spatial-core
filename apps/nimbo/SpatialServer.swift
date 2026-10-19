@@ -1901,6 +1901,29 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     }
 
     // ⌘⌥K: the panels much closer (170 %, larger than the glasses' image if need be) or back.
+    // ⌘⌥H: every shortcut on a card in front of the eyes for 12 s (they are many and nothing
+    // else shows them while the glasses are on). The same key again hides it.
+    private var shortcutsShown = false
+    func showShortcuts() {
+        if shortcutsShown {
+            shortcutsShown = false
+            flashWork?.cancel()
+            renderer.setOverlayText(opticsWizardText())
+            requestRedraw()
+            return
+        }
+        shortcutsShown = true
+        flash(["Atajos de Nimbo",
+               "⌘⌥C recentrar   ·   ⌘⌥Q salir   ·   ⌘⌥N panel",
+               "⌘⌥+  ⌘⌥−  ⌘⌥0 zoom   ·   ⌘⌥A vista general",
+               "⌘⌥O enfocar   ·   ⌘⌥P cine   ·   ⌘⌥T 3D",
+               "⌘⌥K modo código   ·   ⌘⌥J cursor aquí",
+               "⌘⌥1  ⌘⌥2  ⌘⌥3 plantillas   ·   ⌘⌥G modo fijo",
+               "⌘⌥V vehículo   ·   ⌘⌥F óptica   ·   ⌘⌥R grabar",
+               "⌘⌥H cerrar esta ayuda"].joined(separator: "\n"), seconds: 12)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in self?.shortcutsShown = false }
+    }
+
     // ⌘⌥V: vehicle mode on / off at once (a quarter of turns followed, core::scale_heading),
     // remembered as the Ajustes switch.
     func toggleVehicleMode() {
@@ -2025,6 +2048,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         for key in minusKeys { regShift(key, "-") { [weak self] in self?.fovKey(grow: false) } }
         for key in plusKeys { regShift(key, "+") { [weak self] in self?.fovKey(grow: true) } }
         reg(kVK_ANSI_F, "F") { [weak self] in self?.toggleOpticsWizard() }
+        reg(kVK_ANSI_H, "H") { [weak self] in self?.showShortcuts() }
         if let sim = pose as? SimPoseSource {
             let step: Float = 10
             hotKeys.register(keyCode: kVK_LeftArrow, modifiers: mods) { sim.nudge(yaw: step, pitch: 0) }

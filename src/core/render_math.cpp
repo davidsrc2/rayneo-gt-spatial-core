@@ -320,6 +320,19 @@ void lift_wall(std::vector<PanelPlacement>& panels, float pitch_rad) {
     for (auto& p : panels) p.pitch_rad = std::atan(std::tan(p.pitch_rad) + dy);
 }
 
+int overlay_card_height(int lines) {
+    lines = std::clamp(lines, 1, kOverlayMaxLines);
+    if (lines <= 2) return 360;               // the start-up message's card, as it always was
+    return 210 + (lines - 2) * 64 + 80;       // title, then a line every 64 px
+}
+
+OverlayLine overlay_line(int index, int lines) {
+    lines = std::clamp(lines, 1, kOverlayMaxLines);
+    if (lines <= 2) return index == 0 ? OverlayLine{lines == 1 ? 180.0f : 120.0f, 76.0f} : OverlayLine{240.0f, 50.0f};
+    if (index == 0) return {100.0f, 72.0f};
+    return {210.0f + static_cast<float>(index - 1) * 64.0f, 44.0f};
+}
+
 void pitch_mesh(ScreenMesh& mesh, float pitch_rad) {
     const float cp = std::cos(pitch_rad), sp = std::sin(pitch_rad);
     for (auto& v : mesh.vertices) {

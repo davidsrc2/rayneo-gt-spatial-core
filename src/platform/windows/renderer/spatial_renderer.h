@@ -224,6 +224,7 @@ private:
     void load_background(const std::string& path);
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> overlay_;  // start-up message, null = none
     Microsoft::WRL::ComPtr<ID3D11Buffer> overlay_vertices_, overlay_indices_;
+    int overlay_mesh_height_ = 0;  // the card height (px) its mesh was built for
     UINT overlay_index_count_ = 0;
     uint64_t overlay_generation_ = 0;  // a new message must be drawn even with a still head
     Microsoft::WRL::ComPtr<ID3D11Texture2D> eye_tex_[2];

@@ -396,7 +396,7 @@ constexpr UINT_PTR kRepinTimer = 1;  // recentre in the glasses' pinned mode: ba
 
 enum HotKey {
     kRecenter = 1, kQuit, kFovDown, kFovUp, kLeft, kRight, kUp, kDown, kJump, kFocus, kCinema, kDepth3D,
-    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview, kVehicle, kOptics
+    kZoomIn, kZoomOut, kZoomReset, kCodeMode, kZoomInPad, kZoomOutPad, kOverview, kVehicle, kOptics, kHelp
 };
 
 
@@ -1062,7 +1062,7 @@ bool Server::start() {
                              {kOverview, 'A', "Ctrl+Alt+A"},
                              {kJump, 'J', "Ctrl+Alt+J"}, {kFocus, 'O', "Ctrl+Alt+O"}, {kCinema, 'P', "Ctrl+Alt+P"},
                              {kDepth3D, 'T', "Ctrl+Alt+T"}, {kVehicle, 'V', "Ctrl+Alt+V"},
-                             {kOptics, 'F', "Ctrl+Alt+F"}};
+                             {kOptics, 'F', "Ctrl+Alt+F"}, {kHelp, 'H', "Ctrl+Alt+H"}};
     if (opt_.sim) {
         keys.push_back({kLeft, VK_LEFT, "Ctrl+Alt+Left"});
         keys.push_back({kRight, VK_RIGHT, "Ctrl+Alt+Right"});
@@ -2666,6 +2666,16 @@ void Server::on_hotkey(int id) {
         else adjust_fov(0.5f);
         break;
     case kOptics: toggle_optics(); break;
+    case kHelp:  // every shortcut on a card for 12 s, as macOS
+        flash(L"Atajos de Nimbo\n"
+              L"Ctrl+Alt+C recentrar   \u00b7   Ctrl+Alt+Q salir\n"
+              L"Ctrl+Alt++  Ctrl+Alt+-  Ctrl+Alt+0 zoom   \u00b7   Ctrl+Alt+A vista general\n"
+              L"Ctrl+Alt+O enfocar   \u00b7   Ctrl+Alt+P cine   \u00b7   Ctrl+Alt+T 3D\n"
+              L"Ctrl+Alt+K modo c\u00f3digo   \u00b7   Ctrl+Alt+J cursor aqu\u00ed\n"
+              L"Ctrl+Alt+V veh\u00edculo   \u00b7   Ctrl+Alt+F \u00f3ptica\n"
+              L"Ctrl+Alt+Shift++ / - campo de visi\u00f3n   \u00b7   Ctrl+Alt+H esta ayuda",
+              12.0);
+        break;
     case kLeft: pose_->nudge(step, 0); break;
     case kRight: pose_->nudge(-step, 0); break;
     case kUp: pose_->nudge(0, step); break;

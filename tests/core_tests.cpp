@@ -1958,6 +1958,21 @@ void test_fov_tuner() {
     }
 }
 
+void test_overlay_card() {
+    CHECK(overlay_card_height(1) == 360 && overlay_card_height(2) == 360);
+    CHECK(near(overlay_line(0, 2).center_y_px, 120.0f, 1e-6f) && near(overlay_line(1, 2).center_y_px, 240.0f, 1e-6f));
+    for (int n = 3; n <= kOverlayMaxLines; ++n) {
+        const int h = overlay_card_height(n);
+        float last = 0.0f;
+        for (int i = 0; i < n; ++i) {
+            const auto l = overlay_line(i, n);
+            CHECK(l.center_y_px > last && l.center_y_px + 0.5f * l.font_px < h);  // in order, inside
+            last = l.center_y_px;
+        }
+    }
+    CHECK(overlay_card_height(50) == overlay_card_height(kOverlayMaxLines));
+}
+
 int main() {
     test_build_command();
     test_build_command_value();
@@ -2049,6 +2064,7 @@ int main() {
     test_wear_detector();
     test_supersample_policy();
     test_fov_tuner();
+    test_overlay_card();
     if (g_failures == 0) std::printf("all core tests passed\n");
     return g_failures == 0 ? 0 : 1;
 }
