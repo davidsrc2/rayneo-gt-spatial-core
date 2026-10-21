@@ -1922,13 +1922,14 @@ void test_vehicle_mode() {
     CHECK(settings_from_json("{}")->flat_wall);
 }
 
-// Wall: flat panels square to the eye on a sphere, neighbours sharing their edges.
+// Wall: every column one vertical plane at the viewing distance, its rows stacked upright edge to
+// edge; neighbours share their edges everywhere, a side column's rows too.
 void test_wall_layout() {
     const float d = 1.5f, arc = 38.0f * 0.0174533f, aspect = 16.0f / 9.0f;
-    const std::vector<GridCell> cells{{0, 0}, {1, 0}, {2, 0}, {1, 1}};
+    const std::vector<GridCell> cells{{0, 0}, {1, 0}, {2, 0}, {1, 1}, {2, 1}};
     const auto pl = wall_grid_layout(cells, arc, aspect);
     const float vert = panel_vertical_arc(arc, aspect, true);
-    CHECK(pl.size() == 4 && near(pl[1].yaw_rad, 0.0f, 1e-6f));  // centre column straight ahead
+    CHECK(pl.size() == 5 && near(pl[1].yaw_rad, 0.0f, 1e-6f));  // centre column straight ahead
     CHECK(near(pl[0].yaw_rad, -arc, 1e-6f) && near(pl[2].yaw_rad, arc, 1e-6f));
     CHECK(near(pl[1].pitch_rad - pl[3].pitch_rad, vert, 1e-6f));  // one row's angle apart
     std::vector<ScreenMesh> m;
@@ -1936,11 +1937,10 @@ void test_wall_layout() {
     const float w = 2.0f * d * std::tan(arc * 0.5f), h = w / aspect;
     for (size_t i = 0; i < m.size(); ++i) {
         CHECK(m[i].vertices.size() == 4);
-        // Square to the eye: every corner at depth d along the centre's direction.
-        const Vec3 c{std::sin(pl[i].yaw_rad), std::cos(pl[i].yaw_rad) * std::sin(pl[i].pitch_rad),
-                     std::cos(pl[i].yaw_rad) * std::cos(pl[i].pitch_rad)};
+        // In its column's vertical plane: every corner at depth d along the column's direction.
+        const Vec3 c{std::sin(pl[i].yaw_rad), 0.0f, std::cos(pl[i].yaw_rad)};
         for (const auto& v : m[i].vertices) CHECK(near(v.px * c.x + v.py * c.y + v.pz * c.z, d, 1e-4f));
-        const auto& a = m[i].vertices;
+    const auto& a = m[i].vertices;
         CHECK(near(std::sqrt((a[2].px - a[0].px) * (a[2].px - a[0].px) + (a[2].py - a[0].py) * (a[2].py - a[0].py) +
                              (a[2].pz - a[0].pz) * (a[2].pz - a[0].pz)), w, 1e-4f));
         CHECK(near(std::sqrt((a[0].px - a[1].px) * (a[0].px - a[1].px) + (a[0].py - a[1].py) * (a[0].py - a[1].py) +
@@ -1954,6 +1954,10 @@ void test_wall_layout() {
     CHECK(same(m[0].vertices[2], m[1].vertices[0]) && same(m[0].vertices[3], m[1].vertices[1]));
     CHECK(same(m[1].vertices[2], m[2].vertices[0]) && same(m[1].vertices[3], m[2].vertices[1]));
     CHECK(same(m[3].vertices[0], m[1].vertices[1]) && same(m[3].vertices[2], m[1].vertices[3]));
+    // A side column's rows: the lower one hangs from the upper one's bottom edge (on a sphere they
+    // met askew, the upper one seemingly laid over the wall), and it shares its left edge.
+    CHECK(same(m[4].vertices[0], m[2].vertices[1]) && same(m[4].vertices[2], m[2].vertices[3]));
+    CHECK(same(m[3].vertices[2], m[4].vertices[0]) && same(m[3].vertices[3], m[4].vertices[1]));
     // Gaze: straight ahead hits the centre; just either side of the shared edge (half an arc).
     CHECK(panel_at_gaze_wall(Quat{}, pl, arc, aspect) == 1);
     const float edge = 0.5f * arc;

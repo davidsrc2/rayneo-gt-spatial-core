@@ -289,15 +289,26 @@ std::vector<PanelPlacement> wall_grid_layout(const std::vector<GridCell>& cells,
     return out;
 }
 
+namespace {
+// Height on the wall (m, at the column's plane) of a placement's centre: its pitch in rows of the
+// common panel arc, each row one panel high (rows stacked edge to edge, upright).
+float wall_row_y(float distance_m, float arc_rad, float aspect, float pitch_rad) {
+    const float row = panel_vertical_arc(arc_rad, aspect, true);
+    return row > 0.0f ? (pitch_rad / row) * 2.0f * distance_m * std::tan(arc_rad * 0.5f) / aspect : 0.0f;
+}
+}  // namespace
+
 ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const PanelPlacement& pl, float wall_pitch_rad) {
     ScreenMesh mesh;
     if (aspect <= 0.0f || arc_rad <= 0.0f || arc_rad >= 3.0f) return mesh;
     const float half_w = distance_m * std::tan(arc_rad * pl.scale * 0.5f), half_h = half_w / aspect;
-    // Built straight ahead in z = d (u left -> right, v top -> bottom), turned to its yaw and then
-    // up to its row's pitch about the eye: flat, square to the eye, a row like a tilted cylinder
-    // (its panels keep sharing their edges).
-    mesh.vertices = {{-half_w, half_h, distance_m, 0.0f, 0.0f}, {-half_w, -half_h, distance_m, 0.0f, 1.0f},
-                     {half_w, half_h, distance_m, 1.0f, 0.0f}, {half_w, -half_h, distance_m, 1.0f, 1.0f}};
+    // Built straight ahead in z = d (u left -> right, v top -> bottom), raised to its row upright
+    // and turned to its column's yaw: every column one vertical plane, its rows stacked edge to
+    // edge like real monitors. (Pitched about the eye instead, a row above a side monitor came out
+    // askew and off its neighbours, as if laid over the wall.)
+    const float y = wall_row_y(distance_m, arc_rad, aspect, pl.pitch_rad);
+    mesh.vertices = {{-half_w, y + half_h, distance_m, 0.0f, 0.0f}, {-half_w, y - half_h, distance_m, 0.0f, 1.0f},
+                     {half_w, y + half_h, distance_m, 1.0f, 0.0f}, {half_w, y - half_h, distance_m, 1.0f, 1.0f}};
     mesh.indices = {0, 2, 1, 1, 2, 3};
     const float cs = std::cos(pl.yaw_rad), sn = std::sin(pl.yaw_rad);
     for (auto& v : mesh.vertices) {
@@ -305,7 +316,6 @@ ScreenMesh wall_panel_mesh(float distance_m, float arc_rad, float aspect, const 
         v.pz = -v.px * sn + v.pz * cs;
         v.px = x;
     }
-    pitch_mesh(mesh, pl.pitch_rad);
     if (wall_pitch_rad != 0.0f) pitch_mesh(mesh, wall_pitch_rad);  // the whole block turned about the eye
     return mesh;
 }
@@ -318,15 +328,16 @@ int panel_at_gaze_wall(const Quat& head_rel, const std::vector<PanelPlacement>& 
                           : head_rel;
     const Vec3 f = render_rotation(head).transform_point({0.0f, 0.0f, 1.0f});
     if (aspect <= 0.0f) return -1;
+    const float row_tan = std::tan(arc_rad * 0.5f) / aspect;  // a row's height / 2 over the distance
     for (size_t i = 0; i < panels.size(); ++i) {
-        // The gaze in the panel's own frame: its pitch, then its yaw, turned back.
-        const float cp = std::cos(panels[i].pitch_rad), sp = std::sin(panels[i].pitch_rad);
-        const float y = f.y * cp - f.z * sp, z0 = f.y * sp + f.z * cp;
+        // The gaze in the column's own frame (its yaw turned back), met on its plane z = 1.
         const float cy = std::cos(panels[i].yaw_rad), sy = std::sin(panels[i].yaw_rad);
-        const float x = f.x * cy - z0 * sy, z = f.x * sy + z0 * cy;
+        const float x = f.x * cy - f.z * sy, z = f.x * sy + f.z * cy;
         if (z <= 1e-3f) continue;
         const float half_w = std::tan(arc_rad * panels[i].scale * 0.5f), half_h = half_w / aspect;
-        if (std::fabs(x / z) <= half_w && std::fabs(y / z) <= half_h) return static_cast<int>(i);
+        const float row = panel_vertical_arc(arc_rad, aspect, true);
+        const float y0 = row > 0.0f ? (panels[i].pitch_rad / row) * 2.0f * row_tan : 0.0f;
+        if (std::fabs(x / z) <= half_w && std::fabs(f.y / z - y0) <= half_h) return static_cast<int>(i);
     }
     return -1;
 }

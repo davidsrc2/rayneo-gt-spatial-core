@@ -181,17 +181,16 @@ float panel_vertical_arc(float arc_rad, float aspect, bool flat);
 std::vector<PanelPlacement> grid_layout(const std::vector<GridCell>& cells, float arc_rad, float vertical_arc_rad,
                                         float gap_rad);
 
-// Wall (edge to edge, as RealWarp's flat screens): flat panels on a sphere about the eye at the
-// viewing distance, each square to the eye (turned to its column left / right, then its row
-// tilted up / down like a tilted cylinder), so the block curves towards you and every panel is
-// seen straight on. One panel's angle per column and per row: neighbours in a row share their
-// edges, and so do the centre column's; a side column's rows meet a little off, as on a sphere.
-// A panel's placement is its yaw and its row's pitch (the yawed panel turned about render X).
+// Wall (edge to edge, as RealWarp's flat screens): flat panels at the viewing distance, each
+// column one vertical plane square to the eye (turned to its column left / right), its rows
+// stacked upright edge to edge like real monitors; the block curves towards you across columns
+// only. Neighbours share their edges everywhere. A panel's placement is its column's yaw and its
+// row's pitch (rows of panel_vertical_arc: row r one panel height above or below).
 //
 // Grid: column c at yaw (c - mid) arc, row r at pitch (mid - r) panel_vertical_arc(arc, aspect).
 std::vector<PanelPlacement> wall_grid_layout(const std::vector<GridCell>& cells, float arc_rad, float aspect);
-// The flat panel square to the eye at its placement: width d * 2 tan(arc * scale / 2), height
-// width / aspect, its centre at distance d.
+// The flat panel at its placement: width d * 2 tan(arc * scale / 2), height width / aspect, in its
+// column's plane at distance d, raised by its rows.
 // `wall_pitch_rad`: the whole block turned up (> 0) or down about the eye to the recentre's
 // elevation (Pose::panels_pitch_rad), so it faces the eye square there as it does straight
 // ahead. Lifted along its own surface instead, a wall recentred looking up or down was seen at
