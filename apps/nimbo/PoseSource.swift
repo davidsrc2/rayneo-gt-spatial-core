@@ -45,6 +45,10 @@ final class ImuPoseSource: PoseSource {
         try engine.start()
     }
 
+    func reloadCalibration() {
+        _ = try? engine.loadCalibration(fromFile: calibrationPath)
+    }
+
     func stop() { engine.stop() }
     func recenter() { engine.recenter() }
     // The glasses' own display mode (0 follow, 1 pinned, 2 steady); pinned again = recentre its anchor.

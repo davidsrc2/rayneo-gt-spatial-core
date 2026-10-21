@@ -42,9 +42,16 @@ struct SettingsView: View {
             Text("Ajustes").font(Theme.title).foregroundStyle(Theme.text)
 
             Section(title: "Calibración") {
-                Text(model.hasCalibration ? "Tus gafas están calibradas." : "Aún no has calibrado tus gafas.")
+                Text(model.hasCalibration ? "Tus gafas están calibradas." : "Calibración de fábrica activa (RayNeo GT).")
                     .font(Theme.body).foregroundStyle(Theme.text)
-                Button("Volver a calibrar", action: onRecalibrate).buttonStyle(CalmButtonStyle())
+                HStack(spacing: 12) {
+                    Button("Volver a calibrar", action: onRecalibrate).buttonStyle(CalmButtonStyle())
+                    if model.hasCalibration {
+                        Button("Restablecer a fábrica") {
+                            model.resetToFactoryCalibration(server: server)
+                        }.buttonStyle(CalmButtonStyle())
+                    }
+                }
                 Button("Ajustar la óptica (⌘⌥L)") { server.startOpticsWizard() }.buttonStyle(CalmButtonStyle())
                     .disabled(server.state == .stopped)
                 Text("Con Nimbo en marcha y las gafas puestas: gira la cabeza despacio mirando el borde de una pantalla y responde si se mueve con la cabeza (⌘⌥⇧−) o en contra (⌘⌥⇧+). En unos 20 s las pantallas quedan quietas al girar.")

@@ -77,4 +77,8 @@ std::string calibration_to_json(const Quat& sensor_to_head);
 // Accepts the format written by calibration_to_json; rejects non-unit quaternions.
 std::optional<Quat> calibration_from_json(std::string_view json);
 
+// The RayNeo GT's IMU sits turned ~108 deg in the frame (a unit's calibration, 2026-10):
+// the physical factory mounting for RayNeo Air 2 / GT glasses.
+inline constexpr Quat kRayNeoGtMounting{0.5876073f, 0.3887766f, -0.3985811f, -0.5871146f};
+
 }  // namespace rayneo::core

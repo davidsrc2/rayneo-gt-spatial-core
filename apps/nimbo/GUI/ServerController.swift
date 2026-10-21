@@ -147,6 +147,7 @@ final class ServerController: ObservableObject {
     func toggle() { isRunning ? stop() : start() }
 
     func recenter() { server?.recenter() }
+    func reloadCalibration() { server?.reloadCalibration() }
     func startOpticsWizard() { server?.toggleOpticsWizard() }
 
     // "Enviar informe": the zip in Downloads, then a new mail with it (or Finder showing it).

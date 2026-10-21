@@ -281,12 +281,6 @@ public:
         rayneo_engine_stop(engine_);
         rayneo_engine_destroy(engine_);
     }
-    // The RayNeo GT's IMU sits turned ~108 deg in the frame (a unit's calibration, 2026-10):
-    // without a calibration of its own (the wizard skipped, or the example's identity), that
-    // mounting is used instead of the identity, whose crossed axes moved the panels up and down
-    // on a turn and let them follow the head.
-    static constexpr core::Quat kGtMounting{0.5876073f, 0.3887766f, -0.3985811f, -0.5871146f};
-
     bool load_calibration(const std::string& path) {
         std::optional<core::Quat> q;
         if (std::ifstream f(std::filesystem::u8path(path)); f) {
@@ -295,7 +289,7 @@ public:
             q = core::calibration_from_json(ss.str());
         }
         const bool identity = q && std::fabs(q->w) > 0.9999f;
-        const core::Quat use = q && !identity ? *q : kGtMounting.normalized();
+        const core::Quat use = q && !identity ? *q : core::kRayNeoGtMounting.normalized();
         rayneo_engine_set_sensor_to_head(engine_, use.w, use.x, use.y, use.z);
         if (!q || identity) logln("calibration: %s, the RayNeo GT's usual mounting instead", q ? "identity" : "none");
         return q && !identity;

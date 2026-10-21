@@ -152,6 +152,13 @@ final class AppModel: ObservableObject {
 
     var hasCalibration: Bool { FileManager.default.fileExists(atPath: Self.calibrationURL.path) }
 
+    func resetToFactoryCalibration(server: ServerController? = nil) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: Self.calibrationURL)
+        server?.reloadCalibration()
+        objectWillChange.send()
+    }
+
     // A calibration made earlier with imu_probe in the repository is reused.
     private static func adoptExistingCalibration() {
         let fm = FileManager.default

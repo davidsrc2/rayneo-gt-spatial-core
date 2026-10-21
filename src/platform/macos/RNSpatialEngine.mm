@@ -95,21 +95,19 @@
 - (void)setReplayPath:(NSString*)path { rayneo_engine_set_replay_path(_engine, path != nil ? path.UTF8String : ""); }
 
 - (BOOL)loadCalibrationFromFile:(NSString*)path error:(NSError**)error {
-    std::ifstream f(path.fileSystemRepresentation);
-    std::stringstream ss;
-    ss << f.rdbuf();
-    const auto q = f ? rayneo::core::calibration_from_json(ss.str()) : std::nullopt;
-    if (!q) {
-        if (error != nullptr) {
-            *error = [NSError errorWithDomain:@"RayNeoEngine"
-                                         code:RAYNEO_ERR_STATE
-                                     userInfo:@{NSLocalizedDescriptionKey : [NSString
-                                                   stringWithFormat:@"invalid or missing calibration: %@", path]}];
+    std::optional<rayneo::core::Quat> q;
+    if (path != nil && path.length > 0) {
+        std::ifstream f(path.fileSystemRepresentation);
+        if (f) {
+            std::stringstream ss;
+            ss << f.rdbuf();
+            q = rayneo::core::calibration_from_json(ss.str());
         }
-        return NO;
     }
-    rayneo_engine_set_sensor_to_head(_engine, q->w, q->x, q->y, q->z);
-    return YES;
+    const bool identity = q && std::fabs(q->w) > 0.9999f;
+    const rayneo::core::Quat use = q && !identity ? *q : rayneo::core::kRayNeoGtMounting.normalized();
+    rayneo_engine_set_sensor_to_head(_engine, use.w, use.x, use.y, use.z);
+    return q && !identity;
 }
 
 + (uint64_t)hostNowNs {

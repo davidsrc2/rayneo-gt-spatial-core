@@ -1695,9 +1695,9 @@ void test_imu_recording_roundtrip() {
 }
 
 void test_latch_cap() {
-    CHECK(near(latch_cap_ms(1000.0f / 120), 4.0f, 1e-4f));  // 4.17 ms half period: 4 ms
-    CHECK(near(latch_cap_ms(1000.0f / 60), 4.0f, 1e-4f));
-    CHECK(near(latch_cap_ms(1000.0f / 240), 2.0833f, 1e-3f));  // half a period
+    CHECK(near(latch_cap_ms(1000.0f / 120), 6.0f, 1e-4f));  // 6.25 ms 3/4 period: 6.0 ms
+    CHECK(near(latch_cap_ms(1000.0f / 60), 6.0f, 1e-4f));
+    CHECK(near(latch_cap_ms(1000.0f / 240), 3.125f, 1e-3f));  // 3/4 period
     CHECK(latch_start(1000.0f / 120).margin_ms <= latch_cap_ms(1000.0f / 120));
 }
 
@@ -1721,17 +1721,17 @@ void test_latch_cpu_misses_grow_to_cap() {
         CHECK(s.margin_ms > m);
         for (int i = 0; i < 100; ++i) s = latch_presented(s, true, 10.0f, period);
         CHECK(near(s.margin_ms, latch_cap_ms(period), 1e-6f));
-        CHECK(s.margin_ms <= 0.5f * period + 1e-6f && s.margin_ms <= 4.0f + 1e-6f);
+        CHECK(s.margin_ms <= 0.75f * period + 1e-6f && s.margin_ms <= 6.0f + 1e-6f);
     }
 }
 
 void test_latch_shrinks_gradually() {
     const float period = 1000.0f / 120;
-    LatchState s{4.0f, 0};
+    LatchState s{6.0f, 0};
     for (int i = 0; i < 239; ++i) s = latch_presented(s, false, 1.0f, period);
-    CHECK(near(s.margin_ms, 4.0f, 1e-6f));  // not before 240 frames on time
+    CHECK(near(s.margin_ms, 6.0f, 1e-6f));  // not before 240 frames on time
     s = latch_presented(s, false, 1.0f, period);
-    CHECK(near(s.margin_ms, 3.75f, 1e-6f));
+    CHECK(near(s.margin_ms, 5.75f, 1e-6f));
     for (int i = 0; i < 240 * 100; ++i) s = latch_presented(s, false, 1.0f, period);
     CHECK(near(s.margin_ms, 1.0f, 1e-6f));  // floor
     // A compositor miss does not restart the count; a frame on time keeps it going.
@@ -1741,8 +1741,8 @@ void test_latch_shrinks_gradually() {
 }
 
 void test_latch_period_change_reclamps() {
-    // 60 Hz margin of 4 ms, then the display goes to 240 Hz: re-clamped to half a period.
-    LatchState s{4.0f, 0};
+    // 60 Hz margin of 6 ms, then the display goes to 240 Hz: re-clamped to 3.125 ms.
+    LatchState s{6.0f, 0};
     s = latch_presented(s, false, 0.5f, 1000.0f / 240);
     CHECK(near(s.margin_ms, latch_cap_ms(1000.0f / 240), 1e-6f));
 }

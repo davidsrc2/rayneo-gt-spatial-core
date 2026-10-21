@@ -11,10 +11,10 @@ namespace rayneo::core {
 // every such refresh widened it, and it sat at 12 ms (more than a 120 Hz period) for good.
 // A long run on time narrows it again, a step at a time.
 struct LatchConfig {
-    float max_ms = 4.0f;          // cap: min(max_ms, max_period_fraction * frame period)
-    float max_period_fraction = 0.5f;
+    float max_ms = 6.0f;          // cap: min(max_ms, max_period_fraction * frame period)
+    float max_period_fraction = 0.75f;
     float min_ms = 1.0f;
-    float start_ms = 2.0f;
+    float start_ms = 3.5f;
     float grow_ms = 0.5f;          // per missed refresh the latch caused
     float slack_ms = 1.0f;         // the latch's fault: cpu > margin - slack
     float shrink_ms = 0.25f;       // per shrink_after frames on time

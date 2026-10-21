@@ -2031,6 +2031,13 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         log("recenter")
     }
 
+    func reloadCalibration() {
+        (pose as? ImuPoseSource)?.reloadCalibration()
+        pose.recenter()
+        lastGazePanel = -2
+        log("calibration reloaded")
+    }
+
     private func registerHotKeys() {
         let mods = cmdKey | optionKey
         guard let hotKeys else { return }
@@ -2287,8 +2294,8 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     // userInteractive QoS stays.
     private static func makeRenderThreadRealTime(periodS: Double) {
         let ticks = { (s: Double) in UInt32(min(Double(UInt32.max), s * 1e9 * Double(timebase.denom) / Double(timebase.numer))) }
-        var policy = thread_time_constraint_policy_data_t(period: ticks(periodS), computation: ticks(0.003),
-                                                         constraint: ticks(periodS * 0.9), preemptible: 1)
+        var policy = thread_time_constraint_policy_data_t(period: ticks(periodS), computation: ticks(0.005),
+                                                         constraint: ticks(periodS * 0.95), preemptible: 1)
         let count = mach_msg_type_number_t(MemoryLayout<thread_time_constraint_policy_data_t>.size / MemoryLayout<integer_t>.size)
         _ = withUnsafeMutablePointer(to: &policy) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
@@ -2448,16 +2455,26 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
     private var missingSeconds = 0
 
     private func adaptFrameLatency(_ s: LatencyStats) {
-        guard frameLatency < 2, s.tracking, s.presentedN >= 60 else {
+        guard s.tracking, s.presentedN >= 60 else {
             missingSeconds = 0
             return
         }
-        missingSeconds = Double(s.missed) / Double(s.presentedN) > 0.15 ? missingSeconds + 1 : 0
-        guard missingSeconds >= 5 else { return }  // not a display reconfiguration's few seconds
-        frameLatency = 2
-        displayLink?.preferredFrameLatency = frameLatency
-        missingSeconds = 0
-        log("render: refreshes missed (\(s.missed) of \(s.presentedN) last second); two frames queued for an even rhythm")
+        if frameLatency < 2 {
+            missingSeconds = Double(s.missed) / Double(s.presentedN) > 0.15 ? missingSeconds + 1 : 0
+            guard missingSeconds >= 5 else { return }  // not a display reconfiguration's few seconds
+            frameLatency = 2
+            displayLink?.preferredFrameLatency = frameLatency
+            missingSeconds = 0
+            log("render: refreshes missed (\(s.missed) of \(s.presentedN) last second); two frames queued for an even rhythm")
+        } else {
+            let missedRatio = Double(s.missed) / Double(s.presentedN)
+            missingSeconds = missedRatio < 0.05 ? missingSeconds + 1 : 0
+            guard missingSeconds >= 3 else { return }
+            frameLatency = 1
+            displayLink?.preferredFrameLatency = frameLatency
+            missingSeconds = 0
+            log("render: rhythm restored; back to single-frame queue (minimum latency)")
+        }
     }
 
     // MARK: fallback render loop
