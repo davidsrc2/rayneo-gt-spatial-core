@@ -103,6 +103,15 @@ internal sealed unsafe class AppModel
 
     public bool HasCalibration => File.Exists(CalibrationPath);
 
+    public void ResetCalibration()
+    {
+        try
+        {
+            if (File.Exists(CalibrationPath)) File.Delete(CalibrationPath);
+        }
+        catch { }
+    }
+
     // --- hand placement (layout editor) --------------------------------------------------
 
     public const float EyeAspect = 16f / 9f;

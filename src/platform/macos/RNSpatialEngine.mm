@@ -105,9 +105,13 @@
         }
     }
     const bool identity = q && std::fabs(q->w) > 0.9999f;
-    const rayneo::core::Quat use = q && !identity ? *q : rayneo::core::kRayNeoGtMounting.normalized();
+    // Legacy tilted calibration: ~11 deg roll error from early wizard runs.
+    const bool legacy_tilted = q && (std::fabs(q->w * 0.6053734f + q->x * 0.4253099f +
+                                               q->y * -0.3837950f + q->z * -0.5525721f) > 0.999f);
+    const bool invalid = !q || identity || legacy_tilted;
+    const rayneo::core::Quat use = !invalid ? *q : rayneo::core::kRayNeoGtMounting.normalized();
     rayneo_engine_set_sensor_to_head(_engine, use.w, use.x, use.y, use.z);
-    return q && !identity;
+    return !invalid;
 }
 
 + (uint64_t)hostNowNs {

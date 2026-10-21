@@ -30,7 +30,7 @@ struct PanelUniforms {
     float pad[2];
 };
 struct DistortUniforms {
-    float k1, k2, aspect, pad;
+    float k1, k2, aspect, box;
 };
 struct OverlayUniforms {
     float rect[4];
@@ -593,7 +593,18 @@ bool SpatialRenderer::compose_copy(Panel& p, ID3D11Texture2D* frame, int width, 
     return true;
 }
 
-void SpatialRenderer::compose_finish(Panel& p) { ctx_->GenerateMips(p.composite_srv.Get()); }
+void SpatialRenderer::compose_finish(Panel& p) {
+    const uint64_t now = renderer_now_ns();
+    // Desktop capture mipmap rate-limiting (~30 Hz max) to avoid GPU command queue saturation
+    // and driver TDR timeouts during rapid typing / syntax highlighting in IDEs like IntelliJ.
+    if (now - p.last_mips_ns >= 33'000'000) {
+        ctx_->GenerateMips(p.composite_srv.Get());
+        p.last_mips_ns = now;
+        p.mips_pending = false;
+    } else {
+        p.mips_pending = true;
+    }
+}
 
 // The capture's pointer shape (Desktop Duplication hands it over apart), sRGB like the panels.
 void SpatialRenderer::update_cursor_shape(Panel& p) {
@@ -607,10 +618,60 @@ void SpatialRenderer::update_cursor_shape(Panel& p) {
     p.cursor_h = shape.height;
     p.cursor_hot_x = shape.hot_x;
     p.cursor_hot_y = shape.hot_y;
-    p.cursor_color = image(device_.Get(), shape.width, shape.height, shape.color.data(), DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+
     const bool inverts = std::any_of(shape.invert.begin(), shape.invert.end(), [](uint32_t v) { return v != 0; });
-    p.cursor_invert =
-        inverts ? image(device_.Get(), shape.width, shape.height, shape.invert.data(), DXGI_FORMAT_B8G8R8A8_UNORM) : nullptr;
+
+    // Reuse existing D3D11 textures when dimensions match to avoid continuous resource allocation
+    // and driver lock contention during rapid typing or cursor blinking in apps like IntelliJ.
+    if (p.cursor_tex_color && p.cursor_tex_w == shape.width && p.cursor_tex_h == shape.height) {
+        ctx_->UpdateSubresource(p.cursor_tex_color.Get(), 0, nullptr, shape.color.data(),
+                                static_cast<UINT>(shape.width * 4), 0);
+    } else {
+        D3D11_TEXTURE2D_DESC d{};
+        d.Width = static_cast<UINT>(shape.width);
+        d.Height = static_cast<UINT>(shape.height);
+        d.MipLevels = 1;
+        d.ArraySize = 1;
+        d.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        d.SampleDesc.Count = 1;
+        d.Usage = D3D11_USAGE_DEFAULT;
+        d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA init{shape.color.data(), static_cast<UINT>(shape.width * 4), 0};
+        p.cursor_tex_color.Reset();
+        p.cursor_color.Reset();
+        if (SUCCEEDED(device_->CreateTexture2D(&d, &init, &p.cursor_tex_color))) {
+            device_->CreateShaderResourceView(p.cursor_tex_color.Get(), nullptr, &p.cursor_color);
+        }
+        p.cursor_tex_w = shape.width;
+        p.cursor_tex_h = shape.height;
+    }
+
+    if (inverts) {
+        if (p.cursor_tex_invert && p.cursor_tex_w == shape.width && p.cursor_tex_h == shape.height) {
+            ctx_->UpdateSubresource(p.cursor_tex_invert.Get(), 0, nullptr, shape.invert.data(),
+                                    static_cast<UINT>(shape.width * 4), 0);
+        } else {
+            D3D11_TEXTURE2D_DESC d{};
+            d.Width = static_cast<UINT>(shape.width);
+            d.Height = static_cast<UINT>(shape.height);
+            d.MipLevels = 1;
+            d.ArraySize = 1;
+            d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            d.SampleDesc.Count = 1;
+            d.Usage = D3D11_USAGE_DEFAULT;
+            d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            D3D11_SUBRESOURCE_DATA init{shape.invert.data(), static_cast<UINT>(shape.width * 4), 0};
+            p.cursor_tex_invert.Reset();
+            p.cursor_invert.Reset();
+            if (SUCCEEDED(device_->CreateTexture2D(&d, &init, &p.cursor_tex_invert))) {
+                device_->CreateShaderResourceView(p.cursor_tex_invert.Get(), nullptr, &p.cursor_invert);
+            }
+        }
+    } else {
+        p.cursor_tex_invert.Reset();
+        p.cursor_invert.Reset();
+    }
+
     if (p.cursor_visible) cursor_generation_ += 1;
 }
 
@@ -687,8 +748,16 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     }
 
     const uint32_t was_visible = visible_mask_.load(std::memory_order_relaxed);
+    const uint64_t now_ns = renderer_now_ns();
     for (int i = 0; i < count_; ++i) {
-        if ((was_visible >> i & 1u) != 0) compose(panels_[i]);  // out of view: its last composite stays
+        if ((was_visible >> i & 1u) != 0) {
+            compose(panels_[i]);  // out of view: its last composite stays
+            if (panels_[i].mips_pending && (now_ns - panels_[i].last_mips_ns >= 33'000'000)) {
+                ctx_->GenerateMips(panels_[i].composite_srv.Get());
+                panels_[i].last_mips_ns = now_ns;
+                panels_[i].mips_pending = false;
+            }
+        }
         update_cursor_shape(panels_[i]);
     }
     // One layout for all panels (they share a size); per-panel aspect only shapes its mesh.
@@ -740,10 +809,13 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
 
     // Supersampling (space at real size): the eyes drawn larger, mipmapped down in the last pass.
     const int ss = options.static_head ? 1 : std::clamp(options.supersample, 1, 2);
+    // Supersampled 2x without lens distortion: each output pixel falls between four eye texels,
+    // so one bilinear tap of level 0 is their 2x2 average (box filter): no mip chain needed every frame.
+    const bool box = ss == 2 && options.k1 == 0.0f && options.k2 == 0.0f;
     // The glasses in their 3D mode are a double-width display: the same image in both halves.
     const int halves = options.side_by_side ? 2 : 1;
     const int eye_w = width / halves;
-    ensure_eye_textures(eye_w * ss, height * ss, ss > 1);
+    ensure_eye_textures(eye_w * ss, height * ss, ss > 1 && !box);
     const core::Mat4 proj = core::perspective_lh(options.fov_y_deg * kDegToRad, options.eye_aspect, 0.05f, 100.0f);
     const float black[4] = {0, 0, 0, 1};  // black = see-through
 
@@ -832,13 +904,13 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         }
     }
 
-    if (ss > 1) {
+    if (ss > 1 && !box) {
         ctx_->OMSetRenderTargets(0, nullptr, nullptr);  // unbound before their mips are made
         ctx_->GenerateMips(eye_srv_.Get());
     }
     ctx_->OMSetRenderTargets(1, &target, nullptr);
     ctx_->ClearRenderTargetView(target, black);
-    const DistortUniforms du{options.k1, options.k2, options.eye_aspect, 0};
+    const DistortUniforms du{options.k1, options.k2, options.eye_aspect, box ? 1.0f : 0.0f};
     ctx_->UpdateSubresource(distort_cb_.Get(), 0, nullptr, &du, 0, 0);
     ctx_->IASetInputLayout(nullptr);
     ctx_->VSSetShader(fullscreen_vs_.Get(), nullptr, 0);

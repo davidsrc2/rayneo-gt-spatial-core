@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -530,6 +532,16 @@ void test_calibration_json_roundtrip() {
     CHECK(!calibration_from_json("{}").has_value());
     CHECK(!calibration_from_json(R"({"sensor_to_head": {"w": 2, "x": 0, "y": 0, "z": 0}})").has_value());
     CHECK(!calibration_from_json(R"({"sensor_to_head": {"w": 1, "x": 0}})").has_value());
+
+    // Root calibration.json matches the RayNeo GT factory mounting.
+    std::ifstream f("calibration.json");
+    if (f) {
+        std::stringstream ss;
+        ss << f.rdbuf();
+        const auto root_q = calibration_from_json(ss.str());
+        CHECK(root_q.has_value());
+        CHECK(quat_near(*root_q, kRayNeoGtMounting.normalized(), 1e-4f));
+    }
 }
 
 // IMU mounted with its +Y pointing forward. A nod (head pitch) is a sensor X rotation:

@@ -2469,7 +2469,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         } else {
             let missedRatio = Double(s.missed) / Double(s.presentedN)
             missingSeconds = missedRatio < 0.05 ? missingSeconds + 1 : 0
-            guard missingSeconds >= 3 else { return }
+            guard missingSeconds >= 2 else { return }
             frameLatency = 1
             displayLink?.preferredFrameLatency = frameLatency
             missingSeconds = 0
@@ -2622,7 +2622,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         let px = r.panelPixelWidth()
         guard px > 0 else { return }
         let want = Int((px * 1.15).rounded(.up))
-        for cap in captures {
+        for cap in captures + floatingCaptures {
             if let w = cap.setWidth(want) { log("capture: panel \(cap.panel + 1) at \(w) px wide (~\(Int(px)) px on the glasses)") }
         }
     }

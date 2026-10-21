@@ -87,6 +87,7 @@ public sealed partial class SettingsWindow : Window
         CalibrationText.Text = _model.HasCalibration
             ? "Tus gafas están calibradas."
             : "Aún no has calibrado tus gafas (se usa la orientación por defecto).";
+        ResetCalibrationBtn.Visibility = _model.HasCalibration ? Visibility.Visible : Visibility.Collapsed;
         StartupToggle.IsOn = Startup.Enabled;
         DrawLayout();
         DrawPlacement();
@@ -229,6 +230,13 @@ public sealed partial class SettingsWindow : Window
     private void Done_Click(object sender, RoutedEventArgs e) => AppWindow.Hide();
 
     private void Recalibrate_Click(object sender, RoutedEventArgs e) => RecalibrateRequested?.Invoke();
+
+    private void ResetCalibration_Click(object sender, RoutedEventArgs e)
+    {
+        _model.ResetCalibration();
+        Load();
+        _server.Restart();
+    }
 
     private void Startup_Toggled(object sender, RoutedEventArgs e)
     {

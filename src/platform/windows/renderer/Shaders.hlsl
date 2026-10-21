@@ -35,7 +35,7 @@ cbuffer DistortUniforms : register(b2) {
     float k1;
     float k2;
     float aspect;  // eye image width / height as perceived (16:9 even when squeezed SBS)
-    float distort_pad;
+    float box;     // 1: sample level 0 only (2x supersampled, no distortion: a 2x2 box per pixel)
 };
 
 // Overlay quad (cursor) in normalised target coordinates: x0, y0, x1, y1 (0..1, y down).
@@ -79,6 +79,9 @@ float4 distort_fragment(VOut i) : SV_Target {
     p.x /= aspect;
     const float2 uv = p * 0.5 + 0.5;
     if (any(uv < 0.0) || any(uv > 1.0)) return float4(0.0, 0.0, 0.0, 1.0);
+    if (box > 0.5) {
+        return float4(source.SampleLevel(samp, uv, 0).rgb, 1.0);
+    }
     return float4(source.Sample(samp, uv).rgb, 1.0);
 }
 

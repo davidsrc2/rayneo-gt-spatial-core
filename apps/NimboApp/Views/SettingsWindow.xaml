@@ -10,7 +10,10 @@
             <StackPanel Spacing="8">
                 <TextBlock Text="Calibración" FontSize="13" Opacity="0.7" />
                 <TextBlock x:Name="CalibrationText" TextWrapping="Wrap" />
-                <Button Content="Volver a calibrar" Click="Recalibrate_Click" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button Content="Volver a calibrar" Click="Recalibrate_Click" />
+                    <Button x:Name="ResetCalibrationBtn" Content="Restablecer de fábrica" Click="ResetCalibration_Click" />
+                </StackPanel>
             </StackPanel>
 
             <StackPanel Spacing="8">

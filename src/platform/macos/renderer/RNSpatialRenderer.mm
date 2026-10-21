@@ -72,6 +72,8 @@ struct Panel {
     // the panels are drawn at a fraction of the capture's size, and sampling the full-size
     // frame directly aliases (text shimmers and looks jagged at the slightest head motion).
     id<MTLTexture> mipmapped;
+    uint64_t lastMipsNs = 0;
+    bool mipsPending = false;
 
     // Render thread only.
     id<MTLBuffer> vertices;
@@ -966,25 +968,38 @@ static float effective_curvature(RNRenderOptions* o) {
 
     // New frames -> mipmapped copies (only panels whose content changed).
     id<MTLBlitCommandEncoder> blit = nil;
+    const uint64_t now = now_ns();
     for (NSUInteger i = 0; i < count; ++i) {
-        if (!fresh[i] || textures[i] == nullptr) continue;
-        id<MTLTexture> src = CVMetalTextureGetTexture(textures[i]);
         Panel& p = _panels[i];
-        if (p.mipmapped == nil || p.mipmapped.width != src.width || p.mipmapped.height != src.height) {
-            MTLTextureDescriptor* md = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:src.pixelFormat
-                                                                                          width:src.width
-                                                                                         height:src.height
-                                                                                      mipmapped:YES];
-            md.usage = MTLTextureUsageShaderRead;
-            md.storageMode = MTLStorageModePrivate;
-            p.mipmapped = [_device newTextureWithDescriptor:md];
+        if (fresh[i] && textures[i] != nullptr) {
+            id<MTLTexture> src = CVMetalTextureGetTexture(textures[i]);
+            if (p.mipmapped == nil || p.mipmapped.width != src.width || p.mipmapped.height != src.height) {
+                MTLTextureDescriptor* md = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:src.pixelFormat
+                                                                                              width:src.width
+                                                                                             height:src.height
+                                                                                          mipmapped:YES];
+                md.usage = MTLTextureUsageShaderRead;
+                md.storageMode = MTLStorageModePrivate;
+                p.mipmapped = [_device newTextureWithDescriptor:md];
+            }
+            if (blit == nil) blit = [cb blitCommandEncoder];
+            [blit copyFromTexture:src sourceSlice:0 sourceLevel:0 toTexture:p.mipmapped destinationSlice:0
+                 destinationLevel:0 sliceCount:1 levelCount:1];
+            if (now - p.lastMipsNs >= 33'000'000) {
+                [blit generateMipmapsForTexture:p.mipmapped];
+                p.lastMipsNs = now;
+                p.mipsPending = false;
+            } else {
+                p.mipsPending = true;
+            }
+        } else if (p.mipsPending && p.mipmapped != nil && (now - p.lastMipsNs >= 33'000'000)) {
+            if (blit == nil) blit = [cb blitCommandEncoder];
+            [blit generateMipmapsForTexture:p.mipmapped];
+            p.lastMipsNs = now;
+            p.mipsPending = false;
         }
-        if (blit == nil) blit = [cb blitCommandEncoder];
-        [blit copyFromTexture:src sourceSlice:0 sourceLevel:0 toTexture:p.mipmapped destinationSlice:0
-             destinationLevel:0 sliceCount:1 levelCount:1];
-        [blit generateMipmapsForTexture:p.mipmapped];
     }
-    [blit endEncoding];
+    if (blit != nil) [blit endEncoding];
 
     const core::Mat4 proj =
         core::perspective_lh(o.fovYDegrees * kDegToRad, o.eyeAspect, 0.05f, 100.0f);

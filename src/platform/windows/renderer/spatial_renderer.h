@@ -130,10 +130,15 @@ private:
 
         uint64_t shape_generation = 0;
         Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> cursor_color, cursor_invert;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> cursor_tex_color, cursor_tex_invert;
+        int cursor_tex_w = 0, cursor_tex_h = 0;
         int cursor_w = 0, cursor_h = 0;
         int cursor_hot_x = 0, cursor_hot_y = 0;
         bool cursor_visible = false;
         int cursor_x = 0, cursor_y = 0;  // hotspot, panel pixels
+
+        uint64_t last_mips_ns = 0;
+        bool mips_pending = false;
 
         Microsoft::WRL::ComPtr<ID3D11Buffer> vertices, indices;
         std::vector<core::ScreenVertex> mesh_vertices;  // CPU copy, for the in-view test

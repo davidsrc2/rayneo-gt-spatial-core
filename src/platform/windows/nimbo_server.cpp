@@ -289,10 +289,17 @@ public:
             q = core::calibration_from_json(ss.str());
         }
         const bool identity = q && std::fabs(q->w) > 0.9999f;
-        const core::Quat use = q && !identity ? *q : core::kRayNeoGtMounting.normalized();
+        // Legacy tilted calibration: ~11 deg roll error from early wizard runs.
+        const bool legacy_tilted = q && (std::fabs(q->w * 0.6053734f + q->x * 0.4253099f +
+                                                   q->y * -0.3837950f + q->z * -0.5525721f) > 0.999f);
+        const bool invalid = !q || identity || legacy_tilted;
+        const core::Quat use = !invalid ? *q : core::kRayNeoGtMounting.normalized();
         rayneo_engine_set_sensor_to_head(engine_, use.w, use.x, use.y, use.z);
-        if (!q || identity) logln("calibration: %s, the RayNeo GT's usual mounting instead", q ? "identity" : "none");
-        return q && !identity;
+        if (invalid) {
+            logln("calibration: %s, the RayNeo GT's usual mounting instead",
+                  legacy_tilted ? "legacy tilted calibration detected" : (q ? "identity" : "none"));
+        }
+        return !invalid;
     }
     bool start(std::string* error) {
         if (rayneo_engine_start(engine_) == RAYNEO_OK) return true;
