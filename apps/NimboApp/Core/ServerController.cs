@@ -207,6 +207,12 @@ internal sealed class ServerController : IDisposable
         }
     }
 
+    public void Restart()
+    {
+        _restart.Stop();
+        _restart.Start();
+    }
+
     private async Task RestartAsync()
     {
         if (!IsRunning || _busy) return;
