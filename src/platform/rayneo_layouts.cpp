@@ -11,6 +11,18 @@ namespace core = rayneo::core;
 // Preset ids are string literals (core/presets.cpp): data() is NUL-terminated and static.
 static const char* c_str(std::string_view s) { return s.data(); }
 
+static std::vector<core::GridCell> cells_of(const int* cols, const int* rows, int count) {
+    std::vector<core::GridCell> cells;
+    for (int i = 0; i < std::min(count, RAYNEO_MAX_PRESET_CELLS); ++i) cells.push_back({cols[i], rows[i]});
+    return cells;
+}
+
+static std::vector<core::PanelPose> poses_of(const float* yaw, const float* pitch, const float* scale, int count) {
+    std::vector<core::PanelPose> poses;
+    for (int i = 0; i < std::min(count, RAYNEO_MAX_PRESET_CELLS); ++i) poses.push_back({yaw[i], pitch[i], scale[i]});
+    return poses;
+}
+
 extern "C" {
 
 int rayneo_layout_preset_count(void) { return static_cast<int>(core::layout_presets().size()); }
@@ -41,18 +53,6 @@ bool rayneo_profile_at(int index, rayneo_profile* out) {
     const auto& p = all[static_cast<size_t>(index)];
     *out = {c_str(p.id), c_str(p.layout_id), p.distance_m, p.text_size, p.curvature, p.arc_deg};
     return true;
-}
-
-static std::vector<core::GridCell> cells_of(const int* cols, const int* rows, int count) {
-    std::vector<core::GridCell> cells;
-    for (int i = 0; i < std::min(count, RAYNEO_MAX_PRESET_CELLS); ++i) cells.push_back({cols[i], rows[i]});
-    return cells;
-}
-
-static std::vector<core::PanelPose> poses_of(const float* yaw, const float* pitch, const float* scale, int count) {
-    std::vector<core::PanelPose> poses;
-    for (int i = 0; i < std::min(count, RAYNEO_MAX_PRESET_CELLS); ++i) poses.push_back({yaw[i], pitch[i], scale[i]});
-    return poses;
 }
 
 bool rayneo_next_free_cell(const int* cols, const int* rows, int count, int* col, int* row) {
