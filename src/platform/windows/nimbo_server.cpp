@@ -45,6 +45,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002  // Windows 10 1803+
 #endif
 #include "rayneo/platform/rayneo_engine.h"
+#include "rayneo/platform/rayneo_layouts.h"
 #include "spatial_renderer.h"
 #include "virtual_displays.h"
 #include "window_capture.h"
@@ -3200,7 +3201,10 @@ void nimbo_options_from_settings(const nimbo_settings* settings, nimbo_options* 
     static constexpr int kScale[] = {100, 125, 150, 175, 200};
     const core::Settings s = to_core(*settings);
     std::vector<core::GridCell> cells = core::normalized_cells(s.cells);
-    const bool placed = !s.panels.empty() && s.panels.size() == cells.size();
+    // The wall (flatWall, not in the glasses' pinned mode) is the block of cells, edge to edge:
+    // a hand placement is kept for when it is off, as on macOS.
+    const bool wall = s.flat_wall && s.glasses_mode != 1;
+    const bool placed = !wall && !s.panels.empty() && s.panels.size() == cells.size();
     if (placed) {
         // The OS arrangement follows where the monitors were placed.
         const float vertical = 2.0f * std::atan(std::tan(s.size_deg * 0.00872664626f) / (16.0f / 9.0f)) / 0.0174532925f;
@@ -3299,6 +3303,27 @@ bool nimbo_profile_at(int index, nimbo_profile* out) {
     out->curvature = p.curvature;
     out->size_deg = p.arc_deg;
     return true;
+}
+
+// The arrangement editing of rayneo_layouts.h (core/presets.h), shared with macOS.
+static_assert(NIMBO_MAX_PANELS == RAYNEO_MAX_PRESET_CELLS);
+
+bool nimbo_next_free_cell(const int* cols, const int* rows, int count, int* col, int* row) {
+    return rayneo_next_free_cell(cols, rows, count, col, row);
+}
+
+bool nimbo_move_cell(int* cols, int* rows, int count, int index, int col, int row) {
+    return rayneo_move_cell(cols, rows, count, index, col, row);
+}
+
+bool nimbo_pose_overlaps(const float* yaw, const float* pitch, const float* scale, int count, int index, float size_deg,
+                         float aspect) {
+    return rayneo_pose_overlaps(yaw, pitch, scale, count, index, size_deg, aspect);
+}
+
+void nimbo_pose_beside(const float* yaw, const float* pitch, const float* scale, int count, float size_deg, float aspect,
+                       float gap_deg, float* out_yaw, float* out_pitch) {
+    rayneo_pose_beside(yaw, pitch, scale, count, size_deg, aspect, gap_deg, out_yaw, out_pitch);
 }
 
 nimbo_calibration* nimbo_calibration_create(void) { return new nimbo_calibration(); }

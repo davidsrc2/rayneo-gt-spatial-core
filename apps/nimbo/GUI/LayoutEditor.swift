@@ -56,7 +56,8 @@ struct LayoutEditor: View {
             .shadow(color: .black.opacity(dragging == i ? 0.35 : 0), radius: 10, y: 4)
     }
 
-    // Snap to the nearest cell; swap with a card already there. Rejected moves glide back.
+    // Snap to the nearest cell; swap with a card already there (core::move_cell). Rejected moves
+    // glide back.
     private func drop(index i: Int, translation: CGSize) {
         let dc = Int((translation.width / (cell.width + spacing)).rounded())
         let dr = Int((translation.height / (cell.height + spacing)).rounded())
@@ -64,15 +65,8 @@ struct LayoutEditor: View {
             draggingBox.value = nil
             offsetBox.value = .zero
             guard dc != 0 || dr != 0 else { return }
-            var next = model.cells
-            let target = GridPos(col: next[i].col + dc, row: next[i].row + dr)
-            if let j = next.firstIndex(of: target) {
-                next[j] = next[i]
-            }
-            next[i] = target
-            let spanC = (next.map(\.col).max()! - next.map(\.col).min()!) + 1
-            let spanR = (next.map(\.row).max()! - next.map(\.row).min()!) + 1
-            if AppModel.isConnected(next) && spanC <= 4 && spanR <= 3 { model.cells = next }
+            let from = model.normalizedCells[i]
+            model.moveCell(i, to: GridPos(col: from.col + dc, row: from.row + dr))
         }
     }
 }

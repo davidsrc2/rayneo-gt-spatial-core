@@ -67,7 +67,13 @@ final class AppModel: ObservableObject {
     @Published var glassesPinned: Bool { didSet { d.set(glassesPinned ? 1 : 0, forKey: "glassesMode") } }
     @Published var anchorAtRest: Bool { didSet { d.set(anchorAtRest, forKey: "anchorAtRest") } }  // panels frozen while the head is still
     @Published var vehicleMode: Bool { didSet { d.set(vehicleMode, forKey: "vehicleMode") } }  // a quarter of turns followed (in a car)
-    @Published var flatWall: Bool { didSet { d.set(flatWall, forKey: "flatWall") } }  // one plane, edge to edge
+    @Published var flatWall: Bool {  // one plane, edge to edge
+        didSet {
+            d.set(flatWall, forKey: "flatWall")
+            // Off the wall the hand placement is back: the OS arrangement follows it again.
+            if !flatWall && !panelPoses.isEmpty && panelPoses.count == cells.count { place(panelPoses) }
+        }
+    }
     @Published var keyHighlight: Bool { didSet { d.set(keyHighlight, forKey: "keyHighlight") } }  // frame the keyboard's panel
     @Published var macScreen: Bool { didSet { d.set(macScreen, forKey: "macScreen") } }  // the Mac's screen is panel 1
     // With the Mac's screen as panel 1, the virtual monitors at its exact resolution (the text
@@ -177,15 +183,27 @@ final class AppModel: ObservableObject {
     }
 
     // The grid as hand placements: where the monitors are now (core::grid_layout).
-    func gridPoses() -> [PanelPos] {
+    func gridPoses(gap: Double? = nil) -> [PanelPos] {
         let n = normalizedCells
         let cols = n.map(\.col), rows = n.map(\.row)
         let midC = Float((cols.min() ?? 0) + (cols.max() ?? 0)) / 2, midR = Float((rows.min() ?? 0) + (rows.max() ?? 0)) / 2
-        let w = Float(size) + Float(gap), h = Self.verticalArc(Float(size)) + Float(gap)
+        let g = Float(gap ?? self.gap)
+        let w = Float(size) + g, h = Self.verticalArc(Float(size)) + g
         return n.map { PanelPos(yaw: (Float($0.col) - midC) * w, pitch: (midR - Float($0.row)) * h) }
     }
 
-    var effectivePoses: [PanelPos] { panelPoses.count == cells.count ? panelPoses : gridPoses() }
+    // The wall (Pared continua) shows the grid's cells edge to edge, whatever was placed by hand:
+    // it is the block of monitors, and an added monitor joins it. Not in the glasses' pinned mode,
+    // where the renderer fits the arrangement in the glasses' image instead.
+    var wallActive: Bool { flatWall && !glassesPinned }
+
+    // The wall's cells as placements, edge to edge (core::wall_grid_layout at the editor's scale).
+    func wallPoses() -> [PanelPos] { gridPoses(gap: 0) }
+
+    var effectivePoses: [PanelPos] {
+        if wallActive { return wallPoses() }
+        return panelPoses.count == cells.count ? panelPoses : gridPoses()
+    }
 
     // New hand placement; the OS arrangement (where the cursor crosses) follows the order the
     // monitors now have, like core::cells_from_poses.
@@ -301,29 +319,68 @@ final class AppModel: ObservableObject {
                        size: p.arc_deg >= 0 ? Double(p.arc_deg) : nil)
     }
 
-    // Adds a monitor touching the arrangement: right of a row first, then below a column,
-    // keeping the whole layout within 4 columns x 3 rows.
+    // Adds a monitor touching the arrangement (core::next_free_cell): right of a row first, then
+    // below a column, within 4 columns x 3 rows. On the wall it joins the block edge to edge;
+    // placed by hand, it goes beside the others (core::pose_beside) and they stay where they are
+    // (before, the new cell wiped the hand placement and everything jumped back to the grid).
     func addMonitor() {
         guard cells.count < 6 else { return }
-        let occupied = Set(cells)
-        let rows = Set(cells.map(\.row)).sorted(), cols = Set(cells.map(\.col)).sorted()
-        var candidates: [GridPos] = []
-        for r in rows { candidates.append(GridPos(col: cells.filter { $0.row == r }.map(\.col).max()! + 1, row: r)) }
-        for c in cols { candidates.append(GridPos(col: c, row: cells.filter { $0.col == c }.map(\.row).max()! + 1)) }
-        let fits: (GridPos) -> Bool = { p in
-            let all = self.cells + [p]
-            let spanC = (all.map(\.col).max()! - all.map(\.col).min()!) + 1
-            let spanR = (all.map(\.row).max()! - all.map(\.row).min()!) + 1
-            return spanC <= 4 && spanR <= 3
+        var col: Int32 = 0, row: Int32 = 0
+        guard rayneo_next_free_cell(cells.map { Int32($0.col) }, cells.map { Int32($0.row) }, Int32(cells.count),
+                                    &col, &row) else { return }
+        let placed = !panelPoses.isEmpty && panelPoses.count == cells.count
+        if placed && !wallActive {
+            place(panelPoses + [poseBeside(panelPoses)])
+            return
         }
-        if let next = candidates.first(where: { !occupied.contains($0) && fits($0) }) { cells.append(next) }
+        keepingPoses = true
+        cells.append(GridPos(col: Int(col), row: Int(row)))
+        if placed { panelPoses.append(poseBeside(panelPoses)) }  // kept for when the wall is off
+        keepingPoses = false
     }
 
     func removeMonitor() {
         guard cells.count > 1 else { return }
         var next = cells
         next.removeLast()
-        if Self.isConnected(next) { cells = next }
+        guard Self.isConnected(next) else { return }
+        let placed = panelPoses.count == cells.count
+        keepingPoses = placed
+        cells = next
+        if placed { panelPoses.removeLast() }
+        keepingPoses = false
+    }
+
+    // Monitor `i` (panel order) to a cell of the normalised grid, swapping with one there
+    // (core::move_cell). False, nothing changed, when the block would split or grow too large.
+    @discardableResult
+    func moveCell(_ i: Int, to target: GridPos, apply: Bool = true) -> Bool {
+        let n = normalizedCells
+        guard n.indices.contains(i) else { return false }
+        var cols = n.map { Int32($0.col) }, rows = n.map { Int32($0.row) }
+        guard rayneo_move_cell(&cols, &rows, Int32(n.count), Int32(i), Int32(target.col), Int32(target.row)) else { return false }
+        let next = zip(cols, rows).map { GridPos(col: Int($0), row: Int($1)) }
+        if apply && next != n {
+            // On the wall a hand placement stays for when the wall is off; off it, a new grid
+            // starts from the grid again (as cells always did).
+            keepingPoses = wallActive
+            cells = next
+            keepingPoses = false
+        }
+        return true
+    }
+
+    private func poseBeside(_ poses: [PanelPos]) -> PanelPos {
+        var yaw: Float = 0, pitch: Float = 0
+        rayneo_pose_beside(poses.map(\.yaw), poses.map(\.pitch), poses.map(\.scale), Int32(poses.count),
+                           Float(size), Self.eyeAspect, Float(gap), &yaw, &pitch)
+        return PanelPos(yaw: yaw, pitch: pitch, scale: 1)
+    }
+
+    // Whether monitor `i` lies over another (core::pose_overlaps): such a drop is undone.
+    func poseOverlaps(_ poses: [PanelPos], _ i: Int) -> Bool {
+        rayneo_pose_overlaps(poses.map(\.yaw), poses.map(\.pitch), poses.map(\.scale), Int32(poses.count), Int32(i),
+                             Float(size), Self.eyeAspect)
     }
 
     // Monitors must touch edge to edge, as macOS requires for an arrangement.
@@ -349,7 +406,7 @@ final class AppModel: ObservableObject {
         var o = ServerOptions()
         o.headless = false
         o.layout = normalizedCells
-        o.panelPoses = panelPoses.count == cells.count ? panelPoses : nil
+        o.panelPoses = !wallActive && panelPoses.count == cells.count ? panelPoses : nil
         o.floatingWindows = floating
         o.displays = cells.count
         let resolution = Self.textSizes[max(0, min(Self.textSizes.count - 1, textSize))]

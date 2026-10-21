@@ -7,6 +7,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Nimbo.Core;
 using Nimbo.Native;
 
@@ -146,7 +147,11 @@ public sealed partial class SettingsWindow : Window
     private void Changed(object sender, RoutedEventArgs e)
     {
         Save();
-        if (ReferenceEquals(sender, FlatWallToggle)) DrawLayout();  // the preview shows the wall or the gaps
+        if (ReferenceEquals(sender, FlatWallToggle))
+        {
+            DrawLayout();  // the preview shows the wall or the gaps
+            DrawPlacement();  // the wall's block or the hand placement
+        }
     }
 
     private void BackgroundChanged(object sender, SelectionChangedEventArgs e)
@@ -312,6 +317,11 @@ public sealed partial class SettingsWindow : Window
     private int _dragging = -1;
     private Windows.Foundation.Point _dragStart;
     private PanelPos[] _dragPoses = Array.Empty<PanelPos>();
+    private PanelPos[]? _dragPlaced;           // the model's hand placement when the drag began (null: the grid)
+    private PanelPos _dragPose;                // where the pointer has the card (unsnapped)
+    private PanelPos? _dragTarget;             // where it lands; null: nowhere, the drop is undone
+    private (int Col, int Row)? _dragCell;     // on the wall: the cell it lands on
+    private Microsoft.UI.Xaml.Shapes.Rectangle? _placeGhost;
 
     private double Ppd => PlaceCanvas.Width / SpanDeg;
 
@@ -359,6 +369,16 @@ public sealed partial class SettingsWindow : Window
         Microsoft.UI.Xaml.Controls.Canvas.SetLeft(frame, c.X - frame.Width / 2);
         Microsoft.UI.Xaml.Controls.Canvas.SetTop(frame, c.Y - frame.Height / 2);
         PlaceCanvas.Children.Add(frame);
+        // Where the dragged card will land (shown while dragging).
+        _placeGhost = new Microsoft.UI.Xaml.Shapes.Rectangle
+        {
+            StrokeThickness = 1.5,
+            StrokeDashArray = new DoubleCollection { 4, 3 },
+            RadiusX = 6,
+            RadiusY = 6,
+            Visibility = Visibility.Collapsed,
+        };
+        PlaceCanvas.Children.Add(_placeGhost);
 
         var poses = PlaceItems();
         _placeSelected = Math.Clamp(_placeSelected, 0, Math.Max(0, poses.Length - 1));
@@ -386,8 +406,15 @@ public sealed partial class SettingsWindow : Window
         }
         PlaceSelected.Text = poses.Length == 0 ? "" : _placeSelected < MonitorCount ? $"Monitor {_placeSelected + 1}" : $"Ventana {PlaceLabel(_placeSelected)}";
         PlaceScale.Value = poses.Length > 0 ? poses[_placeSelected].Scale : 1;
-        PlaceReset.IsEnabled = _model.HasPlacement;
+        PlaceScale.IsEnabled = !OnWall(_placeSelected);
+        PlaceReset.IsEnabled = _model.HasPlacement && !_model.WallActive;
+        PlaceHint.Text = _model.WallActive
+            ? "Pared continua: los monitores forman un bloque. Arrastra uno a otra casilla (o sobre otro para intercambiarlos); las ventanas flotantes se colocan libres."
+            : "Arrastra cada monitor a su sitio; se mueve en las gafas a la vez. Se alinea solo con los demás (mantén Alt para colocarlo libre). Elige uno para cambiar su tamaño.";
     }
+
+    // The wall's monitors move between cells; floating windows are always free.
+    private bool OnWall(int i) => _model.WallActive && i < MonitorCount;
 
     private void PositionView(int i, PanelPos p)
     {
@@ -410,43 +437,151 @@ public sealed partial class SettingsWindow : Window
         _placeSelected = i;
         _dragStart = e.GetCurrentPoint(PlaceCanvas).Position;
         _dragPoses = PlaceItems();
+        _dragPlaced = _model.HasPlacement ? _model.Poses : null;
+        _dragPose = _dragPoses[i];
+        _dragTarget = _dragPoses[i];
+        _dragCell = null;
         view.CapturePointer(e.Pointer);
+        Microsoft.UI.Xaml.Controls.Canvas.SetZIndex(view, 1);
         var poses = PlaceItems();
         for (int k = 0; k < poses.Length; ++k) PositionView(k, poses[k]);
         PlaceSelected.Text = i < MonitorCount ? $"Monitor {i + 1}" : $"Ventana {PlaceLabel(i)}";
         _updating = true;
         PlaceScale.Value = poses[i].Scale;
+        PlaceScale.IsEnabled = !OnWall(i);
         _updating = false;
         e.Handled = true;
     }
 
+    // The card stays under the pointer (the start pose plus the whole translation, never added up
+    // step by step); the outline shows where it lands, and the glasses follow that.
     private void PlaceMoved(int i, PointerRoutedEventArgs e)
     {
         if (_dragging != i) return;
         var pt = e.GetCurrentPoint(PlaceCanvas).Position;
         var poses = (PanelPos[])_dragPoses.Clone();
-        var p = poses[i];
-        p = p with
+        var p = poses[i] with
         {
-            Yaw = p.Yaw + (float)((pt.X - _dragStart.X) / Ppd),
-            Pitch = p.Pitch - (float)((pt.Y - _dragStart.Y) / Ppd),
+            Yaw = poses[i].Yaw + (float)((pt.X - _dragStart.X) / Ppd),
+            Pitch = poses[i].Pitch - (float)((pt.Y - _dragStart.Y) / Ppd),
         };
-        bool free = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
-        if (!free) p = Snap(p, i, poses);
-        poses[i] = p;
-        PlaceWrite(poses, i);
+        _dragPose = p;
         PositionView(i, p);
-        _server.SettingsChanged();  // live on the glasses
+        if (OnWall(i))
+        {
+            var cell = WallCell(p);
+            _dragCell = _model.MoveCell(i, cell, apply: false) ? cell : null;
+            _dragTarget = _dragCell is { } c ? WallPose(c) : null;
+            ShowGhost(_dragTarget ?? _dragPoses[i], _dragTarget != null);
+            e.Handled = true;
+            return;
+        }
+        bool free = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        var snapped = free ? p : Snap(p, i, poses);
+        poses[i] = snapped;
+        bool fits = i >= MonitorCount || !_model.PoseOverlaps(poses.Take(MonitorCount).ToArray(), i);
+        _dragTarget = fits ? snapped : null;
+        ShowGhost(fits ? snapped : _dragPoses[i], fits);
+        if (fits)
+        {
+            PlaceWrite(poses, i);
+            _server.SettingsChanged();  // live on the glasses
+        }
         e.Handled = true;
     }
 
+    // Lands where the outline was; with no outline (over another monitor, or a cell that would
+    // split the wall) the card glides back and the glasses go back to how they were.
     private void PlaceReleased(UIElement view, PointerRoutedEventArgs e)
     {
+        int i = _dragging;
         _dragging = -1;
-        _model.SaveFloating();
         view.ReleasePointerCapture(e.Pointer);
-        PlaceReset.IsEnabled = _model.HasPlacement;
-        DrawLayout();
+        if (i < 0) return;
+        if (_placeGhost != null) _placeGhost.Visibility = Visibility.Collapsed;
+        var land = _dragTarget ?? _dragPoses[i];
+        if (OnWall(i))
+        {
+            if (_dragCell is { } cell && _model.MoveCell(i, cell)) _server.SettingsChanged();
+        }
+        else if (_dragTarget == null)
+        {
+            if (i < MonitorCount)
+            {
+                if (_dragPlaced != null) _model.Poses = _dragPlaced;
+                else _model.ResetPlacement();
+            }
+            else PlaceWrite(_dragPoses, i);
+            _server.SettingsChanged();
+        }
+        _model.SaveFloating();
+        var c = ToCanvas(land.Yaw, land.Pitch);
+        var b = (FrameworkElement)view;
+        GlideTo(view, c.X - b.Width / 2, c.Y - b.Height / 2, () =>
+        {
+            DrawPlacement();
+            DrawLayout();
+        });
+    }
+
+    private void ShowGhost(PanelPos p, bool lands)
+    {
+        if (_placeGhost == null) return;
+        _placeGhost.Width = _model.Size * p.Scale * Ppd;
+        _placeGhost.Height = AppModel.VerticalArc(_model.Size * p.Scale) * Ppd;
+        byte a = lands ? (byte)230 : (byte)140;
+        _placeGhost.Stroke = new SolidColorBrush(lands ? Microsoft.UI.ColorHelper.FromArgb(a, 140, 220, 200)
+                                                       : Microsoft.UI.ColorHelper.FromArgb(a, 170, 170, 170));
+        _placeGhost.Fill = new SolidColorBrush(lands ? Microsoft.UI.ColorHelper.FromArgb(30, 140, 220, 200)
+                                                     : Microsoft.UI.ColorHelper.FromArgb(25, 170, 170, 170));
+        var c = ToCanvas(p.Yaw, p.Pitch);
+        Microsoft.UI.Xaml.Controls.Canvas.SetLeft(_placeGhost, c.X - _placeGhost.Width / 2);
+        Microsoft.UI.Xaml.Controls.Canvas.SetTop(_placeGhost, c.Y - _placeGhost.Height / 2);
+        _placeGhost.Visibility = Visibility.Visible;
+    }
+
+    // A card moved softly to its place (0.35 s, as Theme.ease on macOS), then `done`.
+    private static void GlideTo(UIElement view, double left, double top, Action done)
+    {
+        var sb = new Storyboard();
+        foreach (var (property, to) in new[] { ("(Canvas.Left)", left), ("(Canvas.Top)", top) })
+        {
+            var a = new DoubleAnimation
+            {
+                To = to,
+                Duration = new Duration(TimeSpan.FromMilliseconds(350)),
+                EnableDependentAnimation = true,
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
+            };
+            Storyboard.SetTarget(a, view);
+            Storyboard.SetTargetProperty(a, property);
+            sb.Children.Add(a);
+        }
+        sb.Completed += (_, _) => done();
+        sb.Begin();
+    }
+
+    // The wall's cell (normalised grid) whose place is nearest a pose; may lie beyond the block.
+    private (int Col, int Row) WallCell(PanelPos p)
+    {
+        var (midC, midR) = WallMid();
+        float w = _model.Size, h = AppModel.VerticalArc(_model.Size);
+        return ((int)MathF.Round(p.Yaw / w + midC), (int)MathF.Round(midR - p.Pitch / h));
+    }
+
+    private PanelPos WallPose((int Col, int Row) c)
+    {
+        var (midC, midR) = WallMid();
+        float w = _model.Size, h = AppModel.VerticalArc(_model.Size);
+        return new PanelPos((c.Col - midC) * w, (midR - c.Row) * h);
+    }
+
+    private (float, float) WallMid()
+    {
+        var cells = _model.Cells;
+        if (cells.Length == 0) return (0, 0);
+        int c0 = cells.Min(c => c.Col), r0 = cells.Min(c => c.Row);
+        return ((cells.Max(c => c.Col) - c0) / 2f, (cells.Max(c => c.Row) - r0) / 2f);
     }
 
     // Edges touching, centres and tops/bottoms aligned with the other monitors, and the horizon.
@@ -478,7 +613,7 @@ public sealed partial class SettingsWindow : Window
 
     private void PlaceScale_Changed(object sender, RangeBaseValueChangedEventArgs e)
     {
-        if (_updating) return;
+        if (_updating || OnWall(_placeSelected)) return;
         var poses = PlaceItems();
         if (_placeSelected >= poses.Length) return;
         poses[_placeSelected] = poses[_placeSelected] with { Scale = (float)PlaceScale.Value };

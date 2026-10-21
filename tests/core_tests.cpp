@@ -1519,6 +1519,40 @@ void test_presets() {
     for (const auto& p : profiles()) CHECK(layout_preset(p.layout_id) != nullptr);
 }
 
+// Layout editing shared by both apps: added monitors join the block, moves keep it connected,
+// hand-placed monitors land beside the others and never on top of them.
+void test_arrangement_editing() {
+    std::vector<GridCell> cells = {{0, 0}, {1, 0}};
+    CHECK(valid_arrangement(cells));
+    CHECK(!valid_arrangement({{0, 0}, {2, 0}}));            // apart
+    CHECK(!valid_arrangement({{0, 0}, {0, 0}}));            // one cell twice
+    CHECK(!valid_arrangement({{0, 0}, {1, 0}, {2, 0}, {3, 0}, {4, 0}}));  // 5 columns
+    GridCell next{};
+    CHECK(next_free_cell(cells, &next) && next.col == 2 && next.row == 0);
+    cells.push_back(next);
+    CHECK(next_free_cell(cells, &next) && next.col == 3 && next.row == 0);
+    cells.push_back(next);
+    CHECK(next_free_cell(cells, &next) && next.col == 0 && next.row == 1);  // the row is full: below
+    // Moves: onto another monitor swaps; one that would split the block is refused.
+    std::vector<GridCell> row = {{0, 0}, {1, 0}, {2, 0}};
+    CHECK(move_cell(row, 0, {2, 0}) && row[0].col == 2 && row[2].col == 0);
+    CHECK(!move_cell(row, 1, {1, 2}) && row[1].col == 1 && row[1].row == 0);
+    CHECK(move_cell(row, 0, {1, 1}));  // below the middle one: still connected
+
+    std::vector<PanelPose> poses = {{-20.0f, 0.0f, 1.0f}, {20.0f, 0.0f, 1.0f}};
+    const PanelPose added = pose_beside(poses, 38.0f, 16.0f / 9.0f, 1.0f);
+    CHECK(near(added.yaw_deg, 20.0f + 19.0f + 1.0f + 19.0f, 1e-4f) && near(added.pitch_deg, 0.0f, 1e-4f));
+    poses.push_back(added);
+    CHECK(!pose_overlaps(poses, 2, 38.0f, 16.0f / 9.0f));
+    poses[2].yaw_deg -= 10.0f;
+    CHECK(pose_overlaps(poses, 2, 38.0f, 16.0f / 9.0f));
+    // A panel already where the new one would go: further right.
+    std::vector<PanelPose> busy = {{0.0f, 0.0f, 1.0f}, {39.0f, 15.0f, 1.0f}};
+    const PanelPose clear = pose_beside(busy, 38.0f, 16.0f / 9.0f, 1.0f);
+    busy.push_back(clear);
+    CHECK(!pose_overlaps(busy, 2, 38.0f, 16.0f / 9.0f, 0.0f));
+}
+
 // Settings file: round trip, macOS key names, defaults for missing or broken values.
 void test_settings_json() {
     Settings s;
@@ -2040,6 +2074,7 @@ int main() {
     test_pipeline_recenter();
     test_pipeline_recenter_glide();
     test_presets();
+    test_arrangement_editing();
     test_settings_json();
     test_panel_dimmer();
     test_frame_skipper();

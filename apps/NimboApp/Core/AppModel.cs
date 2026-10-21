@@ -125,16 +125,47 @@ internal sealed unsafe class AppModel
     public bool HasPlacement => _s.PoseCount > 0 && _s.PoseCount == _s.CellCount;
 
     // The grid as hand placements: where the monitors are now (core::grid_layout).
-    public PanelPos[] GridPoses()
+    public PanelPos[] GridPoses(float? gap = null)
     {
         var n = Normalized(Cells);
         if (n.Length == 0) return Array.Empty<PanelPos>();
         float midC = (n.Min(c => c.Item1) + n.Max(c => c.Item1)) / 2f, midR = (n.Min(c => c.Item2) + n.Max(c => c.Item2)) / 2f;
-        float w = Size + Gap, h = VerticalArc(Size) + Gap;
+        float g = gap ?? Gap;
+        float w = Size + g, h = VerticalArc(Size) + g;
         return n.Select(c => new PanelPos((c.Item1 - midC) * w, (midR - c.Item2) * h)).ToArray();
     }
 
-    public PanelPos[] EffectivePoses => HasPlacement ? Poses : GridPoses();
+    // The wall (Pared continua) shows the grid's cells edge to edge, whatever was placed by hand:
+    // it is the block of monitors, and an added monitor joins it. Not in the glasses' pinned mode,
+    // where the arrangement is fitted in the glasses' image instead (nimbo_options_from_settings).
+    public bool WallActive => FlatWall && !PinnedMode;
+
+    // The wall's cells as placements, edge to edge (core::wall_grid_layout at the editor's scale).
+    public PanelPos[] WallPoses() => GridPoses(0);
+
+    public PanelPos[] EffectivePoses => WallActive ? WallPoses() : HasPlacement ? Poses : GridPoses();
+
+    // Whether monitor `i` lies over another (core::pose_overlaps): such a drop is undone.
+    public bool PoseOverlaps(PanelPos[] poses, int i)
+    {
+        var (yaw, pitch, scale) = Split(poses);
+        fixed (float* py = yaw, pp = pitch, ps = scale)
+            return NimboNative.nimbo_pose_overlaps(py, pp, ps, poses.Length, i, Size, EyeAspect) != 0;
+    }
+
+    // A monitor added to hand-placed ones: beside the others (core::pose_beside).
+    private PanelPos PoseBeside(PanelPos[] poses)
+    {
+        var (yaw, pitch, scale) = Split(poses);
+        float outYaw = 0, outPitch = 0;
+        fixed (float* py = yaw, pp = pitch, ps = scale)
+            NimboNative.nimbo_pose_beside(py, pp, ps, poses.Length, Size, EyeAspect, Gap, &outYaw, &outPitch);
+        return new PanelPos(outYaw, outPitch);
+    }
+
+    private static (float[], float[], float[]) Split(PanelPos[] poses) =>
+        (poses.Select(p => p.Yaw).Append(0).ToArray(), poses.Select(p => p.Pitch).Append(0).ToArray(),
+         poses.Select(p => p.Scale).Append(1).ToArray());  // never empty: fixed needs an element
 
     // --- floating windows (this session: window handles do not survive the app) ------------
 
@@ -260,26 +291,23 @@ internal sealed unsafe class AppModel
 
     public const int MaxMonitors = 6;
 
-    // Adds a monitor touching the arrangement: right of a row first, then below a column,
-    // keeping the whole layout within 4 columns x 3 rows.
+    // Adds a monitor touching the arrangement (core::next_free_cell): right of a row first, then
+    // below a column, within 4 columns x 3 rows. On the wall it joins the block edge to edge;
+    // placed by hand, it goes beside the others (core::pose_beside) and they stay where they are
+    // (before, the new cell dropped the hand placement and everything jumped back to the grid).
     public bool AddMonitor()
     {
-        var cells = Cells.ToList();
-        if (cells.Count >= MaxMonitors) return false;
-        var candidates = new List<(int Col, int Row)>();
-        foreach (var r in cells.Select(c => c.Row).Distinct().OrderBy(r => r))
-            candidates.Add((cells.Where(c => c.Row == r).Max(c => c.Col) + 1, r));
-        foreach (var c in cells.Select(c => c.Col).Distinct().OrderBy(c => c))
-            candidates.Add((c, cells.Where(x => x.Col == c).Max(x => x.Row) + 1));
-        foreach (var p in candidates)
-        {
-            if (cells.Contains(p)) continue;
-            var all = cells.Append(p).ToList();
-            if (all.Max(c => c.Col) - all.Min(c => c.Col) + 1 > 4 || all.Max(c => c.Row) - all.Min(c => c.Row) + 1 > 3) continue;
-            Cells = all.ToArray();
-            return true;
-        }
-        return false;
+        var cells = Cells;
+        if (cells.Length >= MaxMonitors) return false;
+        int col = 0, row = 0;
+        var cols = cells.Select(c => c.Col).Append(0).ToArray();
+        var rows = cells.Select(c => c.Row).Append(0).ToArray();
+        fixed (int* pc = cols, pr = rows)
+            if (NimboNative.nimbo_next_free_cell(pc, pr, cells.Length, &col, &row) == 0) return false;
+        var poses = HasPlacement ? Poses : null;
+        Cells = cells.Append((col, row)).ToArray();
+        if (poses != null) Poses = poses.Append(PoseBeside(poses)).ToArray();  // the server derives the cells from them
+        return true;
     }
 
     public bool RemoveMonitor()
@@ -288,7 +316,27 @@ internal sealed unsafe class AppModel
         if (cells.Length <= 1) return false;
         var next = cells.Take(cells.Length - 1).ToArray();
         if (!IsConnected(next)) return false;
+        var poses = HasPlacement ? Poses : null;
         Cells = next;
+        if (poses != null) Poses = poses.Take(poses.Length - 1).ToArray();
+        return true;
+    }
+
+    // Monitor `i` (panel order) to a cell of the normalised grid, swapping with one there
+    // (core::move_cell). False, nothing changed, when the block would split or grow too large.
+    // On the wall a hand placement stays for when the wall is off.
+    public bool MoveCell(int i, (int Col, int Row) target, bool apply = true)
+    {
+        var n = Normalized(Cells);
+        if (i < 0 || i >= n.Length) return false;
+        var cols = n.Select(c => c.Item1).ToArray();
+        var rows = n.Select(c => c.Item2).ToArray();
+        fixed (int* pc = cols, pr = rows)
+            if (NimboNative.nimbo_move_cell(pc, pr, n.Length, i, target.Col, target.Row) == 0) return false;
+        if (!apply) return true;
+        var poses = WallActive && HasPlacement ? Poses : null;
+        Cells = cols.Zip(rows).ToArray();
+        if (poses != null) Poses = poses;
         return true;
     }
 

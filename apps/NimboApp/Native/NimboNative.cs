@@ -259,6 +259,17 @@ internal static unsafe class NimboNative
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern int nimbo_profile_count();
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern byte nimbo_profile_at(int index, Profile* profile);
 
+    // Editing an arrangement (core/presets.h), as macOS.
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte nimbo_next_free_cell(int* cols, int* rows, int count, int* col, int* row);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte nimbo_move_cell(int* cols, int* rows, int count, int index, int col, int row);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte nimbo_pose_overlaps(float* yaw, float* pitch, float* scale, int count, int index, float sizeDeg, float aspect);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void nimbo_pose_beside(float* yaw, float* pitch, float* scale, int count, float sizeDeg, float aspect,
+                                                float gapDeg, float* outYaw, float* outPitch);
+
     // Fixed UTF-8 field <- string (truncated, NUL-terminated).
     public static void SetField(byte* field, int size, string value)
     {

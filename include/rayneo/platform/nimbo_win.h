@@ -239,6 +239,16 @@ NIMBO_API bool nimbo_layout_at(int index, nimbo_layout* out);
 NIMBO_API int nimbo_profile_count(void);
 NIMBO_API bool nimbo_profile_at(int index, nimbo_profile* out);
 
+/* Editing an arrangement, as macOS (core/presets.h). Cells as parallel arrays (row 0 = top),
+ * poses in degrees (yaw right, pitch up) with their scale; at most NIMBO_MAX_PANELS. */
+NIMBO_API bool nimbo_next_free_cell(const int* cols, const int* rows, int count, int* col, int* row);
+/* Monitor `index` to (col, row), swapping with one there; false and untouched when invalid. */
+NIMBO_API bool nimbo_move_cell(int* cols, int* rows, int count, int index, int col, int row);
+NIMBO_API bool nimbo_pose_overlaps(const float* yaw, const float* pitch, const float* scale, int count, int index,
+                                   float size_deg, float aspect);
+NIMBO_API void nimbo_pose_beside(const float* yaw, const float* pitch, const float* scale, int count, float size_deg,
+                                 float aspect, float gap_deg, float* out_yaw, float* out_pitch);
+
 /* ---------------------------------------------------------------------------------------
  * Guided sensor -> head calibration (the app's wizard): bias on the table, then centre, up,
  * down, left, right. Not while a server runs (both need the glasses' IMU).

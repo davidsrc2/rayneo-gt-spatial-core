@@ -42,8 +42,7 @@
                             ValueChanged="PlaceScale_Changed" />
                     <Button x:Name="PlaceReset" Content="Volver a la cuadrícula" Click="PlaceReset_Click" />
                 </StackPanel>
-                <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.6"
-                           Text="Arrastra cada monitor a su sitio; se mueve en las gafas a la vez. Se alinea solo con los demás (mantén Alt para colocarlo libre). Elige uno para cambiar su tamaño." />
+                <TextBlock x:Name="PlaceHint" TextWrapping="Wrap" FontSize="12" Opacity="0.6" />
             </StackPanel>
 
             <StackPanel Spacing="8">
