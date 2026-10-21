@@ -39,6 +39,14 @@ internal sealed unsafe class AppModel
     {
         Directory.CreateDirectory(DataDirectory);
         if (!NimboNative.LoadSettings(SettingsPath, out _s)) _s = NimboNative.nimbo_default_settings();
+        // Every start in the space at real size: the glasses' own pinned mode (Ctrl+Alt+G, or an old
+        // settings file's "glassesPinned") held the image by itself, turning the side monitors on a
+        // slant and carrying the panels up with the head, and it stayed on from one start to the next.
+        if (PinnedMode)
+        {
+            PinnedMode = false;
+            Save();
+        }
         AdoptExistingCalibration();
     }
 
