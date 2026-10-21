@@ -207,8 +207,10 @@ final class AppModel: ObservableObject {
 
     // New hand placement; the OS arrangement (where the cursor crosses) follows the order the
     // monitors now have, like core::cells_from_poses.
+    // Kept where they were dropped, as on Windows: the renderer centres the arrangement itself
+    // (core::poses_centre), and centred here every monitor jumped in the editor on release.
     func place(_ poses: [PanelPos]) {
-        panelPoses = centred(poses)
+        panelPoses = poses
         let poses = panelPoses
         let cols = Self.clusters(poses.map(\.yaw), step: Float(size) / 2)
         let rows = Self.clusters(poses.map { -$0.pitch }, step: Self.verticalArc(Float(size)) / 2)
