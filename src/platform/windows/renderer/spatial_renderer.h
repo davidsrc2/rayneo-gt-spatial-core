@@ -151,9 +151,11 @@ private:
     std::vector<core::PanelPlacement> placements(float aspect) const;
     void rebuild_mesh(Panel& p, const core::PanelPlacement& pl, bool wall);
     bool wall_mode() const { return options.flat_wall && !options.static_head; }
-    // The wall is a poster in the room (as RealWarp, anchored to gravity): every head rotation
-    // moves it, so a brisk turn's bob or nod can not carry it up and down against the room.
-    core::TrackingAxes tracking_axes() const { return wall_mode() ? core::TrackingAxes::Both : options.tracking_axes; }
+    // The wall is a poster in the room (as RealWarp, anchored to gravity): turning and nodding
+    // move it, so a brisk turn's bob or nod can not carry it up and down against the room. Its
+    // roll is left out (NoRoll): a calibration a little off turned the panels about the gaze as
+    // the head looked up, until they stood on end, and slanted the side ones on a turn.
+    core::TrackingAxes tracking_axes() const { return wall_mode() ? core::TrackingAxes::NoRoll : options.tracking_axes; }
     void compose(Panel& p);
     // compose in two steps: the frame copied into the composite, then its mipmaps.
     bool compose_copy(Panel& p, ID3D11Texture2D* frame, int width, int height);
