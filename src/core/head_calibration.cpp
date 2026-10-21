@@ -72,16 +72,12 @@ HeadCalibrationResult solve_head_calibration(const HeadCalibrationInput& in, con
         return r;
     }
 
-    // The head's left axis from its own motions: the nod axis without what a turn mixed into the
-    // nods added (along the turn's axis). Orthogonalised against gravity instead, a head tilted
-    // towards a shoulder while looking ahead became the head's "level": the frame kept that roll,
-    // and turning to a side panel moved it on a slant (the left / right monitors drifted
-    // diagonally). Gravity then only says how far the head looked up or down.
-    const Vec3 turn = yaw_axis.normalized();
-    const Vec3 left = (left_raw - turn * left_raw.dot(turn)).normalized();
-    const Vec3 head_up = (up - left * up.dot(left)).normalized();
-    const Vec3 forward = left.cross(head_up);
-    r.sensor_to_head = Quat::from_rows(forward, left, head_up);
+    // Square to gravity, not to the turn axis: necks turn about an axis leaning forward, and
+    // taken square to it (0.2.14) the left axis came out off in yaw, so looking up turned the
+    // panels about the gaze until they stood on end.
+    const Vec3 left = horizontal(left_raw).normalized();
+    const Vec3 forward = left.cross(up);
+    r.sensor_to_head = Quat::from_rows(forward, left, up);
     r.ok = true;
     return r;
 }

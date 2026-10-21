@@ -461,25 +461,22 @@ void test_head_calibration_tolerates_turn_in_nods() {
     CHECK(!solve_head_calibration(turned).ok);
 }
 
-// A head tilted towards a shoulder while looking ahead (gravity read rolled): the turns and the
-// nods still give the head's own axes, so no roll is left in the mounting. Kept, the left and
-// right monitors drifted diagonally as the head turned to them.
-void test_head_calibration_ignores_roll_at_center() {
-    const Quat mount = Quat::from_axis_angle({0.3f, 1.0f, 0.2f}, 50.0f * 0.0174533f);
-    HeadCalibrationInput in = synth_calibration(mount);
-    const Quat roll = Quat::from_axis_angle({1, 0, 0}, 8.0f * 0.0174533f);
-    in.gravity_center = mount.conjugate().rotate(roll.rotate({0, 0, 9.81f}));
+// Real necks turn about an axis leaning forward (here 15 deg), and small nods carry some of the
+// turn (here 30 deg of it). The head's left axis must still come out level and square to its
+// forward: taken square to the turn axis instead (0.2.14), it came out ~10 deg off in yaw and
+// looking up turned the panels about the gaze until they stood on end.
+void test_head_calibration_neck_turn_axis() {
+    const float d2r = 0.0174533f;
+    const Quat mount = Quat::from_axis_angle({0.3f, 1.0f, 0.2f}, 50.0f * d2r);
+    const Quat to_sensor = mount.conjugate();
+    const Vec3 left{0, 1, 0}, up{0, 0, 1};
+    const Vec3 neck{std::sin(15 * d2r), 0, std::cos(15 * d2r)};  // leaning forward
+    HeadCalibrationInput in = synth_calibration(mount, neck);
+    in.rot_up = to_sensor.rotate(left * -15.0f + up * 9.0f);
+    in.rot_down = to_sensor.rotate(left * 17.4f + up * -8.0f);
     const auto r = solve_head_calibration(in);
     CHECK(r.ok);
     CHECK(quat_near(r.sensor_to_head, mount, 2e-4f));
-
-    // Looking a little down at center (pitch) is still taken from gravity.
-    const Quat pitch = Quat::from_axis_angle({0, 1, 0}, 6.0f * 0.0174533f);
-    HeadCalibrationInput down = synth_calibration(mount);
-    down.gravity_center = mount.conjugate().rotate(pitch.rotate({0, 0, 9.81f}));
-    const auto rd = solve_head_calibration(down);
-    CHECK(rd.ok);
-    CHECK(quat_near(rd.sensor_to_head, (pitch.conjugate() * mount).normalized(), 2e-4f));
 }
 
 void test_head_calibration_rejects_bad_input() {
@@ -2150,7 +2147,7 @@ int main() {
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();
-    test_head_calibration_ignores_roll_at_center();
+    test_head_calibration_neck_turn_axis();
     test_head_calibration_tolerates_turn_in_nods();
     test_calibration_json_roundtrip();
     test_hold_detector();

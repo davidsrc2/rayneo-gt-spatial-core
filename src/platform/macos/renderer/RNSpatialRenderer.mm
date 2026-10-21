@@ -135,12 +135,11 @@ static float panel_arc(RNRenderOptions* o) {
 // The flat wall (RNRenderOptions.flatWall): the space at real size and its overview; never in the
 // glasses' pinned mode, where the glasses anchor the image and the arrangement is fitted in it.
 static bool wall_mode(RNRenderOptions* o) { return o.flatWall && !o.staticHead; }
-// The wall is a poster in the room (as RealWarp, anchored to gravity): turning and nodding move
-// it, so a brisk turn's bob or nod can not carry it up and down against the room. Its roll is
-// left out (NoRoll): a calibration a little off turned the panels about the gaze as the head
-// looked up, until they stood on end, and slanted the side ones on a turn. As on Windows.
+// The wall is a poster in the room (as RealWarp, anchored to gravity): every head rotation moves
+// it, so a brisk turn's bob or nod can not carry it up and down against the room. Level with the
+// room when the head tilts (NoRoll, 0.2.15, tilted the panels with it).
 static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
-    return wall_mode(o) ? core::TrackingAxes::NoRoll : static_cast<core::TrackingAxes>(o.trackingAxes);
+    return wall_mode(o) ? core::TrackingAxes::Both : static_cast<core::TrackingAxes>(o.trackingAxes);
 }
 
 @implementation RNSpatialRenderer {
