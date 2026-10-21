@@ -1387,7 +1387,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         // themselves (core::view_matrix).
         ro.neckModel = !o.glassesPinned && o.realSize
         if !o.glassesPinned && o.realSize {
-            ro.trackingAxes = 0  // full rotation: fixed in the room, level with the floor
+            ro.trackingAxes = 3  // NoRoll: turning and nodding fixed in the room, never turned about the gaze (as Windows)
             let fovY = ro.fovYDegrees * .pi / 180
             let tallest = panelDisplays.map { CGDisplayBounds($0) }.filter { $0.height > 0 }
                 .map { Float($0.width / $0.height) }.min() ?? ro.eyeAspect
