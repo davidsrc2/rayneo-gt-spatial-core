@@ -461,6 +461,27 @@ void test_head_calibration_tolerates_turn_in_nods() {
     CHECK(!solve_head_calibration(turned).ok);
 }
 
+// A head tilted towards a shoulder while looking ahead (gravity read rolled): the turns and the
+// nods still give the head's own axes, so no roll is left in the mounting. Kept, the left and
+// right monitors drifted diagonally as the head turned to them.
+void test_head_calibration_ignores_roll_at_center() {
+    const Quat mount = Quat::from_axis_angle({0.3f, 1.0f, 0.2f}, 50.0f * 0.0174533f);
+    HeadCalibrationInput in = synth_calibration(mount);
+    const Quat roll = Quat::from_axis_angle({1, 0, 0}, 8.0f * 0.0174533f);
+    in.gravity_center = mount.conjugate().rotate(roll.rotate({0, 0, 9.81f}));
+    const auto r = solve_head_calibration(in);
+    CHECK(r.ok);
+    CHECK(quat_near(r.sensor_to_head, mount, 2e-4f));
+
+    // Looking a little down at center (pitch) is still taken from gravity.
+    const Quat pitch = Quat::from_axis_angle({0, 1, 0}, 6.0f * 0.0174533f);
+    HeadCalibrationInput down = synth_calibration(mount);
+    down.gravity_center = mount.conjugate().rotate(pitch.rotate({0, 0, 9.81f}));
+    const auto rd = solve_head_calibration(down);
+    CHECK(rd.ok);
+    CHECK(quat_near(rd.sensor_to_head, (pitch.conjugate() * mount).normalized(), 2e-4f));
+}
+
 void test_head_calibration_rejects_bad_input() {
     HeadCalibrationInput small = synth_calibration(Quat{});
     small.rot_left = small.rot_left * 0.1f;
@@ -2065,6 +2086,7 @@ int main() {
     test_pipeline_stabilized_recenter();
     test_head_calibration_solves_mounting();
     test_head_calibration_rejects_bad_input();
+    test_head_calibration_ignores_roll_at_center();
     test_head_calibration_tolerates_turn_in_nods();
     test_calibration_json_roundtrip();
     test_hold_detector();

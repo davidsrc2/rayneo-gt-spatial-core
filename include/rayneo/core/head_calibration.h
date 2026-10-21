@@ -39,9 +39,10 @@ struct HeadCalibrationLimits {
     float max_nod_mismatch_deg = 25.0f;
 };
 
-// Up = gravity at center; left = pitch axis (look down - look up) orthogonalized against up;
-// forward = left x up. The left/right turns and the agreement between the two nods only
-// validate the result.
+// Left = pitch axis (look down - look up) orthogonalized against the turn axis (look left -
+// look right); up = gravity at center orthogonalized against left; forward = left x up. A head
+// tilted sideways at center leaves no roll in the result. The agreement between the two nods
+// and the turn axis against gravity validate it.
 HeadCalibrationResult solve_head_calibration(const HeadCalibrationInput& in,
                                              const HeadCalibrationLimits& lim = {});
 
