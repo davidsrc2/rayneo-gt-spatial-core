@@ -924,6 +924,34 @@ void test_track_no_roll() {
     CHECK(std::fabs(n.rotate({0, 1, 0}).z) < 1e-5f);  // the view's left axis stays level: no tilt
 }
 
+// A calibration a little off puts roll into the pose. Off in roll (8 deg), a side monitor seen
+// 40 deg to the right was drawn on a slant with the full rotation; NoRoll keeps it level. Off in
+// yaw (12 deg), a panel's horizontal edge looked at 50 deg up was drawn 9 deg askew (the panels
+// stood on end further up); NoRoll halves it, the rest needs a good calibration.
+void test_no_roll_keeps_panels_level() {
+    const float d2r = 0.0174533f;
+    auto slant_deg = [&](const Quat& head, const Vec3& a_w, const Vec3& b_w) {
+        const Mat4 v = view_matrix(head, 0.0f);
+        const Vec3 a = v.transform_point(a_w), b = v.transform_point(b_w);
+        return std::atan2(b.y / b.z - a.y / a.z, b.x / b.z - a.x / a.z) / d2r;
+    };
+    const Quat roll_err = Quat::from_axis_angle({1, 0, 0}, 8 * d2r);
+    const Quat right = Quat::from_axis_angle({0, 0, 1}, -40 * d2r);  // core: +Z up, turning right
+    const Quat turned = (roll_err.conjugate() * right * roll_err).normalized();
+    const float c = std::cos(40 * d2r), s = std::sin(40 * d2r);
+    const Vec3 l{2 * s - 0.5f * c, 0.0f, 2 * c + 0.5f * s}, r{2 * s + 0.5f * c, 0.0f, 2 * c - 0.5f * s};
+    CHECK(std::fabs(slant_deg(turned, l, r)) > 1.5f);
+    CHECK(std::fabs(slant_deg(track_axes(turned, TrackingAxes::NoRoll), l, r)) < 0.05f);
+
+    const Quat yaw_err = Quat::from_axis_angle({0, 0, 1}, 12 * d2r);
+    const Quat up = Quat::from_axis_angle({0, -1, 0}, 50 * d2r);  // core: looking up
+    const Quat looked = (yaw_err.conjugate() * up * yaw_err).normalized();
+    const float y = 2.0f * std::sin(50 * d2r), z = 2.0f * std::cos(50 * d2r);
+    const float full = std::fabs(slant_deg(looked, {-0.5f, y, z}, {0.5f, y, z}));
+    const float no_roll = std::fabs(slant_deg(track_axes(looked, TrackingAxes::NoRoll), {-0.5f, y, z}, {0.5f, y, z}));
+    CHECK(full > 8.0f && no_roll < 0.6f * full);
+}
+
 // Neck model: at rest nothing moves; turned 30 deg, the eyes have moved sideways by
 // forward * sin(30) and a point straight ahead in the room shifts accordingly.
 void test_neck_model() {
@@ -2116,6 +2144,7 @@ int main() {
     test_separate_floating();
     test_place_pitched();
     test_track_no_roll();
+    test_no_roll_keeps_panels_level();
     test_neck_model();
     test_pinned_zoom();
     test_pipeline_stabilized_recenter();
