@@ -97,6 +97,7 @@ public sealed partial class SettingsWindow : Window
         VehicleToggle.IsOn = _model.VehicleMode;
         FlatWallToggle.IsOn = _model.FlatWall;
         GrowGazeToggle.IsOn = _model.GrowByGaze;
+        PinnedToggle.IsOn = _model.PinnedMode;
         FovSlider.Value = _model.Fov;
         GapSlider.Value = _model.Gap;
         TextSizeSlider.Value = _model.TextSize;
@@ -119,6 +120,15 @@ public sealed partial class SettingsWindow : Window
         _updating = false;
     }
 
+    // Ctrl+Alt+G switched the glasses' pinned mode: the switch here shows it (it stayed off).
+    public void SyncPinned()
+    {
+        _updating = true;
+        PinnedToggle.IsOn = _model.PinnedMode;
+        _updating = false;
+        DrawPlacement();  // the wall is off in the pinned mode
+    }
+
     private void Save()
     {
         if (_updating) return;
@@ -128,6 +138,7 @@ public sealed partial class SettingsWindow : Window
         _model.VehicleMode = VehicleToggle.IsOn;
         _model.FlatWall = FlatWallToggle.IsOn;
         _model.GrowByGaze = GrowGazeToggle.IsOn;
+        _model.PinnedMode = PinnedToggle.IsOn;
         _model.Fov = (float)FovSlider.Value;
         _model.Gap = (float)GapSlider.Value;
         _model.TextSize = (int)Math.Round(TextSizeSlider.Value);

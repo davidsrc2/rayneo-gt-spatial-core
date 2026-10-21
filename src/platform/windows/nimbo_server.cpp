@@ -281,15 +281,24 @@ public:
         rayneo_engine_stop(engine_);
         rayneo_engine_destroy(engine_);
     }
+    // The RayNeo GT's IMU sits turned ~108 deg in the frame (a unit's calibration, 2026-10):
+    // without a calibration of its own (the wizard skipped, or the example's identity), that
+    // mounting is used instead of the identity, whose crossed axes moved the panels up and down
+    // on a turn and let them follow the head.
+    static constexpr core::Quat kGtMounting{0.5876073f, 0.3887766f, -0.3985811f, -0.5871146f};
+
     bool load_calibration(const std::string& path) {
-        std::ifstream f(std::filesystem::u8path(path));
-        if (!f) return false;
-        std::stringstream ss;
-        ss << f.rdbuf();
-        const auto q = core::calibration_from_json(ss.str());
-        if (!q) return false;
-        rayneo_engine_set_sensor_to_head(engine_, q->w, q->x, q->y, q->z);
-        return true;
+        std::optional<core::Quat> q;
+        if (std::ifstream f(std::filesystem::u8path(path)); f) {
+            std::stringstream ss;
+            ss << f.rdbuf();
+            q = core::calibration_from_json(ss.str());
+        }
+        const bool identity = q && std::fabs(q->w) > 0.9999f;
+        const core::Quat use = q && !identity ? *q : kGtMounting.normalized();
+        rayneo_engine_set_sensor_to_head(engine_, use.w, use.x, use.y, use.z);
+        if (!q || identity) logln("calibration: %s, the RayNeo GT's usual mounting instead", q ? "identity" : "none");
+        return q && !identity;
     }
     bool start(std::string* error) {
         if (rayneo_engine_start(engine_) == RAYNEO_OK) return true;
@@ -912,7 +921,7 @@ bool Server::start() {
             logln("invalid or missing calibration: %s", opt_.calibration_path.c_str());
             return false;
         }
-        logln("calibration: %s", calibrated ? opt_.calibration_path.c_str() : "none (identity)");
+        if (calibrated) logln("calibration: %s", opt_.calibration_path.c_str());
         std::string error;
         // Right after the displays change the glasses can miss the stream-on: a few tries.
         bool streaming = false;

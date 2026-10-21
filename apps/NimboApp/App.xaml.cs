@@ -122,6 +122,7 @@ public partial class App : Application
             _model.PinnedMode = !_model.PinnedMode;
             _model.Save();
             _server.SettingsChanged();
+            _settings?.SyncPinned();
             _tray?.ShowNotification(_model.PinnedMode ? "Modo fijo de las gafas" : "Espacio a tamaño real",
                                     _model.PinnedMode ? "Las gafas sostienen la imagen (Ctrl+Alt+G para volver)" : "");
             _panel.Refresh();

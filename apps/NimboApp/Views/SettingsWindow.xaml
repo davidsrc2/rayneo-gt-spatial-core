@@ -89,6 +89,8 @@
                               Header="Modo vehículo (coche, tren, avión): las pantallas siguen solo una cuarta parte de los giros y acompañan las curvas del vehículo" />
                 <ToggleSwitch x:Name="AnchorToggle" Toggled="Changed"
                               Header="Anclar las pantallas con la cabeza quieta (en el espacio a tamaño real va siempre incluido: quietas al parar, 1:1 al mover la cabeza)" />
+                <ToggleSwitch x:Name="PinnedToggle" Toggled="Changed"
+                              Header="Modo fijo de las gafas (Ctrl+Alt+G): las gafas sostienen la imagen, una pantalla grande que cambia al llevar el ratón a otra" />
                 <ToggleSwitch x:Name="GrowGazeToggle" Toggled="Changed"
                               Header="Modo fijo (Ctrl+Alt+G): cambiar de pantalla mirándola (desactivado: solo con el ratón)" />
                 <ToggleSwitch x:Name="LaptopToggle" Toggled="Changed"
