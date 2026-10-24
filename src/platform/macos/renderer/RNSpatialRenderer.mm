@@ -829,6 +829,72 @@ static float effective_curvature(RNRenderOptions* o) {
     _skipper.invalidate();
 }
 
+- (void)prepareFrame {
+    [[self encodeUploadsInto:nil] commit];
+}
+
+// New frames -> mipmapped copies (only panels in view whose content changed: out of view the
+// frame waits, dirty, until the panel comes into view), into `cb` (nil: a new one, made only if
+// there is anything to copy). Each frame stays retained until the GPU is done with it.
+- (id<MTLCommandBuffer>)encodeUploadsInto:(id<MTLCommandBuffer>)cb {
+    CVMetalTextureRef textures[kMaxPanels] = {};
+    os_unfair_lock_lock(&_sourceLock);
+    const NSUInteger count = _panelCount;
+    const NSUInteger visible = _visibleMask.load(std::memory_order_relaxed);
+    for (NSUInteger i = 0; i < count; ++i) {
+        Panel& p = _panels[i];
+        if (p.dirty && (visible & (NSUInteger{1} << i)) != 0) {
+            p.dirty = false;
+            textures[i] = p.texture;
+            if (textures[i] != nullptr) CFRetain(textures[i]);
+        }
+    }
+    os_unfair_lock_unlock(&_sourceLock);
+
+    id<MTLBlitCommandEncoder> blit = nil;
+    std::vector<CVMetalTextureRef> held;
+    const uint64_t now = now_ns();
+    for (NSUInteger i = 0; i < count; ++i) {
+        Panel& p = _panels[i];
+        const bool mips = p.mipsPending && p.mipmapped != nil && now - p.lastMipsNs >= 33'000'000;
+        if (textures[i] == nullptr && !mips) continue;
+        if (blit == nil) {
+            if (cb == nil) cb = [_queue commandBuffer];
+            blit = [cb blitCommandEncoder];
+        }
+        if (textures[i] != nullptr) {
+            held.push_back(textures[i]);
+            id<MTLTexture> src = CVMetalTextureGetTexture(textures[i]);
+            if (p.mipmapped == nil || p.mipmapped.width != src.width || p.mipmapped.height != src.height) {
+                MTLTextureDescriptor* md = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:src.pixelFormat
+                                                                                              width:src.width
+                                                                                             height:src.height
+                                                                                          mipmapped:YES];
+                md.usage = MTLTextureUsageShaderRead;
+                md.storageMode = MTLStorageModePrivate;
+                p.mipmapped = [_device newTextureWithDescriptor:md];
+            }
+            [blit copyFromTexture:src sourceSlice:0 sourceLevel:0 toTexture:p.mipmapped destinationSlice:0
+                 destinationLevel:0 sliceCount:1 levelCount:1];
+        }
+        // The chain at most ~30 times a second (typing changes level 0 at every key).
+        if (now - p.lastMipsNs >= 33'000'000) {
+            [blit generateMipmapsForTexture:p.mipmapped];
+            p.lastMipsNs = now;
+            p.mipsPending = false;
+        } else {
+            p.mipsPending = true;
+        }
+    }
+    if (blit != nil) [blit endEncoding];
+    if (!held.empty()) {
+        [cb addCompletedHandler:^(id<MTLCommandBuffer>) {
+          for (CVMetalTextureRef t : held) CFRelease(t);  // IOSurfaces live until the GPU is done
+        }];
+    }
+    return blit != nil ? cb : nil;
+}
+
 - (void)ensureEyeTextures:(MTLPixelFormat)format width:(NSUInteger)w height:(NSUInteger)h mipmapped:(BOOL)mips {
     if (_eyeTexture != nil && _eyeTexture.width == w && _eyeTexture.height == h &&
         _eyeTexture.pixelFormat == format && (_eyeTexture.mipmapLevelCount > 1) == mips) {
@@ -907,21 +973,10 @@ static float effective_curvature(RNRenderOptions* o) {
         horizon_s = 0.0f;
     }
 
-    // Snapshot the panels' latest frames; each stays retained until the GPU is done.
-    CVMetalTextureRef textures[kMaxPanels] = {};
     float aspects[kMaxPanels];
-    bool fresh[kMaxPanels] = {};
     os_unfair_lock_lock(&_sourceLock);
     const NSUInteger count = _panelCount;
-    for (NSUInteger i = 0; i < count; ++i) {
-        Panel& p = _panels[i];
-        textures[i] = p.texture;
-        if (textures[i] != nullptr) CFRetain(textures[i]);
-        aspects[i] = p.aspect;
-        // Out of view: the new frame waits (dirty) until the panel comes into view.
-        fresh[i] = p.dirty && (_visibleMask.load(std::memory_order_relaxed) & (NSUInteger{1} << i)) != 0;
-        if (fresh[i]) p.dirty = false;
-    }
+    for (NSUInteger i = 0; i < count; ++i) aspects[i] = _panels[i].aspect;
     os_unfair_lock_unlock(&_sourceLock);
 
     // One layout for all panels (they share a size); per-panel aspect only shapes its mesh.
@@ -965,41 +1020,7 @@ static float effective_curvature(RNRenderOptions* o) {
     [self ensureEyeTextures:target.pixelFormat width:target.width / halves * ss height:target.height * ss mipmapped:ss > 1];
 
     id<MTLCommandBuffer> cb = [_queue commandBuffer];
-
-    // New frames -> mipmapped copies (only panels whose content changed).
-    id<MTLBlitCommandEncoder> blit = nil;
-    const uint64_t now = now_ns();
-    for (NSUInteger i = 0; i < count; ++i) {
-        Panel& p = _panels[i];
-        if (fresh[i] && textures[i] != nullptr) {
-            id<MTLTexture> src = CVMetalTextureGetTexture(textures[i]);
-            if (p.mipmapped == nil || p.mipmapped.width != src.width || p.mipmapped.height != src.height) {
-                MTLTextureDescriptor* md = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:src.pixelFormat
-                                                                                              width:src.width
-                                                                                             height:src.height
-                                                                                          mipmapped:YES];
-                md.usage = MTLTextureUsageShaderRead;
-                md.storageMode = MTLStorageModePrivate;
-                p.mipmapped = [_device newTextureWithDescriptor:md];
-            }
-            if (blit == nil) blit = [cb blitCommandEncoder];
-            [blit copyFromTexture:src sourceSlice:0 sourceLevel:0 toTexture:p.mipmapped destinationSlice:0
-                 destinationLevel:0 sliceCount:1 levelCount:1];
-            if (now - p.lastMipsNs >= 33'000'000) {
-                [blit generateMipmapsForTexture:p.mipmapped];
-                p.lastMipsNs = now;
-                p.mipsPending = false;
-            } else {
-                p.mipsPending = true;
-            }
-        } else if (p.mipsPending && p.mipmapped != nil && (now - p.lastMipsNs >= 33'000'000)) {
-            if (blit == nil) blit = [cb blitCommandEncoder];
-            [blit generateMipmapsForTexture:p.mipmapped];
-            p.lastMipsNs = now;
-            p.mipsPending = false;
-        }
-    }
-    if (blit != nil) [blit endEncoding];
+    [self encodeUploadsInto:cb];  // frames that arrived after prepareFrame
 
     const core::Mat4 proj =
         core::perspective_lh(o.fovYDegrees * kDegToRad, o.eyeAspect, 0.05f, 100.0f);
@@ -1145,15 +1166,6 @@ static float effective_curvature(RNRenderOptions* o) {
     [enc endEncoding];
 
     [cb presentDrawable:drawable];
-    std::vector<CVMetalTextureRef> held;
-    for (NSUInteger i = 0; i < count; ++i) {
-        if (textures[i] != nullptr) held.push_back(textures[i]);
-    }
-    if (!held.empty()) {
-        [cb addCompletedHandler:^(id<MTLCommandBuffer>) {
-          for (CVMetalTextureRef t : held) CFRelease(t);  // IOSurfaces live until the GPU is done
-        }];
-    }
     __weak RNSpatialRenderer* weakSelf = self;
     [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
       RNSpatialRenderer* strong = weakSelf;

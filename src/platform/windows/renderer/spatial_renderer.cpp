@@ -547,20 +547,42 @@ void SpatialRenderer::rebuild_mesh(Panel& p, const core::PanelPlacement& pl, boo
     p.mesh_zoom = options.zoom;
 }
 
+bool SpatialRenderer::prepare() {
+    const uint32_t was_visible = visible_mask_.load(std::memory_order_relaxed);
+    const uint64_t now_ns = renderer_now_ns();
+    bool work = false;
+    for (int i = 0; i < count_; ++i) {
+        Panel& p = panels_[i];
+        if ((was_visible >> i & 1u) != 0) {
+            const uint64_t composed = p.composed_generation;
+            compose(p);  // out of view: its last composite stays
+            work = work || p.composed_generation != composed;
+            if (p.mips_pending && (now_ns - p.last_mips_ns >= 33'000'000)) {
+                ctx_->GenerateMips(p.composite_srv.Get());
+                p.last_mips_ns = now_ns;
+                p.mips_pending = false;
+                work = true;
+            }
+        }
+        update_cursor_shape(p);
+    }
+    return work;
+}
+
 void SpatialRenderer::compose(Panel& p) {
     if (p.source == nullptr) return;
-    const FrameSource::Frame f = p.source->latest();
+    const FrameSource::Frame f = p.source->latest(p.composed_generation);
     if (!f.texture || f.generation == p.composed_generation) return;
     // The capture thread is writing it: keep the previous composite, retry next frame.
     if (f.mutex->AcquireSync(0, 0) != S_OK) return;
-    const bool copied = compose_copy(p, f.texture.Get(), f.width, f.height);
+    const bool copied = compose_copy(p, f.texture.Get(), f.width, f.height, f.partial ? &f.dirty : nullptr);
     f.mutex->ReleaseSync(0);
     if (!copied) return;
     p.composed_generation = f.generation;
     compose_finish(p);
 }
 
-bool SpatialRenderer::compose_copy(Panel& p, ID3D11Texture2D* frame, int width, int height) {
+bool SpatialRenderer::compose_copy(Panel& p, ID3D11Texture2D* frame, int width, int height, const D3D11_BOX* dirty) {
     if (!p.composite || p.width != width || p.height != height) {
         D3D11_TEXTURE2D_DESC d{};
         d.Width = static_cast<UINT>(width);
@@ -588,8 +610,11 @@ bool SpatialRenderer::compose_copy(Panel& p, ID3D11Texture2D* frame, int width, 
         p.width = width;
         p.height = height;
         p.aspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 16.0f / 9.0f;
+        dirty = nullptr;  // a new composite: all of it
     }
-    ctx_->CopySubresourceRegion(p.composite.Get(), 0, 0, 0, 0, frame, 0, nullptr);
+    // Only what changed since the composite's generation (Frame::dirty), else the whole frame.
+    if (dirty != nullptr && (dirty->right <= dirty->left || dirty->bottom <= dirty->top)) return true;
+    ctx_->CopySubresourceRegion(p.composite.Get(), 0, dirty ? dirty->left : 0, dirty ? dirty->top : 0, 0, frame, 0, dirty);
     return true;
 }
 
@@ -747,19 +772,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         horizon_s = 0.0f;
     }
 
-    const uint32_t was_visible = visible_mask_.load(std::memory_order_relaxed);
-    const uint64_t now_ns = renderer_now_ns();
-    for (int i = 0; i < count_; ++i) {
-        if ((was_visible >> i & 1u) != 0) {
-            compose(panels_[i]);  // out of view: its last composite stays
-            if (panels_[i].mips_pending && (now_ns - panels_[i].last_mips_ns >= 33'000'000)) {
-                ctx_->GenerateMips(panels_[i].composite_srv.Get());
-                panels_[i].last_mips_ns = now_ns;
-                panels_[i].mips_pending = false;
-            }
-        }
-        update_cursor_shape(panels_[i]);
-    }
+    prepare();  // frames that arrived after the last prepare()
     // One layout for all panels (they share a size); per-panel aspect only shapes its mesh.
     const auto pls = placements(panels_[0].aspect);
     for (int i = 0; i < count_; ++i) {

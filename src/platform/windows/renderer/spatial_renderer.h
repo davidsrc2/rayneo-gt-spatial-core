@@ -109,6 +109,11 @@ public:
     bool can_skip_frame(const core::Quat& orientation, const core::Vec3& angular_velocity, bool tracking, bool forced);
     void invalidate_skipped_frame() { skipper_.invalidate(); }
 
+    // New capture frames copied into the panels and their mipmaps made (render() does it too,
+    // for frames that arrive later). Called before the late-latch wait and flushed, the GPU does
+    // this while the pose is awaited instead of ahead of the frame. True if work was queued.
+    bool prepare();
+
     // Predicts the pose to target_ns (steady clock), renders both eyes into `target`
     // (an sRGB view of the back buffer) and returns the prediction horizon applied, in ms.
     float render(ID3D11RenderTargetView* target, int width, int height, const core::Quat& orientation,
@@ -162,7 +167,8 @@ private:
     core::TrackingAxes tracking_axes() const { return wall_mode() ? core::TrackingAxes::Both : options.tracking_axes; }
     void compose(Panel& p);
     // compose in two steps: the frame copied into the composite, then its mipmaps.
-    bool compose_copy(Panel& p, ID3D11Texture2D* frame, int width, int height);
+    // `dirty`: only this area changed since the composite's generation (nullptr: all of it).
+    bool compose_copy(Panel& p, ID3D11Texture2D* frame, int width, int height, const D3D11_BOX* dirty);
     void compose_finish(Panel& p);
     void update_cursor_shape(Panel& p);
     void draw_cursor(const Panel& p, ID3D11PixelShader* panel_ps);

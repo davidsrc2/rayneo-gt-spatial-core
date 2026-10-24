@@ -40,7 +40,7 @@ public:
     bool start(IDXGIAdapter* adapter, HWND window, ID3D11Device* render_device, std::string* error);
     void stop();
 
-    Frame latest() override;
+    Frame latest(uint64_t since) override;  // always the whole frame
     uint64_t generation() const override;
     bool pointer_shape(uint64_t, PointerShape*) override { return false; }  // drawn by the capture
     uint64_t frames() const;

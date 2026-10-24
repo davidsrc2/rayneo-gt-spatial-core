@@ -2254,6 +2254,11 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         linkFrames &+= 1
         let margin = latchMarginS
         statsLock.unlock()
+        // The captures' copies and mipmaps need no pose: committed now, the GPU does them while
+        // we wait, and the frame's own work after the latch is only the scene.
+        drawLock.lock()
+        renderer.prepareFrame()
+        drawLock.unlock()
         if options.lateLatch {
             // targetTimestamp: when the frame must be done. Sleep until just before it, then
             // read the freshest pose (the IMU thread keeps it at ~457 Hz).

@@ -227,7 +227,7 @@ void WindowCapture::Impl::on_frame() {
     generation.fetch_add(1, std::memory_order_acq_rel);
 }
 
-FrameSource::Frame WindowCapture::latest() {
+FrameSource::Frame WindowCapture::latest(uint64_t) {
     Impl& m = *impl_;
     std::lock_guard<std::mutex> lock(m.mutex);
     if (m.shared_handle != m.opened) {

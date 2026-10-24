@@ -146,6 +146,11 @@ NS_ASSUME_NONNULL_BEGIN
 // The screen shows something else (placeholder frame without a pose): never skip next.
 - (void)invalidateSkippedFrame;
 
+// New capture frames copied into the panels and their mipmaps made, committed on their own
+// (render does it too, for frames that arrive later). Called before the late-latch wait, the
+// GPU does this while the pose is awaited instead of ahead of the frame. Render thread.
+- (void)prepareFrame;
+
 // The pixel format must be an sRGB one (MTLPixelFormatBGRA8Unorm_sRGB): filtering and
 // dimming happen in linear light, which keeps text edges from darkening.
 // Predicts the pose to targetHostNs, renders both eyes and presents. Render thread only.

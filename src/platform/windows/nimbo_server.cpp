@@ -1290,6 +1290,9 @@ bool Server::frame() {
     // of the head's motion has to be predicted.
     const uint64_t margin = static_cast<uint64_t>(static_cast<double>(latch_.margin_ms) * 1e6);
     const uint64_t wake = vsync > margin ? vsync - margin : 0;
+    // The captures' copies and mipmaps need no pose: queued and flushed now, the GPU does them
+    // while we wait, and the frame's own work after the latch is only the scene.
+    if (renderer_.prepare()) ctx_->Flush();
     if (const uint64_t t = steady_ns(); wake > t + 300000 && wake - t < 20000000) {
         const uint64_t ms = (wake - t) / 1000000;
         if (frame_timer_ != nullptr && wake - t > 1000000) {
