@@ -1129,7 +1129,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
         for (i, w) in resolved.enumerated() {
             let panel = UInt(base + floatingCaptures.count)
-            let cap = ScreenCapture { [weak self] pb in self?.deliver(pb, panel: Int(panel)) }
+            let cap = ScreenCapture { [weak self] pb, dirty, source in self?.deliver(pb, dirty: dirty, source: source, panel: Int(panel)) }
             cap.panel = Int(panel)
             do {
                 // The window itself, not its part of its monitor: macOS drops other windows on a
@@ -1865,9 +1865,15 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
 
     // MARK: capture delivery
 
-    // Captured frames, from the capture queues.
-    private func deliver(_ pb: CVPixelBuffer, panel: Int) {
-        renderer?.setSourcePixelBuffer(pb, forPanel: UInt(panel))
+    // Captured frames, from the capture queues: only their changed areas are copied.
+    private func deliver(_ pb: CVPixelBuffer, dirty: [CGRect]?, source: UInt, panel: Int) {
+        guard let dirty else {
+            renderer?.setSourcePixelBuffer(pb, forPanel: UInt(panel))
+            return
+        }
+        dirty.withUnsafeBufferPointer {
+            renderer?.setSourcePixelBuffer(pb, forPanel: UInt(panel), source: source, dirtyRects: $0.baseAddress, count: UInt($0.count))
+        }
     }
 
     // MARK: zoom and code mode
@@ -2122,7 +2128,7 @@ final class SpatialServer: NSObject, CAMetalDisplayLinkDelegate {
         if liveCursor { startCursorImages() }
         for (id, panel, exclude) in plan {
             let isVirtual = virtualIDs.contains(id)
-            let cap = ScreenCapture { [weak self] pb in self?.deliver(pb, panel: panel) }
+            let cap = ScreenCapture { [weak self] pb, dirty, source in self?.deliver(pb, dirty: dirty, source: source, panel: panel) }
             cap.panel = panel
             captures.append(cap)
             let renderWindow = CGWindowID(window.windowNumber)

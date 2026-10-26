@@ -56,6 +56,7 @@ simd_float4x4 to_simd(const core::Mat4& m) {
 core::Quat from_simd(simd_quatf q) { return core::Quat{q.vector.w, q.vector.x, q.vector.y, q.vector.z}; }
 
 constexpr NSUInteger kMaxPanels = 8;
+constexpr NSUInteger kMaxRegions = 8;  // a frame's changed areas kept apart; more: their bounding box
 constexpr float kViewMarginRad = 0.30f;  // ~17 deg around the image: panels a quick turn away count as in view
 constexpr float kCinemaScale = 1.6f;  // cinema mode: the panel this much larger than a monitor
 constexpr double kGrowSeconds = 0.5;       // glasses' pinned mode: pan and zoom to another highlighted panel
@@ -67,6 +68,13 @@ struct Panel {
     CVMetalTextureRef texture = nullptr;  // guarded by _sourceLock
     float aspect = 16.0f / 9.0f;          // guarded by _sourceLock
     bool dirty = false;                   // guarded by _sourceLock: new frame not yet mipmapped
+    // Guarded by _sourceLock: what changed since the frame last copied (ScreenCaptureKit's dirty
+    // rects, every frame's since then), or all of it (`whole`: no rects, a new source or size).
+    bool whole = true;
+    MTLRegion regions[kMaxRegions];
+    NSUInteger regionCount = 0;
+    uintptr_t source = 0;
+    size_t width = 0, height = 0;
 
     // Render thread only. The capture is copied here once per new frame and mipmapped:
     // the panels are drawn at a fraction of the capture's size, and sampling the full-size
@@ -711,6 +719,42 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
 }
 
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pb forPanel:(NSUInteger)panel {
+    [self setSourcePixelBuffer:pb forPanel:panel source:0 dirtyRects:nullptr count:0];
+}
+
+// `r` grown to take in `b` (both non-empty).
+static MTLRegion bounding(MTLRegion r, MTLRegion b) {
+    const NSUInteger x0 = std::min(r.origin.x, b.origin.x), y0 = std::min(r.origin.y, b.origin.y);
+    const NSUInteger x1 = std::max(r.origin.x + r.size.width, b.origin.x + b.size.width);
+    const NSUInteger y1 = std::max(r.origin.y + r.size.height, b.origin.y + b.size.height);
+    return MTLRegionMake2D(x0, y0, x1 - x0, y1 - y0);
+}
+
+// The frame's changed areas added to what the panel's copy lacks. _sourceLock held.
+static void add_changes(Panel& p, const CGRect* rects, NSUInteger count, size_t w, size_t h) {
+    for (NSUInteger i = 0; i < count && !p.whole; ++i) {
+        // Pixels of the frame, top-left origin; fractional when scaled to fit: two pixels of
+        // margin for the scaling filter's reach.
+        const CGRect r = CGRectIntersection(CGRectInset(CGRectIntegral(rects[i]), -2, -2), CGRectMake(0, 0, w, h));
+        if (CGRectIsEmpty(r)) continue;
+        const MTLRegion g = MTLRegionMake2D(static_cast<NSUInteger>(r.origin.x), static_cast<NSUInteger>(r.origin.y),
+                                            static_cast<NSUInteger>(r.size.width), static_cast<NSUInteger>(r.size.height));
+        if (p.regionCount < kMaxRegions) {
+            p.regions[p.regionCount++] = g;
+        } else {
+            MTLRegion all = g;
+            for (NSUInteger k = 0; k < p.regionCount; ++k) all = bounding(all, p.regions[k]);
+            p.regions[0] = all;
+            p.regionCount = 1;
+        }
+    }
+}
+
+- (void)setSourcePixelBuffer:(CVPixelBufferRef)pb
+                    forPanel:(NSUInteger)panel
+                      source:(uintptr_t)source
+                  dirtyRects:(const CGRect*)rects
+                       count:(NSUInteger)count {
     if (panel >= kMaxPanels) return;
     const size_t w = CVPixelBufferGetWidth(pb);
     const size_t h = CVPixelBufferGetHeight(pb);
@@ -723,6 +767,12 @@ static core::TrackingAxes tracking_axes(RNRenderOptions* o) {
     Panel& p = _panels[panel];
     CVMetalTextureRef old = p.texture;
     p.texture = tex;
+    // Another stream or size: nothing of the copy carries over.
+    if (rects == nullptr || source == 0 || source != p.source || w != p.width || h != p.height) p.whole = true;
+    p.source = source;
+    p.width = w;
+    p.height = h;
+    add_changes(p, rects, count, w, h);
     p.dirty = true;
     const float aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 16.0f / 9.0f;
     // Out of view nothing on the glasses changes: a still head keeps skipping frames.
@@ -838,6 +888,9 @@ static float effective_curvature(RNRenderOptions* o) {
 // there is anything to copy). Each frame stays retained until the GPU is done with it.
 - (id<MTLCommandBuffer>)encodeUploadsInto:(id<MTLCommandBuffer>)cb {
     CVMetalTextureRef textures[kMaxPanels] = {};
+    bool whole[kMaxPanels] = {};
+    MTLRegion regions[kMaxPanels][kMaxRegions];
+    NSUInteger regionCount[kMaxPanels] = {};
     os_unfair_lock_lock(&_sourceLock);
     const NSUInteger count = _panelCount;
     const NSUInteger visible = _visibleMask.load(std::memory_order_relaxed);
@@ -845,7 +898,13 @@ static float effective_curvature(RNRenderOptions* o) {
         Panel& p = _panels[i];
         if (p.dirty && (visible & (NSUInteger{1} << i)) != 0) {
             p.dirty = false;
-            textures[i] = p.texture;
+            whole[i] = p.whole;
+            regionCount[i] = p.regionCount;
+            std::copy(p.regions, p.regions + p.regionCount, regions[i]);
+            p.whole = false;
+            p.regionCount = 0;
+            // A frame with nothing changed: the copy already holds it.
+            textures[i] = whole[i] || regionCount[i] > 0 ? p.texture : nullptr;
             if (textures[i] != nullptr) CFRetain(textures[i]);
         }
     }
@@ -873,9 +932,18 @@ static float effective_curvature(RNRenderOptions* o) {
                 md.usage = MTLTextureUsageShaderRead;
                 md.storageMode = MTLStorageModePrivate;
                 p.mipmapped = [_device newTextureWithDescriptor:md];
+                whole[i] = true;  // a new copy: all of it
             }
-            [blit copyFromTexture:src sourceSlice:0 sourceLevel:0 toTexture:p.mipmapped destinationSlice:0
-                 destinationLevel:0 sliceCount:1 levelCount:1];
+            if (whole[i]) {
+                [blit copyFromTexture:src sourceSlice:0 sourceLevel:0 toTexture:p.mipmapped destinationSlice:0
+                     destinationLevel:0 sliceCount:1 levelCount:1];
+            } else {  // only what changed since the last copy
+                for (NSUInteger k = 0; k < regionCount[i]; ++k) {
+                    const MTLRegion& r = regions[i][k];
+                    [blit copyFromTexture:src sourceSlice:0 sourceLevel:0 sourceOrigin:r.origin sourceSize:r.size
+                                toTexture:p.mipmapped destinationSlice:0 destinationLevel:0 destinationOrigin:r.origin];
+                }
+            }
         }
         // The chain at most ~30 times a second (typing changes level 0 at every key).
         if (now - p.lastMipsNs >= 33'000'000) {
@@ -1017,7 +1085,14 @@ static float effective_curvature(RNRenderOptions* o) {
     const NSUInteger ss = o.staticHead ? 1 : std::clamp<NSUInteger>(o.supersample, 1, 2);
     // The glasses in their 3D mode are a double-width display: the same image in both halves.
     const int halves = o.sideBySide ? 2 : 1;
-    [self ensureEyeTextures:target.pixelFormat width:target.width / halves * ss height:target.height * ss mipmapped:ss > 1];
+    // Nothing for the last pass to do (no supersample, distortion or second half): the scene
+    // straight into the drawable, without the eye texture's write and read of every pixel.
+    const bool direct = ss == 1 && halves == 1 && o.k1 == 0.0f && o.k2 == 0.0f;
+    if (direct) {
+        _eyeWidthPx.store(static_cast<float>(target.width), std::memory_order_relaxed);
+    } else {
+        [self ensureEyeTextures:target.pixelFormat width:target.width / halves * ss height:target.height * ss mipmapped:ss > 1];
+    }
 
     id<MTLCommandBuffer> cb = [_queue commandBuffer];
     [self encodeUploadsInto:cb];  // frames that arrived after prepareFrame
@@ -1073,7 +1148,7 @@ static float effective_curvature(RNRenderOptions* o) {
     }
     {  // one image, shown to both eyes alike (the glasses' 3D mode gets it in both halves)
         MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-        pass.colorAttachments[0].texture = _eyeTexture;
+        pass.colorAttachments[0].texture = direct ? target : _eyeTexture;
         pass.colorAttachments[0].loadAction = MTLLoadActionClear;
         pass.colorAttachments[0].storeAction = MTLStoreActionStore;
         pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);  // black = see-through
@@ -1146,24 +1221,26 @@ static float effective_curvature(RNRenderOptions* o) {
         [mips generateMipmapsForTexture:_eyeTexture];
         [mips endEncoding];
     }
-    MTLRenderPassDescriptor* out = [MTLRenderPassDescriptor renderPassDescriptor];
-    out.colorAttachments[0].texture = target;
-    out.colorAttachments[0].loadAction = MTLLoadActionClear;
-    out.colorAttachments[0].storeAction = MTLStoreActionStore;
-    out.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
-    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:out];
-    [enc setRenderPipelineState:_distortPipeline];
-    const DistortUniforms du{o.k1, o.k2, o.eyeAspect, box ? 1.0f : 0.0f};
-    const double half = static_cast<double>(target.width) / halves;
-    for (int h = 0; h < halves; ++h) {
-        const MTLViewport vp{half * h, 0.0, half, static_cast<double>(target.height), 0.0, 1.0};
-        [enc setViewport:vp];
-        [enc setFragmentTexture:_eyeTexture atIndex:0];
-        [enc setFragmentSamplerState:_sampler atIndex:0];
-        [enc setFragmentBytes:&du length:sizeof(du) atIndex:0];
-        [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    if (!direct) {
+        MTLRenderPassDescriptor* out = [MTLRenderPassDescriptor renderPassDescriptor];
+        out.colorAttachments[0].texture = target;
+        out.colorAttachments[0].loadAction = MTLLoadActionClear;
+        out.colorAttachments[0].storeAction = MTLStoreActionStore;
+        out.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+        id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:out];
+        [enc setRenderPipelineState:_distortPipeline];
+        const DistortUniforms du{o.k1, o.k2, o.eyeAspect, box ? 1.0f : 0.0f};
+        const double half = static_cast<double>(target.width) / halves;
+        for (int h = 0; h < halves; ++h) {
+            const MTLViewport vp{half * h, 0.0, half, static_cast<double>(target.height), 0.0, 1.0};
+            [enc setViewport:vp];
+            [enc setFragmentTexture:_eyeTexture atIndex:0];
+            [enc setFragmentSamplerState:_sampler atIndex:0];
+            [enc setFragmentBytes:&du length:sizeof(du) atIndex:0];
+            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        }
+        [enc endEncoding];
     }
-    [enc endEncoding];
 
     [cb presentDrawable:drawable];
     __weak RNSpatialRenderer* weakSelf = self;

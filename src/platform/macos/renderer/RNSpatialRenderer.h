@@ -72,6 +72,14 @@ NS_ASSUME_NONNULL_BEGIN
 // replaced. Panels without a frame are drawn as dark placeholders.
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer forPanel:(NSUInteger)panel;
 - (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer;  // panel 0
+// As above, copying only what changed: `rects` are the frame's changed areas since the
+// previous frame of the same `source` (ScreenCaptureKit's dirty rects: frame pixels, top-left
+// origin). NULL, source 0 or a source other than the last one: the whole frame.
+- (void)setSourcePixelBuffer:(CVPixelBufferRef)pixelBuffer
+                    forPanel:(NSUInteger)panel
+                      source:(uintptr_t)source
+                  dirtyRects:(const CGRect* _Nullable)rects
+                       count:(NSUInteger)count;
 
 
 // Grid cell of each panel (column, row; row 0 = top), in panel order. Empty or mismatched

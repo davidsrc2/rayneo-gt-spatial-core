@@ -828,7 +828,10 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
     // The glasses in their 3D mode are a double-width display: the same image in both halves.
     const int halves = options.side_by_side ? 2 : 1;
     const int eye_w = width / halves;
-    ensure_eye_textures(eye_w * ss, height * ss, ss > 1 && !box);
+    // Nothing for the last pass to do (no supersample, distortion or second half): the scene
+    // straight into the target, without the eye texture's write and read of every pixel.
+    const bool direct = ss == 1 && halves == 1 && options.k1 == 0.0f && options.k2 == 0.0f;
+    if (!direct) ensure_eye_textures(eye_w * ss, height * ss, ss > 1 && !box);
     const core::Mat4 proj = core::perspective_lh(options.fov_y_deg * kDegToRad, options.eye_aspect, 0.05f, 100.0f);
     const float black[4] = {0, 0, 0, 1};  // black = see-through
 
@@ -866,7 +869,7 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         ctx_->UpdateSubresource(background_cb_.Get(), 0, nullptr, &bu, 0, 0);
     }
     {  // one image, shown to both eyes alike
-        ID3D11RenderTargetView* rtv = eye_rtv_.Get();
+        ID3D11RenderTargetView* rtv = direct ? target : eye_rtv_.Get();
         ctx_->OMSetRenderTargets(1, &rtv, nullptr);
         ctx_->RSSetViewports(1, &eye_vp);
         ctx_->ClearRenderTargetView(rtv, black);
@@ -917,6 +920,12 @@ float SpatialRenderer::render(ID3D11RenderTargetView* target, int width, int hei
         }
     }
 
+    if (direct) {
+        ID3D11ShaderResourceView* none = nullptr;
+        ctx_->PSSetShaderResources(0, 1, &none);
+        ctx_->OMSetRenderTargets(0, nullptr, nullptr);
+        return horizon_s * 1e3f;
+    }
     if (ss > 1 && !box) {
         ctx_->OMSetRenderTargets(0, nullptr, nullptr);  // unbound before their mips are made
         ctx_->GenerateMips(eye_srv_.Get());

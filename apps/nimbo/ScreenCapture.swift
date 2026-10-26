@@ -9,7 +9,11 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var cropScale: CGFloat = 1
     private var windowScale: CGFloat = 2
     private let queue = DispatchQueue(label: "rayneo.capture", qos: .userInteractive)
-    private let onFrame: (CVPixelBuffer) -> Void
+    // The frame, its changed areas since this stream's previous frame (frame pixels, top-left
+    // origin; nil: all of it) and this capture's identity (the renderer copies only those areas).
+    private let onFrame: (CVPixelBuffer, [CGRect]?, UInt) -> Void
+    private lazy var source = UInt(bitPattern: ObjectIdentifier(self).hashValue)
+    private var wholeNext = true         // capture queue: the next frame whole (new filter or crop)
     private(set) var frames: UInt64 = 0
     var panel = -1                       // the panel it feeds (setInView), -1: none
     private var baseFps = 60             // the rate it was started at
@@ -18,7 +22,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var widthRange: ClosedRange<Int>?  // display captures: 1x points ... native pixels
     private var heightPerWidth: CGFloat = 0
 
-    init(onFrame: @escaping (CVPixelBuffer) -> Void) {
+    init(onFrame: @escaping (CVPixelBuffer, [CGRect]?, UInt) -> Void) {
         self.onFrame = onFrame
     }
 
@@ -126,6 +130,12 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         cfg.width = Int(crop.width * cropScale)
         cfg.height = Int(crop.height * cropScale)
         try? await stream.updateConfiguration(cfg)
+        takeWhole()  // moved at the same size: the dirty rects may not cover the shift
+    }
+
+    // The next frame copied whole (its dirty rects may not describe a change of source).
+    private func takeWhole() {
+        queue.async { self.wholeNext = true }
     }
 
     // A window capture's window was resized: frames at its new size.
@@ -134,6 +144,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         cfg.width = Int(size.width * windowScale)
         cfg.height = Int(size.height * windowScale)
         try? await stream.updateConfiguration(cfg)
+        takeWhole()
     }
 
     // A window capture moved to another window (its filter swapped, the stream kept).
@@ -145,6 +156,7 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         cfg.height = Int(window.frame.height * windowScale)
         try? await stream.updateContentFilter(SCContentFilter(desktopIndependentWindow: window))
         try? await stream.updateConfiguration(cfg)
+        takeWhole()
     }
 
     // A single window, wherever it is (covered by others too): a floating panel in space.
@@ -217,12 +229,17 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sb.isValid, let pb = sb.imageBuffer else { return }
         // Only complete frames carry new pixels; idle/blank frames reuse the last texture.
-        if let info = (CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]])?.first,
-           let raw = info[.status] as? Int, SCFrameStatus(rawValue: raw) != .complete {
+        let info = (CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]])?.first
+        if let raw = info?[.status] as? Int, SCFrameStatus(rawValue: raw) != .complete {
             return
         }
         frames &+= 1
-        onFrame(pb)
+        var dirty = (info?[.dirtyRects] as? [NSDictionary])?.compactMap { CGRect(dictionaryRepresentation: $0 as CFDictionary) }
+        if wholeNext {
+            wholeNext = false
+            dirty = nil
+        }
+        onFrame(pb, dirty, source)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
